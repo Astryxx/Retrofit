@@ -156,11 +156,12 @@ public final class Interactions {
     /** {item, damage} picked with the middle mouse button (getItem(world, x, y, z) and getDamageValue). */
     public static Object pickStack(Object legacyBlock, Object world, int x, int y, int z) {
         Block block = (Block) legacyBlock;
-        Item item = block.func_149694_d((World) world, x, y, z); // getItem
-        if (item == null) {
+        try {
+            Item item = block.func_149694_d((World) world, x, y, z); // getItem (client-only in 1.7.10)
+            return item == null ? null : new ItemStack(item, 1, block.func_149643_k((World) world, x, y, z)); // getDamageValue
+        } catch (NoSuchMethodError dedicatedServer) {
             return null;
         }
-        return new ItemStack(item, 1, block.func_149643_k((World) world, x, y, z)); // getDamageValue
     }
 
     // ---- Items (always the player's current item) ----

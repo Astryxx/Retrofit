@@ -91,3 +91,22 @@ tasks.register('runServerSide', JavaExec) {
         '--game-dir', serverGameDir.absolutePath
     ]
 }
+
+// The dedicated server's view of the same classes (client-only members stripped), for checking
+// that server-side bridge code never calls client-only 1.7.10 methods (tools/check_server_side.py).
+tasks.register('dumpServerSrgJar', JavaExec) {
+    dependsOn ':legacy-boot:jar', ':legacy-bridge:jar'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'retrofit.harness.HarnessMain'
+    def dumpGameDir = rootProject.file('run/legacy-dump-server')
+    workingDir = dumpGameDir
+    doFirst { dumpGameDir.mkdirs() }
+    args = [
+        '--server',
+        '--minecraft-home', new File(dumpGameDir, 'no-launcher').absolutePath,
+        '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--bridge-jar', project(':legacy-bridge').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--game-dir', dumpGameDir.absolutePath,
+        '--dump-srg', rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg-server.jar').absolutePath
+    ]
+}

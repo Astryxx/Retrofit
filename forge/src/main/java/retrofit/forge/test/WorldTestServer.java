@@ -49,6 +49,7 @@ public final class WorldTestServer {
     private static final int VERDICT_TICK = 200;
 
     private static int serverTicks;
+    private static int joinedTick = -1;
     private static BlockPos pos;
     private static int ticksFromSave = -1;
 
@@ -68,18 +69,26 @@ public final class WorldTestServer {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         ServerLevel level = server.overworld();
         serverTicks++;
+        // Player steps count from the first player's arrival (on a dedicated server that is well after start).
+        if (pos != null && serverTicks > START_TICK && !server.getPlayerList().getPlayers().isEmpty()) {
+            ServerPlayer player = server.getPlayerList().getPlayers().get(0);
+            if (joinedTick < 0) {
+                joinedTick = serverTicks;
+            }
+            int sinceJoin = serverTicks - joinedTick;
+            if (sinceJoin == 10) {
+                InteractionTest.run(player, pos);
+                prepare(player);
+            } else if (sinceJoin == 220) {
+                InteractionTest.openGui(player, pos);
+            }
+        }
         if (serverTicks == START_TICK) {
             start(level);
             if (pos != null) {
                 placeShowcase(level);
             }
             server.getPlayerList().getPlayers().forEach(WorldTestServer::prepare);
-        } else if (serverTicks == START_TICK + 10 && pos != null && !server.getPlayerList().getPlayers().isEmpty()) {
-            ServerPlayer player = server.getPlayerList().getPlayers().get(0);
-            InteractionTest.run(player, pos);
-            prepare(player);
-        } else if (serverTicks == VERDICT_TICK + 20 && pos != null && !server.getPlayerList().getPlayers().isEmpty()) {
-            InteractionTest.openGui(server.getPlayerList().getPlayers().get(0), pos);
         } else if (pos != null && serverTicks % 40 == 0 && serverTicks <= VERDICT_TICK) {
             report(level, serverTicks == VERDICT_TICK);
         }

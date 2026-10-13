@@ -68,7 +68,7 @@ public final class SrgJarDumper {
         try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(output))) {
             for (URL source : lcl.getSources()) {
                 String fileName = new File(source.toURI()).getName();
-                if (!fileName.equals("1.7.10.jar") && !fileName.startsWith("forge-")) {
+                if (!fileName.equals("1.7.10.jar") && !fileName.equals("minecraft_server.1.7.10.jar") && !fileName.startsWith("forge-")) {
                     continue;
                 }
                 try (ZipFile jar = new ZipFile(new File(source.toURI()))) {

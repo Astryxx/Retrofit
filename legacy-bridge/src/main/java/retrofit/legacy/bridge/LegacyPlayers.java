@@ -179,10 +179,17 @@ public final class LegacyPlayers {
         return new Object[]{changed, stacks.toArray()};
     }
 
-    /** {using an item 1/0, use count left}. */
-    public static int[] useState(Object legacyPlayer) {
+    private static Field itemInUseCount;
+
+    /** {using an item 1/0, use count left}. getItemInUseCount is client-only in 1.7.10, so the field is read. */
+    public static int[] useState(Object legacyPlayer) throws ReflectiveOperationException {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
-        return new int[]{player.func_71039_bw() ? 1 : 0, player.func_71052_bv()}; // isUsingItem, getItemInUseCount
+        if (itemInUseCount == null) {
+            Field field = EntityPlayer.class.getDeclaredField("field_71072_f"); // itemInUseCount
+            field.setAccessible(true);
+            itemInUseCount = field;
+        }
+        return new int[]{player.func_71039_bw() ? 1 : 0, itemInUseCount.getInt(player)}; // isUsingItem
     }
 
     /** Client only: Minecraft.thePlayer and theWorld become this mirror and its world. */
