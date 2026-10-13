@@ -140,6 +140,15 @@ public final class LegacyBlockTable {
         return block != null ? block : legacyBlocks[0];
     }
 
+    /** The 1.20.1 state for any legacy block (a mod block or a vanilla one), or null. */
+    public static BlockState modernState(Object legacyBlock, int meta) {
+        LegacyBlock modBlock = LegacyContent.byLegacy(legacyBlock);
+        if (modBlock != null) {
+            return modBlock.defaultBlockState().setValue(LegacyContent.META, meta & 15);
+        }
+        return get().modernOf(legacyBlock, meta);
+    }
+
     /** The modern state for a vanilla legacy block, or null if it isn't vanilla. */
     public BlockState modernOf(Object legacyBlock, int meta) {
         Integer legacyId = legacyIds.get(legacyBlock);

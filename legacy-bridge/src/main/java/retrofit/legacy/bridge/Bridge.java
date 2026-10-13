@@ -42,7 +42,7 @@ public final class Bridge {
     }
 
     public static Object createWorld(HostWorld host, int dimension) {
-        return new BridgeWorld(host, dimension);
+        return LegacyWorlds.create(host, dimension);
     }
 
     /** Registry names of all blocks added by legacy mods ("modid:name"). */
@@ -253,6 +253,60 @@ public final class Bridge {
     /** Client only; see {@link LegacyIcons#itemSubtypes}. */
     public static int[] itemSubtypes(Object legacyItem) {
         return LegacyIcons.itemSubtypes(legacyItem);
+    }
+
+    // ---- Item stacks ----
+
+    /** A legacy ItemStack of a registered item ("modid:name"), or null if no such item exists. */
+    public static Object makeStack(String name, int count, int damage, byte[] tag) throws IOException {
+        Object item = Item.field_150901_e.func_82594_a(name); // itemRegistry.getObject
+        return item instanceof Item ? makeStackOf(item, count, damage, tag) : null;
+    }
+
+    public static Object makeStackOf(Object legacyItem, int count, int damage, byte[] tag) throws IOException {
+        ItemStack stack = new ItemStack((Item) legacyItem, count, damage);
+        if (tag != null) {
+            stack.func_77982_d(fromBytes(tag)); // setTagCompound
+        }
+        return stack;
+    }
+
+    /** {registry name, count, damage, tag bytes or null} of a legacy stack; null for none. */
+    public static Object[] readStack(Object legacyStack) throws IOException {
+        if (!(legacyStack instanceof ItemStack)) {
+            return null;
+        }
+        ItemStack stack = (ItemStack) legacyStack;
+        Item item = stack.func_77973_b(); // getItem
+        if (item == null || stack.field_77994_a <= 0) { // stackSize
+            return null;
+        }
+        NBTTagCompound tag = stack.func_77978_p(); // getTagCompound
+        return new Object[]{Item.field_150901_e.func_148750_c(item), stack.field_77994_a, stack.func_77960_j(), // getNameForObject, getItemDamage
+                tag == null ? null : toBytes(tag)};
+    }
+
+    /** getItemById; null for unused ids. */
+    public static Object itemById(int id) {
+        return Item.func_150899_d(id);
+    }
+
+    /** The Item of a legacy stack (identity), or null. */
+    public static Object stackItem(Object legacyStack) {
+        return legacyStack instanceof ItemStack ? ((ItemStack) legacyStack).func_77973_b() : null;
+    }
+
+    /** Vanilla item names with {has subtypes 1/0, max damage}, for mapping 1.20.1 items back. */
+    public static Object[][] vanillaItems() {
+        List<Object[]> items = new ArrayList<Object[]>();
+        for (Object key : Item.field_150901_e.func_148742_b()) { // itemRegistry.getKeys()
+            String name = String.valueOf(key);
+            Object item = Item.field_150901_e.func_82594_a(name);
+            if (name.startsWith("minecraft:") && item instanceof Item) {
+                items.add(new Object[]{name, ((Item) item).func_77614_k() ? 1 : 0, ((Item) item).func_77612_l()});
+            }
+        }
+        return items.toArray(new Object[0][]);
     }
 
     // ---- Translations ----

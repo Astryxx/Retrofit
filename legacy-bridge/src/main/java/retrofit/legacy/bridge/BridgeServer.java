@@ -1,0 +1,83 @@
+package retrofit.legacy.bridge;
+
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.EnumDifficulty;
+import net.minecraft.world.WorldSettings;
+
+import java.io.File;
+import java.net.Proxy;
+
+/**
+ * The legacy MinecraftServer (MinecraftServer.getServer()): a real one, so mods find a server, its
+ * player list, its worlds and its commands. It never runs its own loop, network or saving; the
+ * host server does all of that. Create it through {@link LegacyWorlds}, which first moves the
+ * files it touches (user cache, ops, bans, whitelist) into the Retrofit folder.
+ */
+public final class BridgeServer extends MinecraftServer {
+    private final boolean dedicated;
+
+    public BridgeServer(File directory, boolean dedicated) {
+        super(directory, Proxy.NO_PROXY);
+        this.dedicated = dedicated;
+        func_152361_a(new BridgePlayerList(this, directory)); // setConfigurationManager
+    }
+
+    /** startServer: never started; the host runs the server. */
+    @Override
+    protected boolean func_71197_b() {
+        return true;
+    }
+
+    /** canStructuresSpawn */
+    @Override
+    public boolean func_71225_e() {
+        return true;
+    }
+
+    /** getGameType */
+    @Override
+    public WorldSettings.GameType func_71265_f() {
+        return WorldSettings.GameType.SURVIVAL;
+    }
+
+    /** getDifficulty */
+    @Override
+    public EnumDifficulty func_147135_j() {
+        return EnumDifficulty.NORMAL;
+    }
+
+    /** isHardcore */
+    @Override
+    public boolean func_71199_h() {
+        return false;
+    }
+
+    /** getOpPermissionLevel */
+    @Override
+    public int func_110455_j() {
+        return 4;
+    }
+
+    @Override
+    public boolean func_152363_m() {
+        return false;
+    }
+
+    /** isDedicatedServer */
+    @Override
+    public boolean func_71262_S() {
+        return dedicated;
+    }
+
+    /** isCommandBlockEnabled */
+    @Override
+    public boolean func_82356_Z() {
+        return false;
+    }
+
+    /** shareToLAN: the host does that. */
+    @Override
+    public String func_71206_a(WorldSettings.GameType type, boolean cheats) {
+        return null;
+    }
+}

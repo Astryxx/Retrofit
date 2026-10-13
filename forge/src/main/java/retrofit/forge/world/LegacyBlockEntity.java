@@ -66,6 +66,28 @@ public class LegacyBlockEntity extends BlockEntity {
         return legacyTile;
     }
 
+    /** Legacy code placed its own tile entity here (World.setTileEntity): host that one instead. */
+    void adopt(Object tile) {
+        if (tile == legacyTile) {
+            return;
+        }
+        if (legacyTile != null) {
+            LegacyBridge.remove(legacyTile);
+        }
+        legacyTile = tile;
+        pendingNbt = null;
+        broken = false;
+    }
+
+    /** Legacy code removed the tile entity (World.removeTileEntity); a fresh one is made if the block stays. */
+    void discardLegacy() {
+        if (legacyTile != null) {
+            LegacyBridge.remove(legacyTile);
+            legacyTile = null;
+        }
+        pendingNbt = null;
+    }
+
     void tick() {
         if (broken) {
             return;

@@ -118,6 +118,35 @@ public final class LegacyBridge {
         return call("itemTranslationKey", legacyItem, meta);
     }
 
+    // ---- Item stacks ----
+
+    /** A legacy stack of a registered legacy item name, or null if the item doesn't exist. */
+    public static Object makeStack(String name, int count, int damage, byte[] tag) {
+        return call("makeStack", name, count, damage, tag);
+    }
+
+    public static Object makeStackOf(Object legacyItem, int count, int damage, byte[] tag) {
+        return call("makeStackOf", legacyItem, count, damage, tag);
+    }
+
+    /** {name, count, damage, tag bytes or null}; null for an empty or missing stack. */
+    public static Object[] readStack(Object legacyStack) {
+        return call("readStack", legacyStack);
+    }
+
+    public static Object itemById(int id) {
+        return call("itemById", id);
+    }
+
+    public static Object stackItem(Object legacyStack) {
+        return call("stackItem", legacyStack);
+    }
+
+    /** {name, has subtypes 1/0, max damage} of each vanilla legacy item. */
+    public static Object[][] vanillaItems() {
+        return call("vanillaItems");
+    }
+
     // ---- Client-only assets ----
 
     public static String[] modSources() {

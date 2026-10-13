@@ -24,6 +24,36 @@ public final class SrgJarDumper {
     private SrgJarDumper() {
     }
 
+    /**
+     * Obfuscation stripped nested-class metadata (InnerClasses), and what is left marks classes
+     * like WorldSettings.GameType package-private. They are public at runtime; rebuild the metadata
+     * so code compiled against this jar can name them: every nested class gets a public entry in
+     * its outer class and in itself. Only affects the compile jar.
+     */
+    private static byte[] fixInnerClasses(byte[] bytes, java.util.Map<String, Integer> nestedAccess) {
+        org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
+        new org.objectweb.asm.ClassReader(bytes).accept(node, 0);
+        node.innerClasses.clear();
+        String own = node.name;
+        for (java.util.Map.Entry<String, Integer> nested : nestedAccess.entrySet()) {
+            String name = nested.getKey();
+            int dollar = name.lastIndexOf('$');
+            String outer = name.substring(0, dollar);
+            if (outer.equals(own) || name.equals(own)) {
+                int access = (nested.getValue() & (org.objectweb.asm.Opcodes.ACC_INTERFACE | org.objectweb.asm.Opcodes.ACC_ABSTRACT
+                        | org.objectweb.asm.Opcodes.ACC_ENUM | org.objectweb.asm.Opcodes.ACC_FINAL | org.objectweb.asm.Opcodes.ACC_ANNOTATION))
+                        | org.objectweb.asm.Opcodes.ACC_PUBLIC | org.objectweb.asm.Opcodes.ACC_STATIC;
+                String simple = name.substring(dollar + 1);
+                boolean anonymous = !simple.isEmpty() && Character.isDigit(simple.charAt(0));
+                node.innerClasses.add(new org.objectweb.asm.tree.InnerClassNode(name, anonymous ? null : outer,
+                        anonymous ? null : simple, access));
+            }
+        }
+        org.objectweb.asm.ClassWriter writer = new org.objectweb.asm.ClassWriter(0);
+        node.accept(writer);
+        return writer.toByteArray();
+    }
+
     public static void dump(File output) throws Exception {
         LaunchClassLoader lcl = Launch.classLoader;
         Method transformName = LaunchClassLoader.class.getDeclaredMethod("transformName", String.class);
@@ -33,6 +63,7 @@ public final class SrgJarDumper {
 
         int written = 0;
         int failed = 0;
+        java.util.Map<String, byte[]> classes = new java.util.LinkedHashMap<String, byte[]>();
         output.getParentFile().mkdirs();
         try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(output))) {
             for (URL source : lcl.getSources()) {
@@ -54,15 +85,24 @@ public final class SrgJarDumper {
                             if (bytes == null) {
                                 continue;
                             }
-                            out.putNextEntry(new ZipEntry(deobfName.replace('.', '/') + ".class"));
-                            out.write(bytes);
-                            out.closeEntry();
-                            written++;
+                            classes.put(deobfName.replace('.', '/'), bytes);
                         } catch (Exception e) {
                             failed++;
                         }
                     }
                 }
+            }
+            java.util.Map<String, Integer> nestedAccess = new java.util.HashMap<String, Integer>();
+            for (java.util.Map.Entry<String, byte[]> entry : classes.entrySet()) {
+                if (entry.getKey().contains("$")) {
+                    nestedAccess.put(entry.getKey(), new org.objectweb.asm.ClassReader(entry.getValue()).getAccess());
+                }
+            }
+            for (java.util.Map.Entry<String, byte[]> entry : classes.entrySet()) {
+                out.putNextEntry(new ZipEntry(entry.getKey() + ".class"));
+                out.write(fixInnerClasses(entry.getValue(), nestedAccess));
+                out.closeEntry();
+                written++;
             }
         }
         System.out.println("[Retrofit] Wrote " + written + " deobfuscated legacy classes to " + output

@@ -1,0 +1,80 @@
+package retrofit.legacy.bridge;
+
+import net.minecraft.client.network.NetHandlerPlayClient;
+import net.minecraft.launchwrapper.Launch;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.management.ServerConfigurationManager;
+import net.minecraft.world.World;
+import net.minecraft.world.WorldSettings;
+import net.minecraft.world.WorldType;
+import net.minecraft.world.storage.MapStorage;
+import retrofit.api.HostWorld;
+import retrofit.legacy.compat.FinalFields;
+
+import java.io.File;
+import java.lang.reflect.Field;
+
+/** Creates the legacy server and the legacy world for each host level. */
+public final class LegacyWorlds {
+    private static BridgeServer server;
+
+    private LegacyWorlds() {
+    }
+
+    /** A server world (WorldServer) for server levels, a client world (WorldClient) for client levels. */
+    static World create(HostWorld host, int dimension) {
+        return host.isClientSide() ? ClientWorlds.create(host, dimension) : new BridgeWorldServer(host, dimension);
+    }
+
+    static WorldSettings survivalSettings() {
+        return new WorldSettings(0L, WorldSettings.GameType.SURVIVAL, false, false, WorldType.field_77137_b); // DEFAULT
+    }
+
+    /** The legacy server, created on first use unless the dedicated-server boot already made one. */
+    public static synchronized BridgeServer server() {
+        if (server == null) {
+            MinecraftServer existing = MinecraftServer.func_71276_C(); // getServer
+            server = existing instanceof BridgeServer ? (BridgeServer) existing : create(Launch.minecraftHome, false);
+        }
+        return server;
+    }
+
+    /**
+     * Creates the legacy server. 1.7.10 keeps its user cache, ops, bans and whitelist in the working
+     * directory, which is the 1.20.1 game folder, under the same names 1.20.1 uses; they are moved
+     * into the Retrofit folder first so the host files are never touched.
+     */
+    public static synchronized BridgeServer create(File directory, boolean dedicated) {
+        try {
+            redirect(MinecraftServer.class, "field_152367_a", new File(directory, "usercache.json"));
+            redirect(ServerConfigurationManager.class, "field_152613_a", new File(directory, "banned-players.json"));
+            redirect(ServerConfigurationManager.class, "field_152614_b", new File(directory, "banned-ips.json"));
+            redirect(ServerConfigurationManager.class, "field_152615_c", new File(directory, "ops.json"));
+            redirect(ServerConfigurationManager.class, "field_152616_d", new File(directory, "whitelist.json"));
+        } catch (Exception e) {
+            throw new IllegalStateException("Retrofit could not move the files of the legacy server", e);
+        }
+        server = new BridgeServer(directory, dedicated);
+        return server;
+    }
+
+    private static void redirect(Class<?> owner, String field, File file) throws Exception {
+        FinalFields.set(owner.getDeclaredField(field), null, file);
+    }
+
+    /** WorldClient needs a client network handler for its map storage; legacy code never sends through it. */
+    static NetHandlerPlayClient clientNetHandler() {
+        try {
+            Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+            Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
+            theUnsafe.setAccessible(true);
+            Object unsafe = theUnsafe.get(null);
+            NetHandlerPlayClient handler = (NetHandlerPlayClient) unsafeClass.getMethod("allocateInstance", Class.class)
+                    .invoke(unsafe, NetHandlerPlayClient.class);
+            handler.field_147305_a = new MapStorage(null); // mapStorageOrigin
+            return handler;
+        } catch (Exception e) {
+            throw new IllegalStateException("Retrofit could not create a legacy client network handler", e);
+        }
+    }
+}
