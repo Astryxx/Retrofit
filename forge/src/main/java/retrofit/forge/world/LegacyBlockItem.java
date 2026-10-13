@@ -1,6 +1,12 @@
 package retrofit.forge.world;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
@@ -71,5 +77,25 @@ public class LegacyBlockItem extends BlockItem implements LegacyStackItem {
     @Override
     public void initializeClient(Consumer<IClientItemExtensions> consumer) {
         consumer.accept(LegacyItem.CLIENT_EXTENSIONS.get());
+    }
+
+    /**
+     * Placing goes through the legacy item's own onItemUse (ItemBlock or the mod's subclass), so
+     * the block gets its metadata, orientation and tile entity data the way the mod sets them up.
+     */
+    @Override
+    public InteractionResult useOn(UseOnContext context) {
+        return legacyItem == null ? super.useOn(context) : LegacyItemUse.useOn(context);
+    }
+
+    @Override
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        return legacyItem == null ? super.use(level, player, hand) : LegacyItemUse.use(level, player, hand);
+    }
+
+    /** Legacy fuel values (the legacy furnace rules and mods' fuel handlers). */
+    @Override
+    public int getBurnTime(ItemStack stack, @javax.annotation.Nullable net.minecraft.world.item.crafting.RecipeType<?> type) {
+        return LegacyRecipes.burnTime(stack);
     }
 }

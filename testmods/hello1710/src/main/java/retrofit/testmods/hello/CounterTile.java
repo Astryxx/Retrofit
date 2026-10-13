@@ -23,6 +23,10 @@ public class CounterTile extends TileEntity {
     private int clientTicks = -1;
     private String seenBelow = "?";
 
+    int ticks() {
+        return ticks;
+    }
+
     /** updateEntity */
     @Override
     public void func_145845_h() {

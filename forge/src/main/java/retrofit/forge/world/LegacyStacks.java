@@ -164,7 +164,9 @@ public final class LegacyStacks {
                     for (Object[] item : LegacyBridge.vanillaItems()) {
                         String name = (String) item[0];
                         boolean hasSubtypes = (Integer) item[1] != 0;
-                        for (int meta = 0; meta < (hasSubtypes ? 16 : 1); meta++) {
+                        // Spawn eggs keep the entity in their damage; 1.20.1 has an item per entity, mapped by its fixer from tags.
+                        int metas = hasSubtypes && !name.equals("minecraft:spawn_egg") ? 16 : 1;
+                        for (int meta = 0; meta < metas; meta++) {
                             ItemStack modern = vanilla(name, 1, meta, null);
                             if (!modern.isEmpty()) {
                                 built.putIfAbsent(modern.getItem(), new Object[]{name, meta});

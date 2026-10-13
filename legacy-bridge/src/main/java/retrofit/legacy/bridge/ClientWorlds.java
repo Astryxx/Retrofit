@@ -1,5 +1,6 @@
 package retrofit.legacy.bridge;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.world.World;
 import retrofit.api.HostWorld;
 
@@ -12,6 +13,13 @@ final class ClientWorlds {
     }
 
     static World create(HostWorld host, int dimension) {
-        return new BridgeWorldClient(host, dimension);
+        BridgeWorldClient world = new BridgeWorldClient(host, dimension);
+        Minecraft minecraft = Minecraft.func_71410_x(); // getMinecraft
+        synchronized (ClientWorlds.class) {
+            if (minecraft.field_71452_i == null) { // effectRenderer
+                minecraft.field_71452_i = new BridgeEffectRenderer(world);
+            }
+        }
+        return world;
     }
 }

@@ -68,6 +68,11 @@ public final class LegacyContent {
         return WORLDS.computeIfAbsent(level, l -> LegacyBridge.createWorld(new LevelHostWorld(l), legacyDimension(l)));
     }
 
+    /** Whether legacy code has used this level yet (without creating its legacy world). */
+    public static synchronized boolean hasLegacyWorld(Level level) {
+        return WORLDS.containsKey(level);
+    }
+
     private static int legacyDimension(Level level) {
         if (level.dimension() == Level.NETHER) {
             return -1;
@@ -90,7 +95,7 @@ public final class LegacyContent {
             for (String name : LegacyBridge.modBlockNames()) {
                 Object legacyBlock = LegacyBridge.block(name);
                 LegacyBlock block = new LegacyBlock(legacyBlock, LegacyBridge.hasTileEntity(legacyBlock, 0),
-                        LegacyBridge.blockRenderInfo(legacyBlock));
+                        LegacyBridge.blockRenderInfo(legacyBlock), LegacyBridge.call("blockInfo", legacyBlock));
                 helper.register(toResourceLocation(name), block);
                 BLOCKS.add(block);
                 LEGACY_NAMES.put(block, name);
@@ -111,6 +116,8 @@ public final class LegacyContent {
             }
             LOGGER.info("Registered {} legacy items", ITEMS.size());
         });
+        event.register(Registries.RECIPE_SERIALIZER, helper ->
+                helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_crafting"), LegacyRecipes.CRAFTING));
         event.register(Registries.BLOCK_ENTITY_TYPE, helper -> {
             LegacyBlock[] withTiles = BLOCKS.stream().filter(LegacyBlock::hasTileEntity).toArray(LegacyBlock[]::new);
             blockEntityType = BlockEntityType.Builder.of(LegacyBlockEntity::new, withTiles).build(null);

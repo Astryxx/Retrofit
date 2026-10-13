@@ -16,6 +16,11 @@ import java.util.Map;
  * method handles; everything else goes through {@link #call}.
  */
 public final class LegacyBridge {
+    /** Classes of the legacy bridge whose public static methods the host calls by name. */
+    private static final String[] ENTRY_CLASSES = {
+            "retrofit.legacy.bridge.Bridge", "retrofit.legacy.bridge.Interactions", "retrofit.legacy.bridge.LegacyPlayers",
+            "retrofit.legacy.bridge.Recipes",
+    };
     private static final Map<String, MethodHandle> HANDLES = new HashMap<>();
     private static MethodHandle tick;
     private static MethodHandle canUpdate;
@@ -32,9 +37,13 @@ public final class LegacyBridge {
         }
         Class<?> bridge = Class.forName("retrofit.legacy.bridge.Bridge", true, runtime.gameLoader());
         MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-        for (Method method : bridge.getMethods()) {
-            if (method.getDeclaringClass() == bridge) {
-                HANDLES.put(method.getName(), lookup.unreflect(method));
+        for (String name : ENTRY_CLASSES) {
+            Class<?> entry = Class.forName(name, true, runtime.gameLoader());
+            for (Method method : entry.getMethods()) {
+                if (method.getDeclaringClass() == entry && java.lang.reflect.Modifier.isStatic(method.getModifiers())
+                        && HANDLES.put(method.getName(), lookup.unreflect(method)) != null) {
+                    throw new IllegalStateException("Two legacy bridge entry points are called " + method.getName());
+                }
             }
         }
         tick = lookup.findStatic(bridge, "tick", MethodType.methodType(void.class, Object.class));
@@ -45,8 +54,9 @@ public final class LegacyBridge {
         lock = bridge.getField("LOCK").get(null);
     }
 
+    /** Calls a legacy bridge entry point by name; legacy exceptions come out as IllegalStateException. */
     @SuppressWarnings("unchecked")
-    private static <T> T call(String name, Object... args) {
+    static <T> T call(String name, Object... args) {
         MethodHandle handle = HANDLES.get(name);
         if (handle == null) {
             throw new IllegalStateException("Retrofit's legacy bridge has no " + name + " (not booted?)");

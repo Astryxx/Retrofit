@@ -74,6 +74,10 @@ public final class WorldTestServer {
                 placeShowcase(level);
             }
             server.getPlayerList().getPlayers().forEach(WorldTestServer::prepare);
+        } else if (serverTicks == START_TICK + 10 && pos != null && !server.getPlayerList().getPlayers().isEmpty()) {
+            ServerPlayer player = server.getPlayerList().getPlayers().get(0);
+            InteractionTest.run(player, pos);
+            prepare(player);
         } else if (pos != null && serverTicks % 40 == 0 && serverTicks <= VERDICT_TICK) {
             report(level, serverTicks == VERDICT_TICK);
         }
