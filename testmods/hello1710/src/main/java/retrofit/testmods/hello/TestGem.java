@@ -11,6 +11,7 @@ import java.util.List;
 /** A 1.7.10 item with subtypes (damage values), each with its own texture and name. */
 public class TestGem extends Item {
     private static final String[] VARIANTS = {"ruby", "sapphire"};
+    private static final String[] TEXTURES = {"emerald", "diamond"};
     private IIcon[] icons;
 
     public TestGem() {
@@ -28,7 +29,7 @@ public class TestGem extends Item {
     public void func_94581_a(IIconRegister register) {
         icons = new IIcon[VARIANTS.length];
         for (int i = 0; i < VARIANTS.length; i++) {
-            icons[i] = register.func_94245_a("hello1710:gem_" + VARIANTS[i]);
+            icons[i] = register.func_94245_a(TEXTURES[i]); // vanilla 1.7.10 item textures
         }
     }
 

@@ -29,7 +29,8 @@ import retrofit.forge.world.LegacyItem;
 public final class WorldTestClient {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int CHECK_TICK = 160;
-    private static final int QUIT_TICK = 200;
+    /** After the server half's verdict (server tick 200), which in singleplayer shares this game. */
+    private static final int QUIT_TICK = 300;
 
     /** Give up if no world is reached (e.g. disconnected), instead of hanging. */
     private static final int GIVE_UP_TICK = 2400;

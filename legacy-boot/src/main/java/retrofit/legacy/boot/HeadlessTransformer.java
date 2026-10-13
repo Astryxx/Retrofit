@@ -22,12 +22,14 @@ import java.util.Map;
 public class HeadlessTransformer implements IClassTransformer {
     /** Marker for "replace the body with an empty return". */
     private static final String NO_HOOK = "";
+    /** Hook name prefix: pass {@code this} instead of the first argument. */
+    private static final String SELF = "this:";
 
     /** class -> (method name + descriptor -> Hooks method taking the first argument, or NO_HOOK). */
     private static final Map<String, Map<String, String>> STUBS = new HashMap<String, Map<String, String>>();
 
     static {
-        stub("net.minecraft.client.Minecraft", "func_110436_a()V", NO_HOOK); // refreshResources
+        stub("net.minecraft.client.Minecraft", "func_110436_a()V", SELF + "refreshResources"); // refreshResources
         stub("net.minecraft.client.Minecraft", "func_71377_b(Lnet/minecraft/crash/CrashReport;)V", "crash"); // displayCrashReport
         stub("net.minecraft.client.settings.GameSettings", "func_74300_a()V", NO_HOOK); // loadOptions
         stub("cpw.mods.fml.client.FMLClientHandler", "processWindowMessages()V", NO_HOOK); // pumps LWJGL Display
@@ -67,8 +69,10 @@ public class HeadlessTransformer implements IClassTransformer {
     private static void replaceBody(MethodNode method, String hook) {
         InsnList body = new InsnList();
         if (!hook.equals(NO_HOOK)) {
-            body.add(new VarInsnNode(Opcodes.ALOAD, 1));
-            body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "retrofit/legacy/boot/Hooks", hook, "(Ljava/lang/Object;)V", false));
+            boolean self = hook.startsWith(SELF);
+            body.add(new VarInsnNode(Opcodes.ALOAD, self ? 0 : 1));
+            String name = self ? hook.substring(SELF.length()) : hook;
+            body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "retrofit/legacy/boot/Hooks", name, "(Ljava/lang/Object;)V", false));
         }
         body.add(new InsnNode(Opcodes.RETURN));
         method.instructions = body;

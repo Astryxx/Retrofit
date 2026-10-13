@@ -94,6 +94,10 @@ tasks.matching { it.name == 'runClient' }.configureEach {
             from project(':testmods:hello1710').tasks.jar.archiveFile
             into file('run/retrofit/mods')
         }
+        copy {
+            from rootProject.fileTree('corpus') { include '*.jar' } // real 1.7.10 mods under test (not in git)
+            into file('run/retrofit/mods')
+        }
     }
 }
 
@@ -104,6 +108,10 @@ tasks.matching { it.name == 'runServer' }.configureEach {
         def serverDir = file('run-server')
         copy {
             from project(':testmods:hello1710').tasks.jar.archiveFile
+            into new File(serverDir, 'retrofit/mods')
+        }
+        copy {
+            from rootProject.fileTree('corpus') { include '*.jar' } // real 1.7.10 mods under test (not in git)
             into new File(serverDir, 'retrofit/mods')
         }
         // Local development server only: accepts Mojang's EULA (https://aka.ms/MinecraftEULA) for it.

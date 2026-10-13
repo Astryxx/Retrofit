@@ -11,7 +11,7 @@ public class CounterBlock extends BlockContainer {
     public CounterBlock() {
         super(Material.field_151576_e); // Material.rock
         func_149663_c("counter_block"); // setBlockName
-        func_149658_d("hello1710:counter_block"); // setBlockTextureName
+        func_149658_d("redstone_lamp_on"); // setBlockTextureName: a vanilla 1.7.10 texture
         func_149647_a(CreativeTabs.field_78030_b); // setCreativeTab(tabBlock)
     }
 
