@@ -3,6 +3,10 @@ package retrofit.forge.test;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.screens.ConnectScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -35,8 +39,15 @@ public final class WorldTestClient {
     /** Give up if no world is reached (e.g. disconnected), instead of hanging. */
     private static final int GIVE_UP_TICK = 2400;
 
+    /** -Dretrofit.testServer=host:port: connect from the title screen like a player (instead of quick play). */
+    private static final String SERVER = System.getProperty("retrofit.testServer");
+    /** Title-screen ticks to wait before connecting, so the game has fully settled. */
+    private static final int CONNECT_TICK = 100;
+
     private static int ticksInWorld;
     private static int ticksTotal;
+    private static int ticksOnTitle;
+    private static boolean connecting;
 
     private WorldTestClient() {
     }
@@ -49,7 +60,21 @@ public final class WorldTestClient {
         }
         if (++ticksTotal == GIVE_UP_TICK && ticksInWorld < CHECK_TICK) {
             LOGGER.error("[WorldTest] Client FAILED: never got into a world; quitting");
+            // Diagnose stalls (e.g. a login that never completes): where is every thread?
+            Thread.getAllStackTraces().forEach((thread, stack) -> {
+                StringBuilder trace = new StringBuilder();
+                for (StackTraceElement frame : stack) {
+                    trace.append("\n        at ").append(frame);
+                }
+                LOGGER.error("[WorldTest] Thread '{}' ({}){}", thread.getName(), thread.getState(), trace);
+            });
             minecraft.stop();
+        }
+        if (SERVER != null && !connecting && minecraft.screen instanceof TitleScreen && ++ticksOnTitle >= CONNECT_TICK) {
+            connecting = true;
+            LOGGER.info("[WorldTest] Client: connecting to {} from the title screen", SERVER);
+            ConnectScreen.startConnecting(minecraft.screen, minecraft, ServerAddress.parseString(SERVER),
+                    new ServerData("Retrofit test", SERVER, false), false);
         }
         if (minecraft.level == null || minecraft.player == null) {
             return;
@@ -66,8 +91,8 @@ public final class WorldTestClient {
     }
 
     private static void check(Minecraft minecraft) {
-        // The test block sits 3 blocks north of where the server put the player.
-        BlockPos pos = BlockPos.containing(minecraft.player.getX(), minecraft.player.getY(), minecraft.player.getZ() - 3);
+        // The test block sits 3 blocks north of and 3 below where the server put the player (raised to see the showcase).
+        BlockPos pos = BlockPos.containing(minecraft.player.getX(), minecraft.player.getY() - 3, minecraft.player.getZ() - 3);
         BlockEntity blockEntity = minecraft.level.getBlockEntity(pos);
         String synced = blockEntity instanceof LegacyBlockEntity legacy && legacy.legacyTile() != null
                 ? LegacyBridge.describe(legacy.legacyTile()) : "no legacy block entity at " + pos;

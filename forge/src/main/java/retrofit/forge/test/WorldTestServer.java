@@ -6,6 +6,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -19,6 +21,7 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 import retrofit.forge.RetrofitMod;
 import retrofit.forge.world.LegacyBlock;
+import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyBlockEntity;
 import retrofit.forge.world.LegacyBridge;
 import retrofit.forge.world.LegacyItem;
@@ -67,6 +70,9 @@ public final class WorldTestServer {
         serverTicks++;
         if (serverTicks == START_TICK) {
             start(level);
+            if (pos != null) {
+                placeShowcase(level);
+            }
             server.getPlayerList().getPlayers().forEach(WorldTestServer::prepare);
         } else if (pos != null && serverTicks % 40 == 0 && serverTicks <= VERDICT_TICK) {
             report(level, serverTicks == VERDICT_TICK);
@@ -113,13 +119,47 @@ public final class WorldTestServer {
         LOGGER.info("[WorldTest] Placed legacy block {} at {}: {}", COUNTER_BLOCK, pos, describe(level));
     }
 
-    /** Stands the player 3 blocks south of the test block, looking at it, holding both test gems. */
+    /**
+     * Every legacy block (first metadata value) in a grid of 7 per row, 2 blocks apart, starting
+     * just north of the test block, so one screenshot shows how all of them render.
+     */
+    private static void placeShowcase(ServerLevel level) {
+        int placed = 0;
+        for (LegacyBlock block : LegacyContent.blocks()) {
+            if (block.asItem() == null || ForgeRegistries.BLOCKS.getKey(block).getPath().equals("counter_block")) {
+                continue;
+            }
+            int column = placed % 7;
+            int row = placed / 7;
+            BlockPos at = pos.offset(-6 + column * 2, 0, -2 - row * 2);
+            level.setBlock(at, block.defaultBlockState(), 3);
+            placed++;
+        }
+        LOGGER.info("[WorldTest] Showcase: placed {} legacy blocks", placed);
+    }
+
+    /**
+     * Stands the player 3 blocks south of the test block, raised to see the showcase grid,
+     * holding both test gems and some legacy block items (for inventory rendering).
+     */
     private static void prepare(ServerPlayer player) {
-        player.teleportTo(player.server.overworld(), pos.getX() + 0.5, pos.getY(), pos.getZ() + 3.5, 180f, 15f);
+        // Creative, so hovering above the grid is allowed (survival players get kicked for floating on servers).
+        player.setGameMode(GameType.CREATIVE);
+        player.teleportTo(player.server.overworld(), pos.getX() + 0.5, pos.getY() + 3, pos.getZ() + 3.5, 180f, 35f);
+        player.getAbilities().flying = true;
+        player.onUpdateAbilities();
         if (ForgeRegistries.ITEMS.getValue(TEST_GEM) instanceof LegacyItem gem) {
             player.getInventory().setItem(0, gem.stackOf(0));
             player.getInventory().setItem(1, gem.stackOf(1));
-            player.getInventory().selected = 1;
+        }
+        int slot = 2;
+        for (LegacyBlock block : LegacyContent.blocks()) {
+            if (slot > 8) {
+                break;
+            }
+            if (!ForgeRegistries.BLOCKS.getKey(block).getPath().equals("counter_block")) {
+                player.getInventory().setItem(slot++, new ItemStack(block));
+            }
         }
     }
 

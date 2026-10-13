@@ -13,6 +13,7 @@ import net.minecraft.server.packs.resources.IoSupplier;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 import retrofit.forge.world.LegacyBlock;
+import retrofit.forge.world.LegacyBlockItem;
 import retrofit.forge.world.LegacyBridge;
 import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyItem;
@@ -88,8 +89,7 @@ final class LegacyAssetPack implements PackResources {
         List<LegacyItem> items = LegacyContent.items();
         if (!iconsRegistered) {
             iconsRegistered = true;
-            int failed = LegacyBridge.registerIcons(blocks.stream().map(LegacyBlock::legacyBlock).toArray())
-                    + LegacyBridge.registerItemIcons(items.stream().map(LegacyItem::legacyItem).toArray());
+            int failed = LegacyBridge.registerAllIcons();
             if (failed > 0) {
                 LOGGER.warn("{} legacy blocks/items failed to register their textures", failed);
             }
@@ -106,13 +106,21 @@ final class LegacyAssetPack implements PackResources {
         Map<String, String> itemTextures = new TreeMap<>();
         int nonCube = 0;
         for (LegacyBlock block : blocks) {
-            if (LegacyBridge.blockRenderInfo(block.legacyBlock())[0] != 0) {
+            if (block.renderType() != 0) {
                 nonCube++;
             }
             addBlock(block, blockTextures);
         }
         for (LegacyItem item : items) {
             addItem(item, itemTextures);
+        }
+        // Every recorded icon goes into the atlas, vanilla ones included: legacy renderers draw
+        // vanilla blocks and items too (items on shelves, blocks inside machines).
+        for (String name : LegacyBridge.iconNames(0)) {
+            blockTextures.computeIfAbsent(name, n -> spriteId("blocks", n));
+        }
+        for (String name : LegacyBridge.iconNames(1)) {
+            itemTextures.computeIfAbsent(name, n -> spriteId("items", n));
         }
 
         int found = 0;
@@ -139,7 +147,7 @@ final class LegacyAssetPack implements PackResources {
 
         LOGGER.info("Legacy asset pack: {} blocks, {} items, {}/{} textures found in {} jars, {} translations{}",
                 blocks.size(), items.size(), found, blockTextures.size() + itemTextures.size(), textureSources.size(), translations,
-                nonCube > 0 ? ", " + nonCube + " blocks with custom rendering shown as cubes for now" : "");
+                nonCube > 0 ? ", " + nonCube + " blocks with custom rendering" : "");
     }
 
     // ---- Blocks ----
@@ -154,7 +162,11 @@ final class LegacyAssetPack implements PackResources {
                 continue;
             }
             String modelPath = "block/legacy/" + key.getNamespace() + "/" + key.getPath() + "/m" + meta;
-            putJson("retrofit", "models/" + modelPath + ".json", blockModel(block, faces, textureIds));
+            JsonObject model = blockModel(block, faces, textureIds);
+            if (block.renderType() == -1) {
+                model = emptyModel(model); // drawn entirely by its tile entity renderer
+            }
+            putJson("retrofit", "models/" + modelPath + ".json", model);
             models[meta] = "retrofit:" + modelPath;
             if (fallbackModel == null) {
                 fallbackModel = models[meta];
@@ -173,9 +185,79 @@ final class LegacyAssetPack implements PackResources {
         blockstate.add("variants", variants);
         putJson(key.getNamespace(), "blockstates/" + key.getPath() + ".json", blockstate);
 
-        JsonObject itemModel = new JsonObject();
-        itemModel.addProperty("parent", models[0] != null ? models[0] : fallbackModel);
+        String baseModel = models[0] != null ? models[0] : fallbackModel;
+        JsonObject itemModel;
+        Object legacyItem = block.asItem() instanceof LegacyBlockItem item ? item.legacyItem() : null;
+        if (legacyItem != null && LegacyBridge.hasItemRenderer(legacyItem, 0, "INVENTORY")) {
+            itemModel = customRendererItemModel();
+        } else {
+            itemModel = new JsonObject();
+            itemModel.addProperty("parent", baseModel);
+            if (block.asItem() instanceof LegacyBlockItem item && item.hasSubtypes()) {
+                JsonArray overrides = new JsonArray();
+                for (int meta : LegacyBridge.itemSubtypes(legacyItem)) {
+                    if (meta >= 0 && meta < 16 && models[meta] != null) {
+                        overrides.add(metaOverride(meta, models[meta]));
+                    }
+                }
+                itemModel.add("overrides", overrides);
+            }
+        }
         putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", itemModel);
+    }
+
+    /** A model with no geometry, keeping the textures (for the break particles). */
+    private static JsonObject emptyModel(JsonObject model) {
+        JsonObject empty = new JsonObject();
+        JsonObject textures = new JsonObject();
+        textures.add("particle", model.getAsJsonObject("textures").get("particle"));
+        empty.add("textures", textures);
+        return empty;
+    }
+
+    /**
+     * Item model for items drawn by a Forge IItemRenderer: "builtin/entity" routes them to
+     * {@link LegacyItemRenderer}; the display transforms are the vanilla block ones.
+     */
+    private static JsonObject customRendererItemModel() {
+        JsonObject model = new JsonObject();
+        model.addProperty("parent", "minecraft:builtin/entity");
+        model.addProperty("gui_light", "side");
+        JsonObject display = new JsonObject();
+        display.add("gui", transform(new float[]{30, 225, 0}, new float[]{0, 0, 0}, 0.625f));
+        display.add("ground", transform(new float[]{0, 0, 0}, new float[]{0, 3, 0}, 0.25f));
+        display.add("fixed", transform(new float[]{0, 0, 0}, new float[]{0, 0, 0}, 0.5f));
+        display.add("thirdperson_righthand", transform(new float[]{75, 45, 0}, new float[]{0, 2.5f, 0}, 0.375f));
+        display.add("thirdperson_lefthand", transform(new float[]{75, 45, 0}, new float[]{0, 2.5f, 0}, 0.375f));
+        display.add("firstperson_righthand", transform(new float[]{0, 45, 0}, new float[]{0, 0, 0}, 0.4f));
+        display.add("firstperson_lefthand", transform(new float[]{0, 225, 0}, new float[]{0, 0, 0}, 0.4f));
+        model.add("display", display);
+        return model;
+    }
+
+    private static JsonObject transform(float[] rotation, float[] translation, float scale) {
+        JsonObject transform = new JsonObject();
+        transform.add("rotation", array(rotation));
+        transform.add("translation", array(translation));
+        transform.add("scale", array(new float[]{scale, scale, scale}));
+        return transform;
+    }
+
+    private static JsonArray array(float[] values) {
+        JsonArray array = new JsonArray();
+        for (float value : values) {
+            array.add(value);
+        }
+        return array;
+    }
+
+    private static JsonObject metaOverride(int meta, String model) {
+        JsonObject predicate = new JsonObject();
+        predicate.addProperty(LegacyItemProperties.META.toString(), meta);
+        JsonObject override = new JsonObject();
+        override.add("predicate", predicate);
+        override.addProperty("model", model);
+        return override;
     }
 
     private JsonObject blockModel(LegacyBlock block, String[] faces, Map<String, String> textureIds) {
@@ -228,15 +310,14 @@ final class LegacyAssetPack implements PackResources {
                 baseModel = "retrofit:" + modelPath;
             }
             if (item.hasSubtypes()) {
-                JsonObject predicate = new JsonObject();
-                predicate.addProperty(LegacyItemProperties.META.toString(), meta);
-                JsonObject override = new JsonObject();
-                override.add("predicate", predicate);
-                override.addProperty("model", "retrofit:" + modelPath);
-                overrides.add(override);
+                overrides.add(metaOverride(meta, "retrofit:" + modelPath));
             }
         }
         if (baseModel == null) {
+            return;
+        }
+        if (LegacyBridge.hasItemRenderer(item.legacyItem(), metas[0], "INVENTORY")) {
+            putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", customRendererItemModel());
             return;
         }
         JsonObject itemModel = new JsonObject();
@@ -250,7 +331,7 @@ final class LegacyAssetPack implements PackResources {
     // ---- Textures ----
 
     /** "ModId:Some/Name" -> "retrofit:blocks/legacy/modid/some/name" (1.7.10 used "minecraft" when no namespace). */
-    private static String spriteId(String kind, String iconName) {
+    static String spriteId(String kind, String iconName) {
         int colon = iconName.indexOf(':');
         String namespace = colon < 0 ? "minecraft" : iconName.substring(0, colon);
         String path = colon < 0 ? iconName : iconName.substring(colon + 1);

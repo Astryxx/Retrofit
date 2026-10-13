@@ -33,6 +33,10 @@ public final class RetrofitMod {
 
     public RetrofitMod() {
         // Both sides boot the matching side of 1.7.10: a dedicated server downloads the 1.7.10 server jar.
+        if (Boolean.getBoolean("retrofit.disabled")) {
+            LOGGER.warn("Retrofit is disabled (-Dretrofit.disabled=true); 1.7.10 mods are not loaded.");
+            return;
+        }
         boolean server = FMLEnvironment.dist == Dist.DEDICATED_SERVER;
         Path legacyDir = FMLPaths.GAMEDIR.get().resolve("retrofit");
         try {
@@ -40,7 +44,11 @@ public final class RetrofitMod {
             for (String jar : LEGACY_JARS) {
                 jars.add(extractJar(jar, legacyDir.resolve(".retrofit")));
             }
+            String ipv4Before = System.getProperty("java.net.preferIPv4Stack");
             runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true, server);
+            // Legacy code must not change JVM-wide settings (see LegacySystem); check the one FML 1.7.10 sets.
+            LOGGER.debug("java.net.preferIPv4Stack before legacy boot: {}, after: {}", ipv4Before,
+                    System.getProperty("java.net.preferIPv4Stack"));
         } catch (Exception e) {
             throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10. See the log above for details.", e);
         }

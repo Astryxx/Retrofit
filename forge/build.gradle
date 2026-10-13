@@ -24,6 +24,12 @@ minecraft {
         configureEach {
             workingDirectory project.file('run')
             property 'forge.logging.console.level', 'info'
+            if (project.hasProperty('retrofitDisabled')) {
+                property 'retrofit.disabled', 'true' // compare against Forge without the legacy layer
+            }
+            if (project.hasProperty('netDebug')) {
+                property 'forge.logging.markers', 'NETWORK' // log every packet (debug.log)
+            }
             mods {
                 retrofit {
                     source sourceSets.main
@@ -46,6 +52,9 @@ minecraft {
             }
             if (project.hasProperty('quickPlayServer')) {
                 args '--quickPlayMultiplayer', project.property('quickPlayServer')
+            }
+            if (project.hasProperty('testServer')) {
+                property 'retrofit.testServer', project.property('testServer') // world test connects from the title screen
             }
             if (project.hasProperty('worldTest')) {
                 property 'retrofit.worldTest', 'true'

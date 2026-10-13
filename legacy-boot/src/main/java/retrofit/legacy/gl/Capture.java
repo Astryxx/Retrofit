@@ -47,6 +47,16 @@ public final class Capture {
         return vertexCount;
     }
 
+    /** Per-vertex states (see class doc); valid up to vertexCount(). */
+    public static int[] states() {
+        return states;
+    }
+
+    /** Per-vertex packed light, -1 for the host's; valid up to vertexCount(). */
+    public static int[] lights() {
+        return lights;
+    }
+
     public static int state(int vertex) {
         return states[vertex];
     }

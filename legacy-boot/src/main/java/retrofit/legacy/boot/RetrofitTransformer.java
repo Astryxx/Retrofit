@@ -70,13 +70,24 @@ public class RetrofitTransformer implements IClassTransformer {
         "setSecurityManager".getBytes(StandardCharsets.UTF_8),
         "setOut".getBytes(StandardCharsets.UTF_8),
         "setErr".getBytes(StandardCharsets.UTF_8),
+        "Property".getBytes(StandardCharsets.UTF_8),
+        "getBoolean".getBytes(StandardCharsets.UTF_8),
+        "getInteger".getBytes(StandardCharsets.UTF_8),
+        "getLong".getBytes(StandardCharsets.UTF_8),
         LOG4J_HELPERS.getBytes(StandardCharsets.UTF_8),
         SLF4J_FACTORY.getBytes(StandardCharsets.UTF_8),
         LWJGL.getBytes(StandardCharsets.UTF_8),
     };
 
-    /** java.lang.System methods legacy code must not call in a shared JVM; redirected to LegacySystem. */
-    private static final String[] SYSTEM_REDIRECTS = {"setSecurityManager", "setOut", "setErr"};
+    /**
+     * JDK static methods legacy code must not use directly in a shared JVM; redirected to
+     * LegacySystem (same name and descriptor): no security manager, no console takeover, and
+     * system properties kept local to the legacy world.
+     */
+    private static final String[] SYSTEM_REDIRECTS = {"setSecurityManager", "setOut", "setErr",
+            "getProperty", "setProperty", "clearProperty"};
+    private static final String[] PROPERTY_READERS = {"java/lang/Boolean.getBoolean", "java/lang/Integer.getInteger",
+            "java/lang/Long.getLong"};
 
     private static final Remapper REMAPPER = new Remapper() {
         @Override
@@ -153,7 +164,8 @@ public class RetrofitTransformer implements IClassTransformer {
                 return new MethodVisitor(Opcodes.ASM5, super.visitMethod(access, methodName, desc, signature, exceptions)) {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String insnName, String insnDesc, boolean itf) {
-                        if (opcode == Opcodes.INVOKESTATIC && owner.equals("java/lang/System") && isSystemRedirect(insnName)) {
+                        if (opcode == Opcodes.INVOKESTATIC && (owner.equals("java/lang/System") && isSystemRedirect(insnName)
+                                || isPropertyReader(owner + "." + insnName))) {
                             owner = "retrofit/legacy/compat/LegacySystem";
                         }
                         super.visitMethodInsn(opcode, owner, insnName, insnDesc, itf);
@@ -185,6 +197,15 @@ public class RetrofitTransformer implements IClassTransformer {
     private static boolean isSystemRedirect(String method) {
         for (String redirect : SYSTEM_REDIRECTS) {
             if (redirect.equals(method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPropertyReader(String method) {
+        for (String reader : PROPERTY_READERS) {
+            if (reader.equals(method)) {
                 return true;
             }
         }

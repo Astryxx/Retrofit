@@ -37,6 +37,7 @@ public final class LegacyContent {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final List<LegacyBlock> BLOCKS = new ArrayList<>();
     private static final List<LegacyItem> ITEMS = new ArrayList<>();
+    private static final Map<LegacyBlock, String> LEGACY_NAMES = new IdentityHashMap<>();
     private static final Map<Object, LegacyBlock> BY_LEGACY = new IdentityHashMap<>();
     private static final Map<Level, Object> WORLDS = new WeakHashMap<>();
 
@@ -92,13 +93,15 @@ public final class LegacyContent {
                         LegacyBridge.blockRenderInfo(legacyBlock));
                 helper.register(toResourceLocation(name), block);
                 BLOCKS.add(block);
+                LEGACY_NAMES.put(block, name);
                 BY_LEGACY.put(legacyBlock, block);
             }
             LOGGER.info("Registered {} legacy blocks", BLOCKS.size());
         });
         event.register(Registries.ITEM, helper -> {
             for (LegacyBlock block : BLOCKS) {
-                helper.register(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block), new BlockItem(block, new Item.Properties()));
+                helper.register(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block),
+                        new LegacyBlockItem(block, LegacyBridge.item(LEGACY_NAMES.get(block))));
             }
             for (String name : LegacyBridge.modItemNames()) {
                 Object legacyItem = LegacyBridge.item(name);
@@ -126,7 +129,15 @@ public final class LegacyContent {
     @SubscribeEvent
     public static void onBuildCreativeTabs(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS) {
-            BLOCKS.forEach(event::accept);
+            for (LegacyBlock block : BLOCKS) {
+                if (block.asItem() instanceof LegacyBlockItem item && item.hasSubtypes()) {
+                    for (int meta : LegacyBridge.itemSubtypes(item.legacyItem())) {
+                        event.accept(item.stackOf(meta));
+                    }
+                } else {
+                    event.accept(block);
+                }
+            }
         } else if (event.getTabKey() == CreativeModeTabs.INGREDIENTS) {
             for (LegacyItem item : ITEMS) {
                 for (int meta : item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0}) {

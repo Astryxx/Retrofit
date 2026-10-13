@@ -19,7 +19,8 @@ Retrofit is free, with no paid tiers.
 | **Legacy textures**: plain cube legacy blocks render with their own 1.7.10 textures as normal 1.20.1 models | ✅ Passing |
 | **Vanilla blocks, items, names**: legacy code reads/places real 1.20.1 vanilla blocks; legacy items with subtypes; translations from the mods' .lang files | ✅ Passing |
 | **Multiplayer**: dedicated 1.20.1 server boots the 1.7.10 server side (downloaded from Mojang); a client connects, legacy tile entity data syncs | ✅ Passing |
-| First real mod (BiblioCraft) | Not started |
+| **Shapes and custom rendering**: legacy collision/outline shapes, static models via RenderBlocks, tile entity renderers, item renderers (BiblioCraft: all 35 blocks render, 560/560 shapes, 520/520 TESRs, 157/157 item renders) | ✅ Passing |
+| First real mod (BiblioCraft) | Loads, renders, ticks, syncs; interaction/GUIs not yet |
 
 ## Layout
 
@@ -129,6 +130,29 @@ frame and works with resource packs, Embeddium and shader packs.
 Only legacy *mod* blocks get this treatment. Vanilla 1.7.10 blocks are never re-registered; they
 will map to the real 1.20.1 blocks (see Known issues).
 
+## Shapes, rendering and the LWJGL 2 stand-ins
+
+- **LWJGL 2**: every legacy reference to `org.lwjgl.opengl/input/util.glu/openal` and `Sys` goes
+  to a stand-in generated from the real LWJGL 2 class (`LwjglShims`): all members exist,
+  implemented ones forward to `retrofit.legacy.gl`, the rest return neutral defaults.
+- **Shapes**: outline and collision boxes come from the legacy block's own
+  `setBlockBoundsBasedOnState` and `addCollisionBoxesToList`, per metadata value, computed in an
+  isolated one-block world (`IsolatedHost`) and cached. Works on servers.
+- **Static models**: blocks with custom render types are rendered once by 1.7.10's `RenderBlocks`
+  into the GL emulation and become ordinary baked quads (`LegacyBakedModel`).
+- **Tile entity renderers** and **Forge item renderers** run every frame through the emulation and
+  are drawn with 1.20.1 render types (`LegacyBlockEntityRenderer`, `LegacyItemRenderer`), with a
+  legacy render environment (camera entity, texture manager, font renderer, skin manager).
+- Legacy icons of all blocks and items (vanilla included) are stitched into the 1.20.1 block
+  atlas and learn their coordinates after stitching, so icon UVs hit the right sprites.
+- `./gradlew :harness:run` prints a **compatibility report** for every mod in `corpus/`.
+
+## System isolation
+
+Legacy code shares the JVM with 1.20.1, so it may not change global state: no security manager,
+no console takeover, and system properties stay local to the legacy world (`LegacySystem`;
+FML 1.7.10 would otherwise switch the game's networking to IPv4-only).
+
 ## Legacy rendering
 
 Legacy code's `org.lwjgl.opengl.GL11` calls are redirected to `retrofit.legacy.gl.GL11`, which
@@ -156,12 +180,14 @@ from the calling class's loader; a legacy caller would get a second, misconfigur
 ## Known issues
 
 - FML logs "missing any signature data" because transformed classes don't carry jar signers. Cosmetic.
-- Legacy blocks with custom rendering (render type other than 0, e.g. ISBRH) are drawn as textured cubes for now.
 - Legacy block names aren't translated yet (the item shows its raw translation key).
 - Vanilla blocks look like legacy air or stone to legacy code; a full vanilla block table is next.
 - Legacy mods' own network packets (SimpleNetworkWrapper / FMLProxyPacket) aren't carried yet;
   only description packets are.
 - Legacy entities, players, GUIs/containers and item use (right-click etc.) aren't bridged yet.
-- One test run's client stalled during Forge's login handshake over IPv6 loopback (the server sent
-  all handshake messages, the client received none); not reproduced since. Watch for it.
+- Dev environment only: a dev client connecting to a dev server sometimes stalls in Forge's login
+  handshake (the server sends, the client receives nothing). It happens equally with the legacy
+  layer disabled (`-PretrofitDisabled`), so it is not Retrofit; rerun if it happens.
+- Item use, block right-click, GUIs/containers, legacy mod packets, entities, recipes and legacy
+  events are not bridged yet.
 - `HeadlessTransformer` stubs (resource reload, options, window messages) are boot-test only; the 1.20.1 bridge replaces them.

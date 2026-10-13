@@ -19,6 +19,9 @@ public final class LegacyBridge {
     private static final Map<String, MethodHandle> HANDLES = new HashMap<>();
     private static MethodHandle tick;
     private static MethodHandle canUpdate;
+    private static MethodHandle renderTileEntity;
+    private static MethodHandle prepareFrame;
+    private static Object lock;
 
     private LegacyBridge() {
     }
@@ -36,6 +39,10 @@ public final class LegacyBridge {
         }
         tick = lookup.findStatic(bridge, "tick", MethodType.methodType(void.class, Object.class));
         canUpdate = lookup.findStatic(bridge, "canUpdate", MethodType.methodType(boolean.class, Object.class));
+        renderTileEntity = lookup.findStatic(bridge, "renderTileEntity", MethodType.methodType(int.class, Object.class, float.class));
+        prepareFrame = lookup.findStatic(bridge, "prepareFrame", MethodType.methodType(void.class, Object.class,
+                double.class, double.class, double.class, float.class, float.class, float.class));
+        lock = bridge.getField("LOCK").get(null);
     }
 
     @SuppressWarnings("unchecked")
@@ -117,8 +124,18 @@ public final class LegacyBridge {
         return call("modSources");
     }
 
-    public static int registerIcons(Object[] legacyBlocks) {
-        return call("registerIcons", (Object) legacyBlocks);
+    /** Every block and item, vanilla included, registers its icons; returns the number that failed. */
+    public static int registerAllIcons() {
+        return call("registerAllIcons");
+    }
+
+    /** Recorded icon names: kind 0 = block textures, 1 = item textures. */
+    public static String[] iconNames(int kind) {
+        return call("iconNames", kind);
+    }
+
+    public static void setIconUV(int kind, String name, float minU, float maxU, float minV, float maxV, int width, int height) {
+        call("setIconUV", kind, name, minU, maxU, minV, maxV, width, height);
     }
 
     /** Six face texture names (down, up, north, south, west, east), or null. */
@@ -126,9 +143,6 @@ public final class LegacyBridge {
         return call("faceTextures", legacyBlock, meta);
     }
 
-    public static int registerItemIcons(Object[] legacyItems) {
-        return call("registerItemIcons", (Object) legacyItems);
-    }
 
     public static String itemTexture(Object legacyItem, int meta) {
         return call("itemTexture", legacyItem, meta);
@@ -141,6 +155,58 @@ public final class LegacyBridge {
     /** {language, key, value} triples registered in code. */
     public static String[][] codeTranslations() {
         return call("codeTranslations");
+    }
+
+    // ---- Shapes and rendering ----
+
+    /** {selection box, then collision boxes}, 6 values each; see Bridge.blockShape. */
+    public static double[] blockShape(Object legacyBlock, int meta) {
+        return call("blockShape", legacyBlock, meta);
+    }
+
+    /**
+     * Serializes all use of legacy rendering (the GL emulation is one global context). Hold it
+     * from a render call until the capture has been read.
+     */
+    public static Object renderLock() {
+        return lock;
+    }
+
+    /** Places the legacy viewer at the host camera; call once per frame, holding {@link #renderLock()}. */
+    public static void prepareFrame(Object legacyWorld, double x, double y, double z, float yaw, float pitch, float partialTicks) {
+        try {
+            prepareFrame.invokeExact(legacyWorld, x, y, z, yaw, pitch, partialTicks);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Retrofit's legacy bridge failed in prepareFrame", t);
+        }
+    }
+
+    /** Renders a block model into the capture; returns the vertex count. Hold {@link #renderLock()}. */
+    public static int bakeBlock(Object legacyBlock, int meta) {
+        return call("bakeBlock", legacyBlock, meta);
+    }
+
+    public static boolean hasSpecialRenderer(Object tileEntity) {
+        return call("hasSpecialRenderer", tileEntity);
+    }
+
+    /** Runs a tile entity's special renderer into the capture; returns the vertex count. Hold {@link #renderLock()}. */
+    public static int renderTileEntity(Object tileEntity, float partialTicks) {
+        try {
+            return (int) renderTileEntity.invokeExact(tileEntity, partialTicks);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Retrofit's legacy bridge failed in renderTileEntity", t);
+        }
+    }
+
+    /** type: INVENTORY, ENTITY, EQUIPPED or EQUIPPED_FIRST_PERSON. */
+    public static boolean hasItemRenderer(Object legacyItem, int meta, String type) {
+        return call("hasItemRenderer", legacyItem, meta, type);
+    }
+
+    /** Runs a Forge item renderer into the capture; returns the vertex count. Hold {@link #renderLock()}. */
+    public static int renderItem(Object legacyItem, int meta, String type) {
+        return call("renderItem", legacyItem, meta, type);
     }
 
     // ---- Tile entities ----

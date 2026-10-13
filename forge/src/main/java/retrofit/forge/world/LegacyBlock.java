@@ -1,6 +1,8 @@
 package retrofit.forge.world;
 
+import com.mojang.logging.LogUtils;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
@@ -10,20 +12,34 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import org.slf4j.Logger;
 
-/** The 1.20.1 block standing in for one legacy block. Metadata is the {@link LegacyContent#META} property. */
+/**
+ * The 1.20.1 block standing in for one legacy block. Metadata is the {@link LegacyContent#META}
+ * property. Its outline and collision shapes come from the legacy block's own bounds and
+ * collision code, per metadata value (see {@link LegacyBridge#blockShape}).
+ */
 public class LegacyBlock extends Block implements EntityBlock {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private final Object legacyBlock;
     private final boolean hasTileEntity;
     private final boolean opaque;
+    private final int renderType;
     private final int renderPass;
     private final String translationKey;
+    private final VoxelShape[] outlines = new VoxelShape[16];
+    private final VoxelShape[] collisions = new VoxelShape[16];
 
     /** @param renderInfo see {@link LegacyBridge#blockRenderInfo} */
     public LegacyBlock(Object legacyBlock, boolean hasTileEntity, int[] renderInfo) {
         super(properties(renderInfo));
         this.legacyBlock = legacyBlock;
         this.hasTileEntity = hasTileEntity;
+        this.renderType = renderInfo[0];
         this.opaque = renderInfo[1] != 0;
         this.renderPass = renderInfo[2];
         this.translationKey = LegacyBridge.blockTranslationKey(legacyBlock);
@@ -48,8 +64,57 @@ public class LegacyBlock extends Block implements EntityBlock {
         return translationKey;
     }
 
+    @Override
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        int meta = state.getValue(LegacyContent.META);
+        if (outlines[meta] == null) {
+            computeShapes(meta);
+        }
+        return outlines[meta];
+    }
+
+    @Override
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        int meta = state.getValue(LegacyContent.META);
+        if (collisions[meta] == null) {
+            computeShapes(meta);
+        }
+        return collisions[meta];
+    }
+
+    /** Cached per metadata value; a block whose shape code fails keeps a full cube. */
+    private void computeShapes(int meta) {
+        VoxelShape outline = Shapes.block();
+        VoxelShape collision = Shapes.block();
+        try {
+            double[] shape = LegacyBridge.blockShape(legacyBlock, meta);
+            outline = box(shape, 0);
+            collision = Shapes.empty();
+            for (int o = 6; o + 6 <= shape.length; o += 6) {
+                collision = Shapes.or(collision, box(shape, o));
+            }
+            collision = collision.optimize();
+        } catch (RuntimeException e) {
+            LOGGER.warn("Legacy block {} meta {} has no usable shape; using a full cube", translationKey, meta, e);
+        }
+        collisions[meta] = collision;
+        outlines[meta] = outline;
+    }
+
+    private static VoxelShape box(double[] values, int o) {
+        if (values[o] >= values[o + 3] || values[o + 1] >= values[o + 4] || values[o + 2] >= values[o + 5]) {
+            return Shapes.empty();
+        }
+        return Shapes.box(values[o], values[o + 1], values[o + 2], values[o + 3], values[o + 4], values[o + 5]);
+    }
+
     public boolean isOpaque() {
         return opaque;
+    }
+
+    /** The legacy render type: 0 = plain cube, -1 = drawn only by its tile entity renderer, else RenderBlocks. */
+    public int renderType() {
+        return renderType;
     }
 
     /** 0 = solid, 1 = translucent (legacy getRenderBlockPass). */
