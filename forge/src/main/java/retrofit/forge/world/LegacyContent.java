@@ -73,7 +73,8 @@ public final class LegacyContent {
         return WORLDS.containsKey(level);
     }
 
-    private static int legacyDimension(Level level) {
+    /** The legacy dimension id of a level: -1 nether, 1 end, 0 everything else. */
+    static int legacyDimension(Level level) {
         if (level.dimension() == Level.NETHER) {
             return -1;
         }
@@ -116,6 +117,8 @@ public final class LegacyContent {
             }
             LOGGER.info("Registered {} legacy items", ITEMS.size());
         });
+        event.register(Registries.MENU, helper ->
+                helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_menu"), LegacyMenu.type()));
         event.register(Registries.RECIPE_SERIALIZER, helper ->
                 helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_crafting"), LegacyRecipes.CRAFTING));
         event.register(Registries.BLOCK_ENTITY_TYPE, helper -> {
@@ -130,6 +133,7 @@ public final class LegacyContent {
     public static void onCommonSetup(FMLCommonSetupEvent event) {
         if (RetrofitMod.runtime() != null) {
             LegacyBlockTable.get();
+            event.enqueueWork(LegacyNetwork::register);
         }
     }
 

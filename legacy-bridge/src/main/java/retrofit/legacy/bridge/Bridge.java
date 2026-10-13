@@ -97,6 +97,16 @@ public final class Bridge {
         return sources.toArray(new String[0]);
     }
 
+    /** "modid@version" of every loaded legacy mod, sorted: both sides of a connection must match. */
+    public static String modList() {
+        List<String> mods = new ArrayList<String>();
+        for (ModContainer mod : Loader.instance().getActiveModList()) {
+            mods.add(mod.getModId() + "@" + mod.getVersion());
+        }
+        java.util.Collections.sort(mods);
+        return mods.toString();
+    }
+
     /** Client only: every block and item registers its icons (see {@link LegacyIcons#registerAll}). */
     public static int registerAllIcons() {
         return LegacyIcons.registerAll();
@@ -289,6 +299,13 @@ public final class Bridge {
     /** getItemById; null for unused ids. */
     public static Object itemById(int id) {
         return Item.func_150899_d(id);
+    }
+
+    /** Changes when a stack's size, damage or tag changes (the host caches conversions by it). */
+    public static int stackFingerprint(Object legacyStack) {
+        ItemStack stack = (ItemStack) legacyStack;
+        NBTTagCompound tag = stack.func_77978_p(); // getTagCompound
+        return (stack.field_77994_a * 31 + stack.func_77960_j()) * 31 + (tag == null ? 0 : tag.hashCode());
     }
 
     /** The Item of a legacy stack (identity), or null. */

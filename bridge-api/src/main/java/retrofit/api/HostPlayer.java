@@ -11,4 +11,31 @@ public interface HostPlayer {
 
     /** Legacy code moved the player (setPositionAndUpdate, setPlayerLocation); feet position. */
     void teleport(double x, double y, double z, float yaw, float pitch);
+
+    // ---- Server side ----
+
+    /**
+     * A mod opened a container GUI (FML openGui). The host opens a menu over the legacy container
+     * and has the client build the matching GUI; returns the window id, or -1 if it couldn't.
+     */
+    int openMenu(Object legacyContainer, String modId, int guiId, int x, int y, int z);
+
+    /** A legacy container's progress bar changed (sendProgressBarUpdate). */
+    void windowProperty(int windowId, int property, int value);
+
+    /** A mod packet for this player's client (FML channel name and payload). */
+    void sendPayload(String channel, byte[] data);
+
+    // ---- Both sides ----
+
+    /** Legacy code closed the open container or screen (closeScreen). */
+    void closeMenu();
+
+    // ---- Client side ----
+
+    /** Client: a legacy screen should be shown (Minecraft.displayGuiScreen), or the current one closed (null). */
+    void displayScreen(Object legacyScreen);
+
+    /** Client: the open legacy container GUI clicked a slot (GuiContainer.handleMouseClick; legacy click modes). */
+    void clickSlot(int windowId, int slotId, int button, int mode);
 }

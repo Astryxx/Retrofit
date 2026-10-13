@@ -78,6 +78,8 @@ public final class WorldTestServer {
             ServerPlayer player = server.getPlayerList().getPlayers().get(0);
             InteractionTest.run(player, pos);
             prepare(player);
+        } else if (serverTicks == VERDICT_TICK + 20 && pos != null && !server.getPlayerList().getPlayers().isEmpty()) {
+            InteractionTest.openGui(server.getPlayerList().getPlayers().get(0), pos);
         } else if (pos != null && serverTicks % 40 == 0 && serverTicks <= VERDICT_TICK) {
             report(level, serverTicks == VERDICT_TICK);
         }
@@ -140,6 +142,10 @@ public final class WorldTestServer {
             placed++;
         }
         LOGGER.info("[WorldTest] Showcase: placed {} legacy blocks", placed);
+        Block crate = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("hello1710", "crate"));
+        if (crate != null) {
+            level.setBlock(pos.south(), crate.defaultBlockState(), 3); // opened by the GUI test later
+        }
     }
 
     /**

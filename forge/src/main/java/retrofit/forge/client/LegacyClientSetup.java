@@ -42,6 +42,15 @@ public final class LegacyClientSetup {
     private LegacyClientSetup() {
     }
 
+    /** Legacy container GUIs open as LegacyScreens over LegacyMenus. */
+    @SubscribeEvent
+    public static void onClientSetup(net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent event) {
+        if (RetrofitMod.runtime() != null) {
+            event.enqueueWork(() -> net.minecraft.client.gui.screens.MenuScreens.register(
+                    retrofit.forge.world.LegacyMenu.type(), LegacyScreen::new));
+        }
+    }
+
     @SubscribeEvent
     public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
         if (LegacyContent.blockEntityType() != null) {

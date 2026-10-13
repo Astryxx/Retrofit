@@ -21,6 +21,12 @@ final class BridgeClientPlayer extends EntityClientPlayerMP {
         this.host = host;
     }
 
+    /** closeScreen: the host closes its screen (and tells the server, as 1.20.1 does). */
+    @Override
+    public void func_71053_j() {
+        host.closeMenu();
+    }
+
     /** addChatMessage: shown in the host's chat. */
     @Override
     public void func_145747_a(IChatComponent component) {

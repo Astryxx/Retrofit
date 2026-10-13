@@ -34,7 +34,7 @@ public final class WorldTestClient {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int CHECK_TICK = 160;
     /** After the server half's verdict (server tick 200), which in singleplayer shares this game. */
-    private static final int QUIT_TICK = 300;
+    private static final int QUIT_TICK = 420;
 
     /** Give up if no world is reached (e.g. disconnected), instead of hanging. */
     private static final int GIVE_UP_TICK = 2400;
@@ -48,6 +48,15 @@ public final class WorldTestClient {
     private static int ticksTotal;
     private static int ticksOnTitle;
     private static boolean connecting;
+    private static int guiTicks;
+    private static boolean pongInChat;
+
+    @SubscribeEvent
+    public static void onChat(net.minecraftforge.client.event.ClientChatReceivedEvent event) {
+        if (WorldTestServer.ENABLED && event.getMessage().getString().contains("Pong!")) {
+            pongInChat = true;
+        }
+    }
 
     private WorldTestClient() {
     }
@@ -84,9 +93,30 @@ public final class WorldTestClient {
             check(minecraft);
             Screenshot.grab(minecraft.gameDirectory, "retrofit-world-test.png", minecraft.getMainRenderTarget(),
                     message -> LOGGER.info("[WorldTest] Client: {}", message.getString()));
-        } else if (ticksInWorld == QUIT_TICK) {
+        }
+        if (minecraft.screen instanceof retrofit.forge.client.LegacyScreen screen) {
+            guiTest(minecraft, screen);
+        }
+        if (ticksInWorld == QUIT_TICK) {
             LOGGER.info("[WorldTest] Client: quitting");
             minecraft.stop();
+        }
+    }
+
+    /** The crate GUI the server opened: click its legacy Ping button, then screenshot it. */
+    private static void guiTest(Minecraft minecraft, retrofit.forge.client.LegacyScreen screen) {
+        guiTicks++;
+        if (guiTicks == 30) {
+            double x = screen.getGuiLeft() + 140;
+            double y = screen.getGuiTop() + 30;
+            LOGGER.info("[WorldTest] Client: clicking the legacy Ping button at {},{}", x, y);
+            screen.mouseClicked(x, y, 0);
+            screen.mouseReleased(x, y, 0);
+        } else if (guiTicks == 70) {
+            boolean pong = pongInChat;
+            LOGGER.info("[WorldTest] Client GUI: server answered the legacy packet in chat: {}", pong ? "OK" : "FAILED");
+            Screenshot.grab(minecraft.gameDirectory, "retrofit-gui-test.png", minecraft.getMainRenderTarget(),
+                    message -> LOGGER.info("[WorldTest] Client: {}", message.getString()));
         }
     }
 

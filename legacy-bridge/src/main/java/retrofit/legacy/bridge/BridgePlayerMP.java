@@ -2,6 +2,9 @@ package retrofit.legacy.bridge;
 
 import com.mojang.authlib.GameProfile;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.inventory.Container;
+import net.minecraft.inventory.IInventory;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.util.IChatComponent;
@@ -20,6 +23,34 @@ final class BridgePlayerMP extends EntityPlayerMP {
         super(server, world, profile, new ItemInWorldManager(world));
         this.host = host;
         new BridgeNetHandler(server, this, host); // sets playerNetServerHandler
+    }
+
+    /** sendProgressBarUpdate: container properties go to the client through the host's menu. */
+    @Override
+    public void func_71112_a(Container container, int property, int value) {
+        host.windowProperty(container.field_75152_c, property, value); // windowId
+    }
+
+    /** sendSlotContents: the host syncs slots itself. */
+    @Override
+    public void func_71111_a(Container container, int slot, ItemStack stack) {
+    }
+
+    /** sendContainerAndContentsToPlayer: the host syncs slots itself. */
+    @Override
+    public void func_71110_a(Container container, java.util.List stacks) {
+    }
+
+    /** closeScreen: legacy code closed the GUI; the host closes its menu (which closes the legacy container). */
+    @Override
+    public void func_71053_j() {
+        host.closeMenu();
+    }
+
+    /** displayGUIChest: a vanilla chest GUI over a mod's inventory. */
+    @Override
+    public void func_71007_a(IInventory inventory) {
+        Guis.openChest(this, inventory);
     }
 
     /** addChatMessage */

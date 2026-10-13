@@ -27,6 +27,8 @@ import org.slf4j.Logger;
 import retrofit.forge.world.LegacyBlock;
 import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyItem;
+import retrofit.forge.world.LegacyMenu;
+import net.minecraft.world.inventory.ClickType;
 
 import java.util.List;
 
@@ -139,6 +141,45 @@ final class InteractionTest {
         } else {
             LOGGER.error("[WorldTest] Interaction FAILED: {}/{} passed", passed, total);
         }
+    }
+
+    /**
+     * Opens hello1710's crate (a legacy container GUI through FML's openGui) for the player and
+     * shift-clicks a diamond into it; leaves it open for the client half to draw and click.
+     */
+    static void openGui(ServerPlayer player, BlockPos near) {
+        ServerLevel level = player.serverLevel();
+        Block crate = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("hello1710", "crate"));
+        if (!(crate instanceof LegacyBlock)) {
+            LOGGER.error("[WorldTest] GUI FAILED: hello1710:crate missing");
+            return;
+        }
+        BlockPos at = near.south();
+        if (!level.getBlockState(at).is(crate)) {
+            level.setBlock(at, crate.defaultBlockState(), 3);
+        }
+        player.getInventory().setItem(8, ItemStack.EMPTY);
+        player.getInventory().selected = 8;
+        player.getInventory().setItem(9, new ItemStack(Items.DIAMOND, 3));
+        player.gameMode.useItemOn(player, level, ItemStack.EMPTY, InteractionHand.MAIN_HAND,
+                new BlockHitResult(Vec3.atCenterOf(at), Direction.UP, at, false));
+        if (!(player.containerMenu instanceof LegacyMenu menu)) {
+            LOGGER.error("[WorldTest] GUI open: FAILED (menu is {})", player.containerMenu);
+            return;
+        }
+        check(menu.slots.size() == 45, "GUI open", menu.slots.size() + " slots, window " + menu.containerId);
+        int before = 0;
+        for (int i = 0; i < 9; i++) {
+            before += menu.slots.get(i).getItem().is(Items.DIAMOND) ? menu.slots.get(i).getItem().getCount() : 0;
+        }
+        menu.clicked(9, 0, ClickType.QUICK_MOVE, player); // inventory slot 9 -> crate (legacy transferStackInSlot)
+        menu.broadcastChanges();
+        int after = 0;
+        for (int i = 0; i < 9; i++) {
+            after += menu.slots.get(i).getItem().is(Items.DIAMOND) ? menu.slots.get(i).getItem().getCount() : 0;
+        }
+        check(after == before + 3 && player.getInventory().getItem(9).isEmpty(), "GUI shift-click",
+                "diamonds in the crate " + before + " -> " + after + ", inventory slot 9 has " + player.getInventory().getItem(9));
     }
 
     private static int check(boolean ok, String step, String detail) {

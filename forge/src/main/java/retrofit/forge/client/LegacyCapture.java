@@ -41,8 +41,10 @@ import java.util.zip.ZipFile;
  */
 public final class LegacyCapture {
     public static final int FLOATS_PER_VERTEX = 12;
-    private static final int BLEND = 1 << 16;
-    private static final int TEXTURE_MASK = 0xFFFF;
+    public static final int BLEND = 1 << 16;
+    /** Drawn with texturing off (GUI rectangles, gradients, untextured renderer parts). */
+    public static final int UNTEXTURED = 1 << 17;
+    public static final int TEXTURE_MASK = 0xFFFF;
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private static MethodHandle data;
@@ -107,13 +109,33 @@ public final class LegacyCapture {
         }
     }
 
+    /** Per-vertex states of the capture (see retrofit.legacy.gl.Capture). */
+    public static int[] states() throws Throwable {
+        init();
+        return (int[]) states.invokeExact();
+    }
+
+    private static ResourceLocation white;
+
+    /** A plain white texture, for quads legacy code drew with texturing off. */
+    public static ResourceLocation white() {
+        if (white == null) {
+            NativeImage image = new NativeImage(1, 1, false);
+            image.setPixelRGBA(0, 0, 0xFFFFFFFF);
+            white = new ResourceLocation(RetrofitMod.MOD_ID, "legacy_texture/white");
+            Minecraft.getInstance().getTextureManager().register(white, new DynamicTexture(image));
+        }
+        return white;
+    }
+
     private static RenderType renderType(int state) throws Throwable {
-        ResourceLocation texture = texture(state & TEXTURE_MASK);
+        ResourceLocation texture = (state & UNTEXTURED) != 0 ? white() : texture(state & TEXTURE_MASK);
         return (state & BLEND) != 0 ? RenderType.entityTranslucent(texture) : RenderType.entityCutoutNoCull(texture);
     }
 
     /** The 1.20.1 texture for a captured legacy texture index (render thread). */
-    private static ResourceLocation texture(int index) throws Throwable {
+    public static ResourceLocation texture(int index) throws Throwable {
+        init();
         ResourceLocation known = TEXTURES.get(index);
         if (known != null) {
             return known;

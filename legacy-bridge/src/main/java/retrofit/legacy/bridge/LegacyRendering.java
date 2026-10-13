@@ -149,6 +149,16 @@ public final class LegacyRendering {
         TileEntityRendererDispatcher.field_147556_a.func_147542_a(world, textures, font, camera, partialTicks);
     }
 
+    /** For GUIs: the same environment renderers get. */
+    static void ensureEnvironment() {
+        environment();
+    }
+
+    /** After a failed or aborted draw, so the next one can start. */
+    static void resetTessellatorIfDrawing() {
+        resetTessellator();
+    }
+
     private static TileEntityRendererDispatcher dispatcher() {
         environment();
         return TileEntityRendererDispatcher.field_147556_a; // instance
@@ -178,6 +188,9 @@ public final class LegacyRendering {
             font = new FontRenderer(settings, new ResourceLocation("textures/font/ascii.png"), textures, false);
             minecraft.field_71466_p = font; // fontRenderer
             minecraft.field_71464_q = font; // standardGalacticFontRenderer
+            Field sounds = Minecraft.class.getDeclaredField("field_147127_av"); // mcSoundHandler
+            sounds.setAccessible(true);
+            sounds.set(minecraft, allocate(BridgeSoundHandler.class));
             Field fontField = TileEntityRendererDispatcher.class.getDeclaredField("field_147557_n"); // fontRenderer
             fontField.setAccessible(true);
             fontField.set(TileEntityRendererDispatcher.field_147556_a, font);

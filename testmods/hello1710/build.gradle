@@ -8,6 +8,8 @@ tasks.withType(JavaCompile).configureEach {
 // (see :harness:dumpSrgJar), the same SRG names real 1.7.10 mod jars use.
 dependencies {
     compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+    // What the 1.7.10 classpath provides to mods: packets are netty ByteBufs.
+    compileOnly 'io.netty:netty-all:4.0.10.Final'
 }
 
 tasks.named('compileJava') {

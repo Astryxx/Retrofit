@@ -19,8 +19,10 @@ public final class LegacyBridge {
     /** Classes of the legacy bridge whose public static methods the host calls by name. */
     private static final String[] ENTRY_CLASSES = {
             "retrofit.legacy.bridge.Bridge", "retrofit.legacy.bridge.Interactions", "retrofit.legacy.bridge.LegacyPlayers",
-            "retrofit.legacy.bridge.Recipes",
+            "retrofit.legacy.bridge.Recipes", "retrofit.legacy.bridge.Guis", "retrofit.legacy.bridge.Network",
     };
+    /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
+    private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis"};
     private static final Map<String, MethodHandle> HANDLES = new HashMap<>();
     private static MethodHandle tick;
     private static MethodHandle canUpdate;
@@ -37,7 +39,11 @@ public final class LegacyBridge {
         }
         Class<?> bridge = Class.forName("retrofit.legacy.bridge.Bridge", true, runtime.gameLoader());
         MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-        for (String name : ENTRY_CLASSES) {
+        java.util.List<String> entries = new java.util.ArrayList<>(java.util.List.of(ENTRY_CLASSES));
+        if (net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient()) {
+            entries.addAll(java.util.List.of(CLIENT_ENTRY_CLASSES));
+        }
+        for (String name : entries) {
             Class<?> entry = Class.forName(name, true, runtime.gameLoader());
             for (Method method : entry.getMethods()) {
                 if (method.getDeclaringClass() == entry && java.lang.reflect.Modifier.isStatic(method.getModifiers())
@@ -56,7 +62,7 @@ public final class LegacyBridge {
 
     /** Calls a legacy bridge entry point by name; legacy exceptions come out as IllegalStateException. */
     @SuppressWarnings("unchecked")
-    static <T> T call(String name, Object... args) {
+    public static <T> T call(String name, Object... args) {
         MethodHandle handle = HANDLES.get(name);
         if (handle == null) {
             throw new IllegalStateException("Retrofit's legacy bridge has no " + name + " (not booted?)");

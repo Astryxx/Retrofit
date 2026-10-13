@@ -33,6 +33,7 @@ public final class GL11 {
     private static final int GL_TEXTURE_COORD_ARRAY = 0x8078;
     private static final int GL_MODELVIEW = 0x1700;
     private static final int GL_BLEND = 0x0BE2;
+    private static final int GL_TEXTURE_2D = 0x0DE1;
     private static final int GL_VENDOR = 0x1F00;
     private static final int GL_RENDERER = 0x1F01;
     private static final int GL_VERSION = 0x1F02;
@@ -44,6 +45,8 @@ public final class GL11 {
     private static int matrixMode = GL_MODELVIEW;
     private static int texture;
     private static boolean blend;
+    /** GL_TEXTURE_2D: GUIs draw flat rectangles and gradients with texturing off. */
+    private static boolean textured = true;
     /** Packed lightmap coordinates set by legacy code, or -1 for the host's light. */
     private static int light = -1;
     private static final List<float[]> attribStack = new ArrayList<float[]>();
@@ -73,8 +76,24 @@ public final class GL11 {
         red = green = blue = alpha = 1;
         matrixMode = GL_MODELVIEW;
         blend = false;
+        textured = true;
         light = -1;
         attribStack.clear();
+    }
+
+    /**
+     * A point (x, y, z) through the current modelview, plus the scale the matrix applies along x:
+     * {x, y, z, scale}. Used to place things the host draws itself (items in GUIs) where legacy
+     * code would have drawn them.
+     */
+    public static float[] transform(float x, float y, float z) {
+        float[] m = modelview.m;
+        float scale = (float) Math.sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        return new float[]{
+                m[0] * x + m[4] * y + m[8] * z + m[12],
+                m[1] * x + m[5] * y + m[9] * z + m[13],
+                m[2] * x + m[6] * y + m[10] * z + m[14],
+                scale};
     }
 
     /** Called when the legacy TextureManager binds a texture (see Hooks). */
@@ -418,11 +437,13 @@ public final class GL11 {
                 m[1] * x + m[5] * y + m[9] * z + m[13],
                 m[2] * x + m[6] * y + m[10] * z + m[14],
                 d[o + 3], d[o + 4], tx, ty, tz,
-                currentColour ? red : d[o + 8] * red,
-                currentColour ? green : d[o + 9] * green,
-                currentColour ? blue : d[o + 10] * blue,
-                currentColour ? alpha : d[o + 11] * alpha,
-                texture | (blend ? Capture.BLEND : 0), light);
+                // A vertex's own colour (colour array, or the colour current at glVertex) replaces the
+                // current one, as in OpenGL; without one, the current colour applies.
+                currentColour ? red : d[o + 8],
+                currentColour ? green : d[o + 9],
+                currentColour ? blue : d[o + 10],
+                currentColour ? alpha : d[o + 11],
+                texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED), light);
     }
 
     // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----
@@ -584,17 +605,23 @@ public final class GL11 {
                     blend = enabled;
                 }
             });
+        } else if (cap == GL_TEXTURE_2D) {
+            submit(new Op() {
+                public void run() {
+                    textured = enabled;
+                }
+            });
         }
     }
 
     public static boolean glIsEnabled(int cap) {
-        return cap == GL_BLEND && blend;
+        return cap == GL_BLEND ? blend : cap == GL_TEXTURE_2D && textured;
     }
 
     public static void glPushAttrib(int mask) {
         submit(new Op() {
             public void run() {
-                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light});
+                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0});
             }
         });
     }
@@ -611,6 +638,7 @@ public final class GL11 {
                     blend = saved[4] != 0;
                     texture = (int) saved[5];
                     light = (int) saved[6];
+                    textured = saved[7] != 0;
                 }
             }
         });

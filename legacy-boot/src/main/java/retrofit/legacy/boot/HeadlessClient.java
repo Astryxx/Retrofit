@@ -30,7 +30,8 @@ public final class HeadlessClient {
         setField(minecraftClass, null, "field_71432_P", minecraft);    // theMinecraft
 
         Class<?> gameSettingsClass = Class.forName("net.minecraft.client.settings.GameSettings", true, lcl);
-        setField(minecraftClass, minecraft, "field_71474_y", allocate(gameSettingsClass)); // gameSettings
+        // The no-argument constructor gives default settings and key bindings without reading options.txt.
+        setField(minecraftClass, minecraft, "field_71474_y", gameSettingsClass.getConstructor().newInstance()); // gameSettings
 
         Object serializer = Class.forName("net.minecraft.client.resources.data.IMetadataSerializer", true, lcl).newInstance();
         Object resourceManager = Class.forName("net.minecraft.client.resources.SimpleReloadableResourceManager", true, lcl)

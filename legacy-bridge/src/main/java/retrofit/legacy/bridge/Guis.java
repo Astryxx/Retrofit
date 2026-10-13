@@ -1,0 +1,163 @@
+package retrofit.legacy.bridge;
+
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.Loader;
+import cpw.mods.fml.common.ModContainer;
+import cpw.mods.fml.common.network.NetworkRegistry;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.InventoryPlayer;
+import net.minecraft.inventory.Container;
+import net.minecraft.inventory.Slot;
+import net.minecraft.item.ItemStack;
+import net.minecraft.world.World;
+
+import java.util.List;
+
+/**
+ * Legacy GUIs and containers, both sides.
+ *
+ * Server: FML's openGui is redirected here ({@link #openGui}). The mod's server container is
+ * built as usual, then the host opens a 1.20.1 menu over it (HostPlayer.openMenu); the client
+ * builds the mod's GUI from the same mod id, GUI id and position, as FML's OpenGui message did.
+ * The menu's slots are views of the legacy slots, and clicks run the legacy container's slotClick
+ * (shift-click included) on the player's mirror, so container logic is the mod's own.
+ *
+ * Client: see {@link ClientGuis}, which draws legacy GUIs through the GL emulation and feeds
+ * them input; the redirect targets for client classes live there too.
+ */
+public final class Guis {
+    private Guis() {
+    }
+
+    // ---- Opening (redirect target of FMLNetworkHandler.openGui) ----
+
+    public static void openGui(EntityPlayer player, Object mod, int guiId, World world, int x, int y, int z) {
+        ModContainer container = FMLCommonHandler.instance().findContainerFor(mod);
+        if (container == null) {
+            System.out.println("[Retrofit] openGui for an unknown mod object " + mod);
+            return;
+        }
+        if (player instanceof BridgePlayerMP) {
+            BridgePlayerMP serverPlayer = (BridgePlayerMP) player;
+            Container menu = NetworkRegistry.INSTANCE.getRemoteGuiContainer(container, serverPlayer, guiId, world, x, y, z);
+            if (menu != null) {
+                open(serverPlayer, menu, container.getModId(), guiId, x, y, z);
+            }
+        } else if (world.field_72995_K) { // a client-side call opens a client-only GUI, as FML did
+            ClientGuis.openLocal(player, container, guiId, world, x, y, z);
+        }
+    }
+
+    /** Opens a host menu over a legacy server container and makes it the mirror's open container. */
+    static void open(BridgePlayerMP player, Container menu, String modId, int guiId, int x, int y, int z) {
+        int windowId = player.host.openMenu(menu, modId, guiId, x, y, z);
+        if (windowId < 0) {
+            return;
+        }
+        menu.field_75152_c = windowId; // windowId
+        player.field_71070_bA = menu; // openContainer
+        menu.func_75132_a(player); // addCraftingToCrafters: initial progress bar values
+    }
+
+    /** The client GUI for a container the server opened: from the mod's GUI handler (or a vanilla GUI, guiId < 0). */
+    public static Object clientGui(Object legacyPlayer, String modId, int guiId, int x, int y, int z) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        if (guiId < 0) {
+            return ClientGuis.vanillaGui(player, guiId, modId, x); // modId carries the title, x the size
+        }
+        ModContainer container = Loader.instance().getIndexedModList().get(modId);
+        return container == null ? null
+                : NetworkRegistry.INSTANCE.getLocalGuiContainer(container, player, guiId, player.field_70170_p, x, y, z);
+    }
+
+    // ---- Containers (host menus call these on both sides) ----
+
+    /** {slot count, then for each slot: x, y, index in the player's inventory or -1}. */
+    @SuppressWarnings("unchecked")
+    public static int[] containerSlots(Object legacyContainer) {
+        List<Slot> slots = ((Container) legacyContainer).field_75151_b; // inventorySlots
+        int[] layout = new int[1 + slots.size() * 3];
+        layout[0] = slots.size();
+        for (int i = 0; i < slots.size(); i++) {
+            Slot slot = slots.get(i);
+            layout[1 + i * 3] = slot.field_75223_e; // xDisplayPosition
+            layout[2 + i * 3] = slot.field_75221_f; // yDisplayPosition
+            boolean player = slot.field_75224_c instanceof InventoryPlayer && slot.getSlotIndex() < 40;
+            layout[3 + i * 3] = player ? slot.getSlotIndex() : -1;
+        }
+        return layout;
+    }
+
+    private static Slot slot(Object legacyContainer, int index) {
+        return (Slot) ((Container) legacyContainer).field_75151_b.get(index);
+    }
+
+    public static Object slotStack(Object legacyContainer, int index) {
+        return slot(legacyContainer, index).func_75211_c(); // getStack
+    }
+
+    public static void setSlotStack(Object legacyContainer, int index, Object stack) {
+        slot(legacyContainer, index).func_75215_d((ItemStack) stack); // putStack
+    }
+
+    public static boolean slotAccepts(Object legacyContainer, int index, Object stack) {
+        return slot(legacyContainer, index).func_75214_a((ItemStack) stack); // isItemValid
+    }
+
+    public static int slotLimit(Object legacyContainer, int index) {
+        return slot(legacyContainer, index).func_75219_a(); // getSlotStackLimit
+    }
+
+    public static boolean slotCanTake(Object legacyContainer, int index, Object legacyPlayer) {
+        return slot(legacyContainer, index).func_82869_a((EntityPlayer) legacyPlayer); // canTakeStack
+    }
+
+    /** slotClick with the cursor stack in and out: returns the cursor stack afterwards. */
+    public static Object click(Object legacyContainer, int slotId, int button, int mode, Object legacyPlayer, Object carried) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        player.field_71071_by.func_70437_b((ItemStack) carried); // inventory.setItemStack
+        ((Container) legacyContainer).func_75144_a(slotId, button, mode, player); // slotClick
+        ItemStack after = player.field_71071_by.func_70445_o(); // getItemStack
+        return after != null && after.field_77994_a <= 0 ? null : after;
+    }
+
+    /** detectAndSendChanges: progress bars reach the host through the mirror (sendProgressBarUpdate). */
+    public static void detectChanges(Object legacyContainer) {
+        ((Container) legacyContainer).func_75142_b();
+    }
+
+    public static boolean canInteract(Object legacyContainer, Object legacyPlayer) {
+        return ((Container) legacyContainer).func_75145_c((EntityPlayer) legacyPlayer); // canInteractWith
+    }
+
+    /** onContainerClosed (mods drop crafting grids and save here); the mirror goes back to its inventory container. */
+    public static void closeContainer(Object legacyContainer, Object legacyPlayer) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        Container container = (Container) legacyContainer;
+        container.func_75134_a(player);
+        if (player.field_71070_bA == container) { // openContainer
+            player.field_71070_bA = player.field_71069_bz; // inventoryContainer
+        }
+    }
+
+    /** Client: updateProgressBar */
+    public static void progressBar(Object legacyContainer, int property, int value) {
+        ((Container) legacyContainer).func_75137_b(property, value);
+    }
+
+    public static void setWindowId(Object legacyContainer, int windowId) {
+        ((Container) legacyContainer).field_75152_c = windowId;
+    }
+
+    /** Mods check player.openContainer in their packet handlers. */
+    public static void setOpenContainer(Object legacyPlayer, Object legacyContainer) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        player.field_71070_bA = legacyContainer != null ? (Container) legacyContainer : player.field_71069_bz;
+    }
+
+    /** Server: a vanilla chest GUI over a mod's inventory (EntityPlayerMP.displayGUIChest). */
+    static void openChest(BridgePlayerMP player, net.minecraft.inventory.IInventory inventory) {
+        Container menu = new net.minecraft.inventory.ContainerChest(player.field_71071_by, inventory);
+        open(player, menu, inventory.func_145825_b(), ClientGuis.CHEST, inventory.func_70302_i_(), 0, 0); // getInventoryName, getSizeInventory
+    }
+}

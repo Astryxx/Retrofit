@@ -58,6 +58,7 @@ minecraft {
             }
             if (project.hasProperty('worldTest')) {
                 property 'retrofit.worldTest', 'true'
+                property 'retrofit.debugGui', 'true'
             }
             if (project.hasProperty('renderTest')) {
                 property 'retrofit.renderTest', 'true'

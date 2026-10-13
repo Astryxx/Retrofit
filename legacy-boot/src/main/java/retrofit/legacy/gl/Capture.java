@@ -11,7 +11,7 @@ import java.util.Map;
  * x y z (after the legacy modelview), u v, nx ny nz, r g b a.
  *
  * Per vertex there is also a {@link #state} (bound texture index | {@link #BLEND} if blending was
- * on) and a {@link #light} value (packed lightmap coordinates the legacy code set, or -1 to use the
+ * on | {@link #UNTEXTURED} if texturing was off) and a {@link #light} value (packed lightmap coordinates the legacy code set, or -1 to use the
  * host's light). Texture indexes refer to {@link #textureName}.
  *
  * Reset with {@link #begin()} before a legacy render call; read afterwards. The host serializes
@@ -20,12 +20,15 @@ import java.util.Map;
 public final class Capture {
     public static final int FLOATS_PER_VERTEX = 12;
     public static final int BLEND = 1 << 16;
+    public static final int UNTEXTURED = 1 << 17;
     public static final int TEXTURE_MASK = 0xFFFF;
 
     private static float[] data = new float[FLOATS_PER_VERTEX * 1024];
     private static int[] states = new int[1024];
     private static int[] lights = new int[1024];
     private static int vertexCount;
+    /** Things the host draws itself, in drawing order: see {@link #mark}. */
+    private static final List<Object[]> MARKERS = new ArrayList<Object[]>();
 
     private static final List<String> TEXTURES = new ArrayList<String>();
     private static final Map<String, Integer> TEXTURE_IDS = new HashMap<String, Integer>();
@@ -36,7 +39,20 @@ public final class Capture {
     /** Clears captured vertices and resets the legacy GL state to its defaults. */
     public static void begin() {
         vertexCount = 0;
+        MARKERS.clear();
         GL11.resetState();
+    }
+
+    /**
+     * Records something for the host to draw at this point of the vertex stream (after the
+     * vertices captured so far): {Integer vertex index, String kind, Object subject, float[] at}.
+     */
+    public static void mark(String kind, Object subject, float[] at) {
+        MARKERS.add(new Object[]{vertexCount, kind, subject, at});
+    }
+
+    public static List<Object[]> markers() {
+        return MARKERS;
     }
 
     public static float[] data() {

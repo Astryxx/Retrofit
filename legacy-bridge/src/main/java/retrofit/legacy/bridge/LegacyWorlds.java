@@ -62,16 +62,26 @@ public final class LegacyWorlds {
         FinalFields.set(owner.getDeclaredField(field), null, file);
     }
 
-    /** WorldClient needs a client network handler for its map storage; legacy code never sends through it. */
-    static NetHandlerPlayClient clientNetHandler() {
+    private static NetHandlerPlayClient clientNetHandler;
+
+    /**
+     * The one client network handler: WorldClient needs it for its map storage, players for their
+     * send queue, FML for client message contexts. Mod packets sent through it reach the host
+     * (see BridgeClientNetHandler). Named by string so servers never load the client class.
+     */
+    static synchronized NetHandlerPlayClient clientNetHandler() {
+        if (clientNetHandler != null) {
+            return clientNetHandler;
+        }
         try {
             Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
             Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
             theUnsafe.setAccessible(true);
             Object unsafe = theUnsafe.get(null);
             NetHandlerPlayClient handler = (NetHandlerPlayClient) unsafeClass.getMethod("allocateInstance", Class.class)
-                    .invoke(unsafe, NetHandlerPlayClient.class);
+                    .invoke(unsafe, Class.forName("retrofit.legacy.bridge.BridgeClientNetHandler"));
             handler.field_147305_a = new MapStorage(null); // mapStorageOrigin
+            clientNetHandler = handler;
             return handler;
         } catch (Exception e) {
             throw new IllegalStateException("Retrofit could not create a legacy client network handler", e);
