@@ -31,7 +31,11 @@ public final class WorldTestClient {
     private static final int CHECK_TICK = 160;
     private static final int QUIT_TICK = 200;
 
+    /** Give up if no world is reached (e.g. disconnected), instead of hanging. */
+    private static final int GIVE_UP_TICK = 2400;
+
     private static int ticksInWorld;
+    private static int ticksTotal;
 
     private WorldTestClient() {
     }
@@ -39,7 +43,14 @@ public final class WorldTestClient {
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (!WorldTestServer.ENABLED || event.phase != TickEvent.Phase.END || minecraft.level == null || minecraft.player == null) {
+        if (!WorldTestServer.ENABLED || event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        if (++ticksTotal == GIVE_UP_TICK && ticksInWorld < CHECK_TICK) {
+            LOGGER.error("[WorldTest] Client FAILED: never got into a world; quitting");
+            minecraft.stop();
+        }
+        if (minecraft.level == null || minecraft.player == null) {
             return;
         }
         ticksInWorld++;

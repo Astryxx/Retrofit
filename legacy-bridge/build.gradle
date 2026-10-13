@@ -7,6 +7,8 @@ tasks.withType(JavaCompile).configureEach {
 
 dependencies {
     compileOnly project(':bridge-api')
+    // The Netty version 1.7.10 ships (PacketBuffer wraps its ByteBuf).
+    compileOnly 'io.netty:netty-all:4.0.10.Final'
     compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
 }
 

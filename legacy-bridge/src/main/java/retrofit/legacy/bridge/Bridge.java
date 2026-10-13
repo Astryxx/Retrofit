@@ -8,7 +8,10 @@ import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import net.minecraft.network.Packet;
+import net.minecraft.network.PacketBuffer;
 import net.minecraft.network.play.server.S35PacketUpdateTileEntity;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
@@ -197,32 +200,27 @@ public final class Bridge {
     // ---- Client sync (1.7.10 description packets) ----
 
     /**
-     * What the tile entity's description packet (getDescriptionPacket) would have sent to
-     * clients, as NBT bytes {action, data}; null if it sends nothing, as in 1.7.10.
+     * The tile entity's description packet (getDescriptionPacket), serialized with the packet's
+     * own writePacketData exactly as 1.7.10 put it on the wire; null if it sends nothing.
+     * (The packet's field getters are client-only, so the server can't take it apart.)
      */
     public static byte[] descriptionTag(Object tileEntity) throws IOException {
         Packet packet = ((TileEntity) tileEntity).func_145844_m(); // getDescriptionPacket
         if (!(packet instanceof S35PacketUpdateTileEntity)) {
             return null;
         }
-        S35PacketUpdateTileEntity update = (S35PacketUpdateTileEntity) packet;
-        NBTTagCompound tag = new NBTTagCompound();
-        tag.func_74768_a("action", update.func_148853_f()); // setInteger(getTileEntityType)
-        NBTTagCompound data = update.func_148857_g();      // getNbtCompound
-        if (data != null) {
-            tag.func_74782_a("data", data);                 // setTag
-        }
-        return toBytes(tag);
+        ByteBuf buffer = Unpooled.buffer();
+        packet.func_148840_b(new PacketBuffer(buffer)); // writePacketData
+        byte[] bytes = new byte[buffer.readableBytes()];
+        buffer.readBytes(bytes);
+        return bytes;
     }
 
-    /** Delivers a description to a client-side tile entity, as the 1.7.10 network handler did. */
+    /** Rebuilds the description packet on the client and hands it to onDataPacket, as 1.7.10's network handler did. */
     public static void applyDescription(Object tileEntity, byte[] description) throws IOException {
-        TileEntity tile = (TileEntity) tileEntity;
-        NBTTagCompound tag = fromBytes(description);
-        NBTTagCompound data = tag.func_74775_l("data"); // getCompoundTag
-        S35PacketUpdateTileEntity packet = new S35PacketUpdateTileEntity(
-                tile.field_145851_c, tile.field_145848_d, tile.field_145849_e, tag.func_74762_e("action"), data);
-        tile.onDataPacket(null, packet);
+        S35PacketUpdateTileEntity packet = new S35PacketUpdateTileEntity();
+        packet.func_148837_a(new PacketBuffer(Unpooled.wrappedBuffer(description))); // readPacketData
+        ((TileEntity) tileEntity).onDataPacket(null, packet);
     }
 
     public static boolean hasTileEntity(Object block, int meta) {

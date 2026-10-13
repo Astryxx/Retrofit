@@ -1,8 +1,9 @@
-.gradle/
-build/
-.tools/
-run/
-corpus/
-.idea/
 *.iml
+.gradle/
+.idea/
+.tools/
+build/
+corpus/
 out/
+run-server/
+run/

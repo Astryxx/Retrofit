@@ -26,7 +26,7 @@ public record Library(String group, String artifact, String version, String repo
 
     static Library parse(JsonObject json) {
         String[] coords = json.get("name").getAsString().split(":");
-        String repository = json.has("url") ? json.get("url").getAsString() : null;
+        String repository = json.has("url") ? secure(json.get("url").getAsString()) : null;
         List<String> sha1s = new ArrayList<>();
         if (json.has("checksums")) {
             for (JsonElement checksum : json.getAsJsonArray("checksums")) {
@@ -34,6 +34,14 @@ public record Library(String group, String artifact, String version, String repo
             }
         }
         return new Library(coords[0], coords[1], coords[2], repository, sha1s);
+    }
+
+    /** Forge 1.7.10's version file still points at its old plain-HTTP address. */
+    private static String secure(String url) {
+        if (url.startsWith("http://files.minecraftforge.net/maven")) {
+            return "https://maven.minecraftforge.net/";
+        }
+        return url.startsWith("http://") ? "https://" + url.substring("http://".length()) : url;
     }
 
     String relativePath() {
@@ -73,21 +81,43 @@ public record Library(String group, String artifact, String version, String repo
     }
 
     private void download(String base, Path target) throws IOException {
-        String url = base + relativePath();
-        byte[] jar = fetch(url);
+        downloadVerified(base + relativePath(), sha1s, target);
+    }
+
+    /**
+     * Downloads a file and checks its SHA-1 before moving it into place.
+     *
+     * @param sha1 the expected checksum, or null to use the server's "&lt;url&gt;.sha1" file
+     */
+    static void downloadVerified(String url, String sha1, Path target) throws IOException {
+        downloadVerified(url, sha1 == null ? List.of() : List.of(sha1), target);
+    }
+
+    /**
+     * The file must match a checksum from the version file or, failing that, the checksum its
+     * repository publishes next to it. (Forge 1.7.10's version file lists checksums of the files
+     * its installer repacked, which differ from the Scala jars actually published.)
+     */
+    private static void downloadVerified(String url, List<String> sha1s, Path target) throws IOException {
+        byte[] data = fetch(url);
+        String actual = sha1(data);
         List<String> expected = new ArrayList<>(sha1s);
-        if (expected.isEmpty()) {
+        if (!expected.contains(actual)) {
             expected.add(new String(fetch(url + ".sha1")).trim().split("\\s+")[0]);
         }
-        String actual = sha1(jar);
         if (!expected.contains(actual)) {
             throw new IOException("Checksum mismatch for " + url + ": got " + actual + ", expected " + expected);
         }
         Files.createDirectories(target.getParent());
-        Path temp = Files.createTempFile(target.getParent(), artifact, ".part");
-        Files.write(temp, jar);
+        Path temp = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".part");
+        Files.write(temp, data);
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         System.out.println("[Retrofit] Downloaded " + url);
+    }
+
+    /** Opens a URL for reading (small metadata files such as Mojang's version manifest). */
+    static InputStream open(String url) throws IOException {
+        return new java.io.ByteArrayInputStream(fetch(url));
     }
 
     private static byte[] fetch(String url) throws IOException {

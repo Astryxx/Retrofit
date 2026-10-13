@@ -59,3 +59,27 @@ tasks.register('dumpSrgJar', JavaExec) {
         '--dump-srg', srgJar.absolutePath
     ]
 }
+
+// Boot test for the dedicated-server side: downloads the 1.7.10 server jar and Forge into its
+// own cache (run/legacy-server/.retrofit), like a fresh server would.
+tasks.register('runServerSide', JavaExec) {
+    dependsOn ':legacy-boot:jar', ':legacy-bridge:jar', ':testmods:hello1710:jar'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'retrofit.harness.HarnessMain'
+    def serverGameDir = rootProject.file('run/legacy-server')
+    workingDir = serverGameDir
+    doFirst {
+        serverGameDir.mkdirs()
+        copy {
+            from project(':testmods:hello1710').tasks.jar.archiveFile
+            into new File(serverGameDir, 'mods')
+        }
+    }
+    args = [
+        '--server',
+        '--minecraft-home', new File(serverGameDir, 'no-launcher').absolutePath,
+        '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--bridge-jar', project(':legacy-bridge').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--game-dir', serverGameDir.absolutePath
+    ]
+}

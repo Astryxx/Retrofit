@@ -17,6 +17,8 @@ Retrofit is free, with no paid tiers.
 | **Rendering test**: vanilla 1.7.10 `ModelPig` (real `ModelRenderer`/`Tessellator`/display lists) drawn in a 1.20.1 world through GL emulation | ✅ Passing |
 | **World bridge test**: a 1.7.10 mod's block + ticking tile entity lives in a 1.20.1 world and survives save/reload | ✅ Passing |
 | **Legacy textures**: plain cube legacy blocks render with their own 1.7.10 textures as normal 1.20.1 models | ✅ Passing |
+| **Vanilla blocks, items, names**: legacy code reads/places real 1.20.1 vanilla blocks; legacy items with subtypes; translations from the mods' .lang files | ✅ Passing |
+| **Multiplayer**: dedicated 1.20.1 server boots the 1.7.10 server side (downloaded from Mojang); a client connects, legacy tile entity data syncs | ✅ Passing |
 | First real mod (BiblioCraft) | Not started |
 
 ## Layout
@@ -36,8 +38,10 @@ Legacy-side code must be Java 8 bytecode because Forge 1.7.10 reads classes with
 ## Requirements
 
 - JDK 17 (the build pins it in `gradle.properties`)
-- Minecraft 1.7.10 and Forge 10.13.4.1614 installed through the Minecraft launcher.
-  Missing open-source libraries are downloaded into `run/legacy/.retrofit/` and checksum-verified.
+- Nothing else. Retrofit uses the launcher's Minecraft 1.7.10 and Forge 10.13.4.1614 files when
+  they are installed, and otherwise downloads them from their official sources (Mojang's version
+  manifest, Forge's Maven, Maven Central) into `<game dir>/retrofit/.retrofit/`, checksum-verified.
+  A dedicated server downloads the 1.7.10 server jar the same way.
 
 ## Running
 
@@ -55,11 +59,21 @@ Inside a 1.20.1 dev client (legacy mods go in `forge/run/retrofit/mods`; the tes
 
 Either way, look for `===== BOOT OK =====` in the console or log.
 
-World bridge test (joins an existing singleplayer world; run it twice, the second run checks the reload):
+World test, singleplayer (joins an existing world; run it twice, the second run checks the reload):
 
 ```
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest
 ```
+
+World test, multiplayer (the server stops itself when the test client leaves):
+
+```
+./gradlew :forge:runServer -PworldTest
+./gradlew :forge:runClient -PquickPlayServer=127.0.0.1:25565 -PworldTest
+```
+
+The dev server runs in `forge/run-server`, in offline mode on a flat world, and its build step
+accepts Mojang's EULA for that local server. Server-side boot alone: `./gradlew :harness:runServerSide`.
 
 Legacy-side code compiles against `run/legacy-srg/minecraft-1.7.10-forge-srg.jar`, which
 `:harness:dumpSrgJar` builds from your own install (patched and deobfuscated to SRG names). It
@@ -85,6 +99,21 @@ contains Mojang code: it stays local and is never committed or published.
   both versions, so it crosses as bytes).
 - Legacy code sees each level as a real 1.7.10 `World` (`BridgeWorld`) whose block and tile
   entity methods call the level through `retrofit.api.HostWorld`.
+
+## Multiplayer
+
+Both sides boot the matching side of 1.7.10 (a dedicated server uses the 1.7.10 server jar).
+Everything legacy content adds is ordinary 1.20.1 content (registered blocks and items, a block
+entity type, JSON models, Forge networking), so Forge's registry sync, LAN, and tools that
+tunnel the normal game connection work without knowing about Retrofit.
+
+- Legacy tile entities exist on both sides and tick on both, as in 1.7.10.
+- A tile entity's 1.7.10 description packet is serialized with its own writePacketData into the
+  block entity's update tag (sent with chunk data and on markBlockForUpdate) and rebuilt on the
+  client for onDataPacket.
+- The vanilla block table is keyed by BlockState identity, so registry sync can't stale it.
+- A legacy tile entity that throws is disabled and logged; it never crashes the server or
+  disconnects a player.
 
 ## Legacy assets
 
@@ -130,6 +159,9 @@ from the calling class's loader; a legacy caller would get a second, misconfigur
 - Legacy blocks with custom rendering (render type other than 0, e.g. ISBRH) are drawn as textured cubes for now.
 - Legacy block names aren't translated yet (the item shows its raw translation key).
 - Vanilla blocks look like legacy air or stone to legacy code; a full vanilla block table is next.
-- Legacy tile entities only exist on the server; there is no client copy for rendering yet.
-- A 1.20.1 dedicated server doesn't load the legacy layer yet.
+- Legacy mods' own network packets (SimpleNetworkWrapper / FMLProxyPacket) aren't carried yet;
+  only description packets are.
+- Legacy entities, players, GUIs/containers and item use (right-click etc.) aren't bridged yet.
+- One test run's client stalled during Forge's login handshake over IPv6 loopback (the server sent
+  all handshake messages, the client received none); not reproduced since. Watch for it.
 - `HeadlessTransformer` stubs (resource reload, options, window messages) are boot-test only; the 1.20.1 bridge replaces them.

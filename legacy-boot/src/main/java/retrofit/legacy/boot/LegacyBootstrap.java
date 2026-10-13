@@ -23,11 +23,12 @@ import java.util.Set;
  */
 public final class LegacyBootstrap {
     private static final String FML_TWEAKER = "cpw.mods.fml.common.launcher.FMLTweaker";
+    private static final String FML_SERVER_TWEAKER = "cpw.mods.fml.common.launcher.FMLServerTweaker";
 
     private LegacyBootstrap() {
     }
 
-    public static void boot(File gameDir, File assetsDir, boolean headless) throws Throwable {
+    public static void boot(File gameDir, File assetsDir, boolean headless, boolean server) throws Throwable {
         URL[] sources = ((URLClassLoader) LegacyBootstrap.class.getClassLoader()).getURLs();
         LaunchClassLoader classLoader = new RetrofitLaunchClassLoader(sources);
         classLoader.addClassLoaderExclusion("retrofit.legacy.boot.");
@@ -45,7 +46,7 @@ public final class LegacyBootstrap {
         // Fixes FML's own startup classes; hands over to RetrofitTransformer.Late once vanilla classes load.
         classLoader.registerTransformer(RetrofitTransformer.Early.class.getName());
 
-        List<String> tweakClassNames = new ArrayList<String>(Collections.singletonList(FML_TWEAKER));
+        List<String> tweakClassNames = new ArrayList<String>(Collections.singletonList(server ? FML_SERVER_TWEAKER : FML_TWEAKER));
         List<String> argumentList = new ArrayList<String>();
         Launch.blackboard.put("TweakClasses", tweakClassNames);
         Launch.blackboard.put("ArgumentList", argumentList);
@@ -60,7 +61,11 @@ public final class LegacyBootstrap {
         if (headless) {
             // Last in the chain, so it sees deobfuscated SRG names.
             classLoader.registerTransformer(HeadlessTransformer.class.getName());
-            HeadlessClient.run(classLoader, gameDir);
+            if (server) {
+                HeadlessServer.run(classLoader, gameDir);
+            } else {
+                HeadlessClient.run(classLoader, gameDir);
+            }
         }
     }
 

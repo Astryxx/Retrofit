@@ -33,21 +33,23 @@ public final class LegacyHost {
      * @param gameDir       the legacy game directory (mods, config, logs)
      * @param retrofitJars  Retrofit's legacy-side jars (boot, and optionally the bridge)
      * @param headless      stub out the legacy client's window and resource systems
+     * @param server        boot the dedicated server side of 1.7.10 instead of the client
      * @return a handle for calling into the booted legacy world
      */
-    public static LegacyRuntime boot(Path minecraftHome, Path gameDir, List<Path> retrofitJars, boolean headless) throws Exception {
+    public static LegacyRuntime boot(Path minecraftHome, Path gameDir, List<Path> retrofitJars, boolean headless, boolean server)
+            throws Exception {
         // Logging must be initialised before the context class loader switches to the legacy
         // world: SLF4J and log4j both discover providers and config files through it.
         Logger log = LoggerFactory.getLogger("Retrofit");
         long start = System.nanoTime();
-        LegacyInstall install = new LegacyInstall(minecraftHome);
+        LegacyInstall install = new LegacyInstall(minecraftHome, gameDir.resolve(".retrofit"), server);
         prepareGameDir(gameDir);
 
         List<URL> urls = new ArrayList<>();
         for (Path jar : retrofitJars) {
             urls.add(jar.toUri().toURL());
         }
-        for (Path entry : install.classpath(gameDir.resolve(".retrofit"))) {
+        for (Path entry : install.classpath()) {
             urls.add(entry.toUri().toURL());
         }
         log.info("Legacy classpath: {} entries from {}", urls.size(), minecraftHome);
@@ -65,15 +67,15 @@ public final class LegacyHost {
         thread.setContextClassLoader(root);
         try {
             root.loadClass("retrofit.legacy.boot.LegacyBootstrap")
-                    .getMethod("boot", File.class, File.class, boolean.class)
-                    .invoke(null, gameDir.toFile(), install.assetsDir().toFile(), headless);
+                    .getMethod("boot", File.class, File.class, boolean.class, boolean.class)
+                    .invoke(null, gameDir.toFile(), install.assetsDir().toFile(), headless, server);
         } catch (InvocationTargetException e) {
             throw unwrap(e);
         } finally {
             thread.setContextClassLoader(previous);
         }
         log.info("Total legacy boot time: {} ms", (System.nanoTime() - start) / 1_000_000);
-        return new LegacyRuntime(root, install.gameJar());
+        return new LegacyRuntime(root, server ? null : install.gameJar());
     }
 
     /** Forge's loading splash needs its own OpenGL window, so it is always off. */

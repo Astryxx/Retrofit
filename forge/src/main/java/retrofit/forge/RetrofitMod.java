@@ -32,17 +32,15 @@ public final class RetrofitMod {
     private static volatile LegacyRuntime runtime;
 
     public RetrofitMod() {
-        if (FMLEnvironment.dist != Dist.CLIENT) {
-            LOGGER.warn("Retrofit only runs on the client so far; legacy mods are not loaded on this server.");
-            return;
-        }
+        // Both sides boot the matching side of 1.7.10: a dedicated server downloads the 1.7.10 server jar.
+        boolean server = FMLEnvironment.dist == Dist.DEDICATED_SERVER;
         Path legacyDir = FMLPaths.GAMEDIR.get().resolve("retrofit");
         try {
             List<Path> jars = new ArrayList<>();
             for (String jar : LEGACY_JARS) {
                 jars.add(extractJar(jar, legacyDir.resolve(".retrofit")));
             }
-            runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true);
+            runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true, server);
         } catch (Exception e) {
             throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10. See the log above for details.", e);
         }

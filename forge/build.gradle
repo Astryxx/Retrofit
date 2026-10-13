@@ -30,11 +30,22 @@ minecraft {
                 }
             }
         }
+        server {
+            // A separate directory, so a dev client and a dev server can run at the same time.
+            workingDirectory project.file('run-server')
+            args '--nogui'
+            if (project.hasProperty('worldTest')) {
+                property 'retrofit.worldTest', 'true'
+            }
+        }
         client {
-            // -PquickPlay="World Name" joins that singleplayer world on launch; -PworldTest runs WorldBridgeTest,
-            // -PrenderTest runs LegacyModelTestRenderer.
+            // -PquickPlay="World Name" joins that singleplayer world on launch, -PquickPlayServer=host:port joins a
+            // server; -PworldTest runs the world test (retrofit.forge.test), -PrenderTest LegacyModelTestRenderer.
             if (project.hasProperty('quickPlay')) {
                 args '--quickPlaySingleplayer', project.property('quickPlay')
+            }
+            if (project.hasProperty('quickPlayServer')) {
+                args '--quickPlayMultiplayer', project.property('quickPlayServer')
             }
             if (project.hasProperty('worldTest')) {
                 property 'retrofit.worldTest', 'true'
@@ -82,6 +93,28 @@ tasks.matching { it.name == 'runClient' }.configureEach {
         copy {
             from project(':testmods:hello1710').tasks.jar.archiveFile
             into file('run/retrofit/mods')
+        }
+    }
+}
+
+// Dev server: same test mod, and a local-only setup (offline mode for the dev account, flat world).
+tasks.matching { it.name == 'runServer' }.configureEach {
+    dependsOn ':testmods:hello1710:jar'
+    doFirst {
+        def serverDir = file('run-server')
+        copy {
+            from project(':testmods:hello1710').tasks.jar.archiveFile
+            into new File(serverDir, 'retrofit/mods')
+        }
+        // Local development server only: accepts Mojang's EULA (https://aka.ms/MinecraftEULA) for it.
+        def eula = new File(serverDir, 'eula.txt')
+        if (!eula.exists()) {
+            eula.text = 'eula=true\n'
+        }
+        def properties = new File(serverDir, 'server.properties')
+        if (!properties.exists()) {
+            properties.text = ['online-mode=false', 'level-type=minecraft\\:flat', 'spawn-protection=0',
+                               'motd=Retrofit dev server'].join('\n') + '\n'
         }
     }
 }

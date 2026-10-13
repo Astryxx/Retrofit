@@ -16,12 +16,14 @@ public final class HarnessMain {
     public static void main(String[] args) throws Exception {
         List<Path> retrofitJars = new ArrayList<>();
         Path dumpSrg = null;
+        boolean server = false;
         Path gameDir = Path.of("").toAbsolutePath();
         Path minecraftHome = LegacyInstall.defaultMinecraftHome();
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--boot-jar", "--bridge-jar" -> retrofitJars.add(Path.of(args[++i]));
                 case "--dump-srg" -> dumpSrg = Path.of(args[++i]);
+                case "--server" -> server = true;
                 case "--game-dir" -> gameDir = Path.of(args[++i]);
                 case "--minecraft-home" -> minecraftHome = Path.of(args[++i]);
                 default -> throw new IllegalArgumentException("Unknown argument " + args[i]);
@@ -30,13 +32,15 @@ public final class HarnessMain {
         if (retrofitJars.isEmpty()) {
             throw new IllegalArgumentException("--boot-jar is required");
         }
-        LegacyRuntime runtime = LegacyHost.boot(minecraftHome, gameDir, retrofitJars, true);
+        LegacyRuntime runtime = LegacyHost.boot(minecraftHome, gameDir, retrofitJars, true, server);
         if (dumpSrg != null) {
             runtime.rootLoader().loadClass("retrofit.legacy.boot.SrgJarDumper").getMethod("dump", java.io.File.class)
                     .invoke(null, dumpSrg.toFile());
             return;
         }
-        renderTest(runtime);
+        if (!server) {
+            renderTest(runtime); // client-only: models and GL
+        }
         WorldBridgeSmokeTest.run(runtime);
     }
 

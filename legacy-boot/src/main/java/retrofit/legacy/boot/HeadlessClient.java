@@ -48,7 +48,7 @@ public final class HeadlessClient {
         report(lcl, start);
     }
 
-    private static void report(ClassLoader lcl, long start) throws Exception {
+    static void report(ClassLoader lcl, long start) throws Exception {
         Class<?> loaderClass = Class.forName("cpw.mods.fml.common.Loader", true, lcl);
         Object loader = loaderClass.getMethod("instance").invoke(null);
         List<?> mods = (List<?>) loaderClass.getMethod("getActiveModList").invoke(loader);

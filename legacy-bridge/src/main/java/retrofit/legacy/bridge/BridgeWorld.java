@@ -10,7 +10,6 @@ import net.minecraft.world.WorldProvider;
 import net.minecraft.world.WorldSettings;
 import net.minecraft.world.WorldType;
 import net.minecraft.world.chunk.IChunkProvider;
-import net.minecraft.world.storage.SaveHandlerMP;
 import retrofit.api.HostWorld;
 
 /**
@@ -25,8 +24,9 @@ public final class BridgeWorld extends World {
     private final HostWorld host;
 
     public BridgeWorld(HostWorld host, int dimension) {
-        super(new SaveHandlerMP(), "Retrofit", WorldProvider.func_76570_a(dimension), // getProviderForDimension
-                survivalSettings(), new Profiler());
+        // The (saveHandler, name, settings, provider, profiler) constructor: the other one is client-only.
+        super(new BridgeSaveHandler(), "Retrofit", survivalSettings(),
+                WorldProvider.func_76570_a(dimension), new Profiler()); // getProviderForDimension
         this.host = host;
         this.field_72995_K = host.isClientSide(); // isRemote
     }
