@@ -27,6 +27,10 @@ public final class ClientHooks {
 
     /** A legacy mod packet from the server, for the local player. */
     public static void legacyPayload(String channel, byte[] data) {
+        if (channel.equals(retrofit.forge.world.LegacyEvents.IDS_CHANNEL)) {
+            LegacyBridge.call("applyIds", (Object) data);
+            return;
+        }
         LocalPlayer player = Minecraft.getInstance().player;
         if (player != null) {
             LegacyNetwork.deliver(new LegacyNetwork.Payload(channel, data), LegacyPlayers.mirror(player, true));

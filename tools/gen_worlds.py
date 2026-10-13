@@ -173,9 +173,14 @@ public class BridgeWorldClient extends WorldClient {""", """    public BridgeWor
 }
 
 for name, (header, constructor, extra_imports) in CLASSES.items():
-    lines = ["package retrofit.legacy.bridge;", "", extra_imports + IMPORTS, header, "    private final HostWorld host;", "", constructor]
+    lines = ["package retrofit.legacy.bridge;", "", extra_imports + IMPORTS, header, "    private HostWorld host;", "", constructor]
     lines.append("""    public HostWorld host() {
         return host;
+    }
+
+    /** World generation reuses one world per dimension, pointed at each chunk's region in turn (see WorldGen). */
+    void setHost(HostWorld host) {
+        this.host = host;
     }
 """)
     for doc, signature, body in METHODS:

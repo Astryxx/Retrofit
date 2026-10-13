@@ -141,6 +141,11 @@ final class InteractionTest {
         int commandResult = player.server.getCommands().performPrefixedCommand(player.createCommandSourceStack(), "hello retrofit");
         passed += check(commandResult == 1, "command", "/hello returned " + commandResult);
 
+        // 9. World generation: the legacy generator's ore veins (in stone laid down for it, as the test world is flat)
+        //    and, every 8th chunk, a crate it fills with a ruby.
+        total++;
+        passed += worldGen(level);
+
         if (passed == total) {
             LOGGER.info("[WorldTest] Interaction PASSED: {}/{}", passed, total);
         } else {
@@ -185,6 +190,51 @@ final class InteractionTest {
         }
         check(after == before + 3 && player.getInventory().getItem(9).isEmpty(), "GUI shift-click",
                 "diamonds in the crate " + before + " -> " + after + ", inventory slot 9 has " + player.getInventory().getItem(9));
+    }
+
+    private static int worldGen(ServerLevel level) {
+        Block ore = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("hello1710", "ruby_ore"));
+        var feature = ForgeRegistries.FEATURES.getValue(new ResourceLocation("retrofit", "legacy_generators"));
+        if (ore == null || feature == null) {
+            return check(false, "world generation", "ruby_ore " + ore + ", feature " + feature);
+        }
+        int minX = 640;
+        int minZ = 640;
+        for (int cx = 40; cx <= 41; cx++) {
+            for (int cz = 40; cz <= 41; cz++) {
+                level.getChunk(cx, cz);
+            }
+        }
+        BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+        for (int x = minX; x < minX + 32; x++) {
+            for (int z = minZ; z < minZ + 32; z++) {
+                for (int y = 5; y <= 45; y++) {
+                    if (!level.getBlockState(at.set(x, y, z)).is(ore)) {
+                        level.setBlock(at, Blocks.STONE.defaultBlockState(), 2);
+                    }
+                }
+            }
+        }
+        @SuppressWarnings("unchecked")
+        var generators = (net.minecraft.world.level.levelgen.feature.Feature<net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration>) feature;
+        generators.place(net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration.INSTANCE, level,
+                level.getChunkSource().getGenerator(), level.random, new BlockPos(minX, level.getMinBuildHeight(), minZ));
+        int ores = 0;
+        for (int x = minX; x < minX + 32; x++) {
+            for (int z = minZ; z < minZ + 32; z++) {
+                for (int y = 5; y <= 45; y++) {
+                    ores += level.getBlockState(at.set(x, y, z)).is(ore) ? 1 : 0;
+                }
+            }
+        }
+        int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, minX + 8, minZ + 8);
+        net.minecraft.world.level.block.entity.BlockEntity crate = null;
+        for (int y = top; y >= top - 2 && crate == null; y--) {
+            crate = level.getBlockEntity(new BlockPos(minX + 8, y, minZ + 8));
+        }
+        String crateData = crate == null ? "none" : crate.saveWithoutMetadata().toString();
+        boolean filled = crateData.contains("test_gem") || crateData.contains("Items");
+        return check(ores > 0 && filled, "world generation", ores + " ruby ore blocks; crate " + crateData);
     }
 
     private static int check(boolean ok, String step, String detail) {

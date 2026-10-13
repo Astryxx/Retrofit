@@ -23,7 +23,7 @@ import java.util.List;
  */
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorldServer extends WorldServer {
-    private final HostWorld host;
+    private HostWorld host;
 
     public BridgeWorldServer(HostWorld host, int dimension) {
         super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
@@ -49,6 +49,11 @@ public class BridgeWorldServer extends WorldServer {
 
     public HostWorld host() {
         return host;
+    }
+
+    /** World generation reuses one world per dimension, pointed at each chunk's region in turn (see WorldGen). */
+    void setHost(HostWorld host) {
+        this.host = host;
     }
 
     /** getBlock */

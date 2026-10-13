@@ -1,6 +1,12 @@
 package retrofit.legacy.bridge;
 
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.FMLContainer;
+import cpw.mods.fml.common.Loader;
+import cpw.mods.fml.common.registry.GameData;
+import net.minecraft.nbt.CompressedStreamTools;
+import net.minecraft.nbt.NBTBase;
+import net.minecraft.nbt.NBTTagCompound;
 import cpw.mods.fml.common.eventhandler.Event;
 import net.minecraft.command.ICommand;
 import net.minecraft.entity.player.EntityPlayer;
@@ -13,6 +19,7 @@ import net.minecraftforge.event.world.WorldEvent;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -101,9 +108,18 @@ public final class Events {
 
     // ---- Server lifecycle ----
 
-    /** Before the host server starts: where legacy world data lives, then FMLServerAboutToStartEvent. */
-    public static void serverAboutToStart(File saveDirectory) throws ReflectiveOperationException {
+    /**
+     * Before the host server starts: where legacy world data lives, the world's legacy numeric
+     * ids (as 1.7.10 kept them in level.dat, so saved legacy data keeps meaning the same items when
+     * mods are added), then FMLServerAboutToStartEvent.
+     */
+    public static void serverAboutToStart(File saveDirectory) throws Exception {
         LegacyWorlds.setSaveDirectory(saveDirectory);
+        try {
+            loadIds(new File(saveDirectory, "fml-ids.dat"));
+        } catch (Exception e) {
+            System.out.println("[Retrofit] Could not restore this world's legacy ids (the mods' own are used): " + e);
+        }
         Field shared = World.class.getDeclaredField("s_mapStorage"); // Forge's global map storage, from the last world
         shared.setAccessible(true);
         shared.set(null, null);
@@ -124,6 +140,54 @@ public final class Events {
 
     public static void serverStopped() {
         FMLCommonHandler.instance().handleServerStopped();
+        GameData.revertToFrozen(); // the next world (singleplayer) starts from the mods' own ids
+    }
+
+    /** FML reads and writes its id data alongside a WorldInfo (it only uses the name). */
+    private static net.minecraft.world.storage.WorldInfo worldInfo() {
+        return new net.minecraft.world.storage.WorldInfo(LegacyWorlds.survivalSettings(), "Retrofit");
+    }
+
+    private static FMLContainer fml() {
+        Object container = Loader.instance().getIndexedModList().get("FML");
+        if (container instanceof cpw.mods.fml.common.InjectedModContainer) {
+            container = ((cpw.mods.fml.common.InjectedModContainer) container).wrappedContainer;
+        }
+        return (FMLContainer) container;
+    }
+
+    private static void loadIds(File file) throws Exception {
+        if (file.isFile()) {
+            NBTTagCompound tag = CompressedStreamTools.func_74797_a(file); // read
+            fml().readData(null, worldInfo(), new HashMap<String, NBTBase>(), tag);
+            System.out.println("[Retrofit] Restored this world's legacy ids from " + file);
+        }
+        saveIds(file);
+    }
+
+    /** The id map for a connecting client (1.7.10 sent it in FML's handshake). */
+    public static byte[] idData() throws Exception {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        CompressedStreamTools.func_74799_a(fml().getDataForWriting(null, worldInfo()), bytes); // writeCompressed
+        return bytes.toByteArray();
+    }
+
+    /** Client: use the server's id map for this connection. */
+    public static void applyIds(byte[] data) throws Exception {
+        NBTTagCompound tag = CompressedStreamTools.func_74796_a(new java.io.ByteArrayInputStream(data)); // readCompressed
+        fml().readData(null, worldInfo(), new HashMap<String, NBTBase>(), tag);
+    }
+
+    /** Client, after leaving a server: back to the mods' own ids. */
+    public static void revertIds() {
+        GameData.revertToFrozen();
+    }
+
+    /** Writes the legacy id map (FML's level.dat data) for this world. */
+    public static void saveIds(File file) throws Exception {
+        file.getParentFile().mkdirs();
+        NBTTagCompound tag = fml().getDataForWriting(null, worldInfo());
+        CompressedStreamTools.func_74793_a(tag, file); // safeWrite
     }
 
     // ---- Worlds ----
@@ -141,6 +205,13 @@ public final class Events {
         }
         if (legacy.field_72988_C != null) { // mapStorage
             legacy.field_72988_C.func_75744_a();
+        }
+        if (!legacy.field_72995_K && legacy.field_73011_w.field_76574_g == 0) { // the overworld's save carries the id map
+            try {
+                saveIds(new File(LegacyWorlds.saveDirectory(), "fml-ids.dat"));
+            } catch (Exception e) {
+                System.out.println("[Retrofit] Could not save legacy ids: " + e);
+            }
         }
     }
 

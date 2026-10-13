@@ -34,6 +34,9 @@ public class Hello1710 {
         network = NetworkRegistry.INSTANCE.newSimpleChannel("hello1710");
         network.registerMessage(PingMessage.Handler.class, PingMessage.class, 0, Side.SERVER);
         network.registerMessage(PongMessage.Handler.class, PongMessage.class, 1, Side.CLIENT);
+        HelloWorldGen.rubyOre = new HelloWorldGen.RubyOre();
+        GameRegistry.registerBlock(HelloWorldGen.rubyOre, "ruby_ore");
+        GameRegistry.registerWorldGenerator(new HelloWorldGen(), 10);
         gem = new TestGem();
         GameRegistry.registerItem(gem, "test_gem");
         System.out.println("[hello1710] Registered counter_block (with CounterTile) and test_gem");

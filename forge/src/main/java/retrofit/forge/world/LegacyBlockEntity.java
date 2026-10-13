@@ -31,7 +31,7 @@ import java.io.UncheckedIOException;
  *   and it never crashes the server or disconnects a player.
  */
 public class LegacyBlockEntity extends BlockEntity {
-    private static final String LEGACY_TAG = "legacy";
+    static final String LEGACY_TAG = "legacy";
     private static final String DESCRIPTION_TAG = "legacyDescription";
     private static final Logger LOGGER = LogUtils.getLogger();
 

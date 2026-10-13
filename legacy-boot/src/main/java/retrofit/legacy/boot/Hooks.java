@@ -48,6 +48,17 @@ public final class Hooks {
         retrofit.legacy.gl.GL11.bindLegacyTexture(String.valueOf(location));
     }
 
+    /** Replaces FML's StartupQuery.confirm: no one can be asked, so continue (as most players would). */
+    public static boolean startupConfirm(String text) {
+        System.out.println("[Retrofit] Legacy FML asked: " + text.replace('\n', ' ') + " -> continuing");
+        return true;
+    }
+
+    /** Replaces FML's StartupQuery.notify. */
+    public static void startupNotify(String text) {
+        System.out.println("[Retrofit] Legacy FML: " + text.replace('\n', ' '));
+    }
+
     /** Replaces Minecraft.displayCrashReport so a legacy crash prints instead of opening a window. */
     public static void crash(Object crashReport) {
         try {

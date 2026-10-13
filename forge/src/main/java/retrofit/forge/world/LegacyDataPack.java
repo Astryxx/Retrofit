@@ -33,6 +33,7 @@ import java.util.TreeMap;
  * - Block tags for harvest tools: 1.7.10 blocks named their tool and level in code
  *   (setHarvestLevel), 1.20.1 reads mineable/* and needs_*_tool tags.
  * - Recipes: see {@link LegacyRecipes}.
+ * - World generation: see {@link LegacyWorldGen}.
  */
 @Mod.EventBusSubscriber(modid = RetrofitMod.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public final class LegacyDataPack implements PackResources {
@@ -89,6 +90,7 @@ public final class LegacyDataPack implements PackResources {
             put("minecraft", "tags/blocks/" + tag + ".json", json.toString());
         });
         LegacyRecipes.addTo(this);
+        LegacyWorldGen.addTo(this);
     }
 
     void put(String namespace, String path, String contents) {

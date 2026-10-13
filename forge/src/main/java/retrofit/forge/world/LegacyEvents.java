@@ -179,8 +179,18 @@ public final class LegacyEvents {
 
     // ---- Players ----
 
+    /** Channel name of the legacy id map sent to clients of dedicated servers (not a legacy channel). */
+    public static final String IDS_CHANNEL = "retrofit:ids";
+
     @SubscribeEvent
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (active() && event.getEntity() instanceof ServerPlayer player && player.server.isDedicatedServer()) {
+            try {
+                LegacyNetwork.sendTo(player, IDS_CHANNEL, LegacyBridge.call("idData"));
+            } catch (RuntimeException e) {
+                LegacyErrors.report("legacy ids", "being sent to a player", e);
+            }
+        }
         if (active()) {
             fire("player login", () -> LegacyBridge.call("playerLoggedIn", LegacyPlayers.mirror(event.getEntity(), true)));
         }

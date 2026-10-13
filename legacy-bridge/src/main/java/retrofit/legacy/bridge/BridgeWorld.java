@@ -24,7 +24,7 @@ import java.util.List;
  */
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorld extends World {
-    private final HostWorld host;
+    private HostWorld host;
 
     public BridgeWorld(HostWorld host, int dimension) {
         // The (saveHandler, name, settings, provider, profiler) constructor: the other one is client-only.
@@ -42,6 +42,11 @@ public class BridgeWorld extends World {
 
     public HostWorld host() {
         return host;
+    }
+
+    /** World generation reuses one world per dimension, pointed at each chunk's region in turn (see WorldGen). */
+    void setHost(HostWorld host) {
+        this.host = host;
     }
 
     /** getBlock */

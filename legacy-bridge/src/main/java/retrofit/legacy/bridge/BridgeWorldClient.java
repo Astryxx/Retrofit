@@ -24,7 +24,7 @@ import java.util.List;
  */
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorldClient extends WorldClient {
-    private final HostWorld host;
+    private HostWorld host;
 
     public BridgeWorldClient(HostWorld host, int dimension) {
         super(LegacyWorlds.clientNetHandler(), LegacyWorlds.survivalSettings(), dimension, EnumDifficulty.NORMAL, new Profiler());
@@ -40,6 +40,11 @@ public class BridgeWorldClient extends WorldClient {
 
     public HostWorld host() {
         return host;
+    }
+
+    /** World generation reuses one world per dimension, pointed at each chunk's region in turn (see WorldGen). */
+    void setHost(HostWorld host) {
+        this.host = host;
     }
 
     /** getBlock */

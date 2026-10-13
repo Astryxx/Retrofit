@@ -33,6 +33,14 @@ public final class LegacyClientEvents {
         });
     }
 
+    /** Leaving a dedicated server: its legacy id map no longer applies. */
+    @SubscribeEvent
+    public static void onLoggingOut(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
+        if (RetrofitMod.runtime() != null && Minecraft.getInstance().getSingleplayerServer() == null) {
+            run(() -> LegacyBridge.call("revertIds"));
+        }
+    }
+
     @SubscribeEvent
     public static void onRenderTick(TickEvent.RenderTickEvent event) {
         if (RetrofitMod.runtime() == null) {

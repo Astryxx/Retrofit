@@ -70,6 +70,10 @@ public class HeadlessTransformer implements IClassTransformer {
         redirect("net.minecraft.client.renderer.entity.RenderItem",
                 "func_94148_a(Lnet/minecraft/client/gui/FontRenderer;Lnet/minecraft/client/renderer/texture/TextureManager;Lnet/minecraft/item/ItemStack;IILjava/lang/String;)V",
                 CLIENT_GUIS + "drawItemOverlayText");
+        // FML asks the player (a window, or the server console) when a world's saved IDs name missing
+        // blocks or items; there is neither here: it is logged and answered "continue".
+        redirect("cpw.mods.fml.common.StartupQuery", "confirm(Ljava/lang/String;)Z", "retrofit/legacy/boot/Hooks.startupConfirm");
+        redirect("cpw.mods.fml.common.StartupQuery", "notify(Ljava/lang/String;)V", "retrofit/legacy/boot/Hooks.startupNotify");
         // Mod packets: FML's outbound handler hands each packet to the host's channel.
         redirect("cpw.mods.fml.common.network.FMLOutboundHandler",
                 "write(Lio/netty/channel/ChannelHandlerContext;Ljava/lang/Object;Lio/netty/channel/ChannelPromise;)V", NETWORK + "outbound");
