@@ -17,6 +17,7 @@ public class LegacyBlock extends Block implements EntityBlock {
     private final boolean hasTileEntity;
     private final boolean opaque;
     private final int renderPass;
+    private final String translationKey;
 
     /** @param renderInfo see {@link LegacyBridge#blockRenderInfo} */
     public LegacyBlock(Object legacyBlock, boolean hasTileEntity, int[] renderInfo) {
@@ -25,6 +26,7 @@ public class LegacyBlock extends Block implements EntityBlock {
         this.hasTileEntity = hasTileEntity;
         this.opaque = renderInfo[1] != 0;
         this.renderPass = renderInfo[2];
+        this.translationKey = LegacyBridge.blockTranslationKey(legacyBlock);
         registerDefaultState(stateDefinition.any().setValue(LegacyContent.META, 0));
     }
 
@@ -38,6 +40,12 @@ public class LegacyBlock extends Block implements EntityBlock {
             properties.lightLevel(state -> light);
         }
         return properties;
+    }
+
+    /** The legacy translation key ("tile.<name>.name"); the asset pack supplies the mods' translations. */
+    @Override
+    public String getDescriptionId() {
+        return translationKey;
     }
 
     public boolean isOpaque() {
@@ -69,9 +77,10 @@ public class LegacyBlock extends Block implements EntityBlock {
 
     @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
-        if (level.isClientSide || !hasTileEntity || type != LegacyContent.blockEntityType()) {
+        if (!hasTileEntity || type != LegacyContent.blockEntityType()) {
             return null;
         }
-        return (tickLevel, pos, tickState, blockEntity) -> ((LegacyBlockEntity) blockEntity).serverTick();
+        // 1.7.10 ticked tile entities on both sides (clients use it for animation and effects).
+        return (tickLevel, pos, tickState, blockEntity) -> ((LegacyBlockEntity) blockEntity).tick();
     }
 }

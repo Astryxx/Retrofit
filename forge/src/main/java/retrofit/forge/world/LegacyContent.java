@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.registries.RegisterEvent;
 import org.slf4j.Logger;
 import retrofit.forge.RetrofitMod;
@@ -35,6 +36,7 @@ public final class LegacyContent {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final List<LegacyBlock> BLOCKS = new ArrayList<>();
+    private static final List<LegacyItem> ITEMS = new ArrayList<>();
     private static final Map<Object, LegacyBlock> BY_LEGACY = new IdentityHashMap<>();
     private static final Map<Level, Object> WORLDS = new WeakHashMap<>();
 
@@ -45,6 +47,10 @@ public final class LegacyContent {
 
     public static List<LegacyBlock> blocks() {
         return java.util.Collections.unmodifiableList(BLOCKS);
+    }
+
+    public static List<LegacyItem> items() {
+        return java.util.Collections.unmodifiableList(ITEMS);
     }
 
     public static BlockEntityType<LegacyBlockEntity> blockEntityType() {
@@ -94,6 +100,13 @@ public final class LegacyContent {
             for (LegacyBlock block : BLOCKS) {
                 helper.register(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block), new BlockItem(block, new Item.Properties()));
             }
+            for (String name : LegacyBridge.modItemNames()) {
+                Object legacyItem = LegacyBridge.item(name);
+                LegacyItem item = new LegacyItem(legacyItem, LegacyBridge.itemInfo(legacyItem));
+                helper.register(toResourceLocation(name), item);
+                ITEMS.add(item);
+            }
+            LOGGER.info("Registered {} legacy items", ITEMS.size());
         });
         event.register(Registries.BLOCK_ENTITY_TYPE, helper -> {
             LegacyBlock[] withTiles = BLOCKS.stream().filter(LegacyBlock::hasTileEntity).toArray(LegacyBlock[]::new);
@@ -102,10 +115,24 @@ public final class LegacyContent {
         });
     }
 
+    /** Builds the vanilla block table during parallel mod setup, not on the first legacy tick. */
+    @SubscribeEvent
+    public static void onCommonSetup(FMLCommonSetupEvent event) {
+        if (RetrofitMod.runtime() != null) {
+            LegacyBlockTable.get();
+        }
+    }
+
     @SubscribeEvent
     public static void onBuildCreativeTabs(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS) {
             BLOCKS.forEach(event::accept);
+        } else if (event.getTabKey() == CreativeModeTabs.INGREDIENTS) {
+            for (LegacyItem item : ITEMS) {
+                for (int meta : item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0}) {
+                    event.accept(item.stackOf(meta));
+                }
+            }
         }
     }
 

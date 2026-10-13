@@ -16,7 +16,8 @@ public class Hello1710 {
         testEnumExtension();
         GameRegistry.registerBlock(new CounterBlock(), "counter_block");
         GameRegistry.registerTileEntity(CounterTile.class, "hello1710:counter");
-        System.out.println("[hello1710] Registered counter_block with CounterTile");
+        GameRegistry.registerItem(new TestGem(), "test_gem");
+        System.out.println("[hello1710] Registered counter_block (with CounterTile) and test_gem");
     }
 
     /** Mods add enum constants at runtime (tool materials, rarities, creature types); Java 17 broke Forge's way of doing it. */

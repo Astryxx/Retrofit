@@ -6,116 +6,179 @@ import retrofit.host.LegacyRuntime;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Typed host-side access to the legacy bridge ({@code retrofit.legacy.bridge.Bridge}, loaded in
- * the 1.7.10 world). Legacy objects are opaque {@code Object}s here.
+ * the 1.7.10 world). Legacy objects are opaque {@code Object}s here. Per-tick calls use exact
+ * method handles; everything else goes through {@link #call}.
  */
 public final class LegacyBridge {
-    private static MethodHandle createWorld;
-    private static MethodHandle modBlockNames;
-    private static MethodHandle block;
-    private static MethodHandle hasTileEntity;
-    private static MethodHandle createTileEntity;
-    private static MethodHandle load;
-    private static MethodHandle save;
-    private static MethodHandle canUpdate;
+    private static final Map<String, MethodHandle> HANDLES = new HashMap<>();
     private static MethodHandle tick;
-    private static MethodHandle remove;
-    private static MethodHandle describe;
-    private static MethodHandle blockRenderInfo;
-    private static MethodHandle modSources;
-    private static MethodHandle registerIcons;
-    private static MethodHandle faceTextures;
+    private static MethodHandle canUpdate;
 
     private LegacyBridge() {
     }
 
     static synchronized void init(LegacyRuntime runtime) throws ReflectiveOperationException {
-        if (createWorld != null) {
+        if (!HANDLES.isEmpty()) {
             return;
         }
         Class<?> bridge = Class.forName("retrofit.legacy.bridge.Bridge", true, runtime.gameLoader());
         MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-        Class<?> o = Object.class;
-        createWorld = lookup.findStatic(bridge, "createWorld", MethodType.methodType(o, HostWorld.class, int.class));
-        modBlockNames = lookup.findStatic(bridge, "modBlockNames", MethodType.methodType(String[].class));
-        block = lookup.findStatic(bridge, "block", MethodType.methodType(o, String.class));
-        hasTileEntity = lookup.findStatic(bridge, "hasTileEntity", MethodType.methodType(boolean.class, o, int.class));
-        createTileEntity = lookup.findStatic(bridge, "createTileEntity", MethodType.methodType(o, o, o, int.class, int.class, int.class, int.class));
-        load = lookup.findStatic(bridge, "load", MethodType.methodType(o, o, byte[].class, int.class, int.class, int.class));
-        save = lookup.findStatic(bridge, "save", MethodType.methodType(byte[].class, o));
-        canUpdate = lookup.findStatic(bridge, "canUpdate", MethodType.methodType(boolean.class, o));
-        tick = lookup.findStatic(bridge, "tick", MethodType.methodType(void.class, o));
-        remove = lookup.findStatic(bridge, "remove", MethodType.methodType(void.class, o));
-        describe = lookup.findStatic(bridge, "describe", MethodType.methodType(String.class, o));
-        blockRenderInfo = lookup.findStatic(bridge, "blockRenderInfo", MethodType.methodType(int[].class, o));
-        modSources = lookup.findStatic(bridge, "modSources", MethodType.methodType(String[].class));
-        registerIcons = lookup.findStatic(bridge, "registerIcons", MethodType.methodType(int.class, Object[].class));
-        faceTextures = lookup.findStatic(bridge, "faceTextures", MethodType.methodType(String[].class, o, int.class));
+        for (Method method : bridge.getMethods()) {
+            if (method.getDeclaringClass() == bridge) {
+                HANDLES.put(method.getName(), lookup.unreflect(method));
+            }
+        }
+        tick = lookup.findStatic(bridge, "tick", MethodType.methodType(void.class, Object.class));
+        canUpdate = lookup.findStatic(bridge, "canUpdate", MethodType.methodType(boolean.class, Object.class));
     }
 
-    public static Object createWorld(HostWorld host, int dimension) {
-        try {
-            return (Object) createWorld.invokeExact(host, dimension);
-        } catch (Throwable t) {
-            throw failure("create a legacy world", t);
+    @SuppressWarnings("unchecked")
+    private static <T> T call(String name, Object... args) {
+        MethodHandle handle = HANDLES.get(name);
+        if (handle == null) {
+            throw new IllegalStateException("Retrofit's legacy bridge has no " + name + " (not booted?)");
         }
+        try {
+            return (T) handle.invokeWithArguments(args);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Retrofit's legacy bridge failed in " + name, t);
+        }
+    }
+
+    // ---- Worlds and blocks ----
+
+    public static Object createWorld(HostWorld host, int dimension) {
+        return call("createWorld", host, dimension);
     }
 
     public static String[] modBlockNames() {
-        try {
-            return (String[]) modBlockNames.invokeExact();
-        } catch (Throwable t) {
-            throw failure("list legacy blocks", t);
-        }
+        return call("modBlockNames");
     }
 
     public static Object block(String name) {
-        try {
-            return (Object) block.invokeExact(name);
-        } catch (Throwable t) {
-            throw failure("look up legacy block " + name, t);
-        }
+        return call("block", name);
+    }
+
+    /** Legacy block for a numeric id, or null if unused. */
+    public static Object blockById(int id) {
+        return call("blockById", id);
+    }
+
+    public static int blockId(Object legacyBlock) {
+        return call("blockId", legacyBlock);
+    }
+
+    /** Legacy registry name, e.g. "minecraft:planks". */
+    public static String blockName(Object legacyBlock) {
+        return call("blockName", legacyBlock);
+    }
+
+    public static String blockTranslationKey(Object legacyBlock) {
+        return call("blockTranslationKey", legacyBlock);
+    }
+
+    /** {render type, opaque cube 1/0, render pass, light value}. */
+    public static int[] blockRenderInfo(Object legacyBlock) {
+        return call("blockRenderInfo", legacyBlock);
     }
 
     public static boolean hasTileEntity(Object legacyBlock, int meta) {
-        try {
-            return (boolean) hasTileEntity.invokeExact(legacyBlock, meta);
-        } catch (Throwable t) {
-            throw failure("query a legacy block", t);
-        }
+        return call("hasTileEntity", legacyBlock, meta);
     }
 
+    // ---- Items ----
+
+    public static String[] modItemNames() {
+        return call("modItemNames");
+    }
+
+    public static Object item(String name) {
+        return call("item", name);
+    }
+
+    /** {max stack size, max damage, has subtypes 1/0}. */
+    public static int[] itemInfo(Object legacyItem) {
+        return call("itemInfo", legacyItem);
+    }
+
+    public static String itemTranslationKey(Object legacyItem, int meta) {
+        return call("itemTranslationKey", legacyItem, meta);
+    }
+
+    // ---- Client-only assets ----
+
+    public static String[] modSources() {
+        return call("modSources");
+    }
+
+    public static int registerIcons(Object[] legacyBlocks) {
+        return call("registerIcons", (Object) legacyBlocks);
+    }
+
+    /** Six face texture names (down, up, north, south, west, east), or null. */
+    public static String[] faceTextures(Object legacyBlock, int meta) {
+        return call("faceTextures", legacyBlock, meta);
+    }
+
+    public static int registerItemIcons(Object[] legacyItems) {
+        return call("registerItemIcons", (Object) legacyItems);
+    }
+
+    public static String itemTexture(Object legacyItem, int meta) {
+        return call("itemTexture", legacyItem, meta);
+    }
+
+    public static int[] itemSubtypes(Object legacyItem) {
+        return call("itemSubtypes", legacyItem);
+    }
+
+    /** {language, key, value} triples registered in code. */
+    public static String[][] codeTranslations() {
+        return call("codeTranslations");
+    }
+
+    // ---- Tile entities ----
+
     public static Object createTileEntity(Object world, Object legacyBlock, int meta, int x, int y, int z) {
-        try {
-            return (Object) createTileEntity.invokeExact(world, legacyBlock, meta, x, y, z);
-        } catch (Throwable t) {
-            throw failure("create a legacy tile entity", t);
-        }
+        return call("createTileEntity", world, legacyBlock, meta, x, y, z);
     }
 
     public static Object load(Object world, byte[] nbt, int x, int y, int z) {
-        try {
-            return (Object) load.invokeExact(world, nbt, x, y, z);
-        } catch (Throwable t) {
-            throw failure("load a legacy tile entity", t);
-        }
+        return call("load", world, nbt, x, y, z);
     }
 
     public static byte[] save(Object tileEntity) {
-        try {
-            return (byte[]) save.invokeExact(tileEntity);
-        } catch (Throwable t) {
-            throw failure("save a legacy tile entity", t);
-        }
+        return call("save", tileEntity);
+    }
+
+    /** NBT bytes of the tile entity's 1.7.10 description packet, or null if it sends none. */
+    public static byte[] descriptionTag(Object tileEntity) {
+        return call("descriptionTag", tileEntity);
+    }
+
+    public static void applyDescription(Object tileEntity, byte[] description) {
+        call("applyDescription", tileEntity, description);
+    }
+
+    public static void remove(Object tileEntity) {
+        call("remove", tileEntity);
+    }
+
+    public static String describe(Object legacyObject) {
+        return call("describe", legacyObject);
     }
 
     public static boolean canUpdate(Object tileEntity) {
         try {
             return (boolean) canUpdate.invokeExact(tileEntity);
         } catch (Throwable t) {
-            throw failure("query a legacy tile entity", t);
+            throw new IllegalStateException("Retrofit's legacy bridge failed in canUpdate", t);
         }
     }
 
@@ -123,63 +186,7 @@ public final class LegacyBridge {
         try {
             tick.invokeExact(tileEntity);
         } catch (Throwable t) {
-            throw failure("tick a legacy tile entity", t);
+            throw new IllegalStateException("Retrofit's legacy bridge failed in tick", t);
         }
-    }
-
-    public static void remove(Object tileEntity) {
-        try {
-            remove.invokeExact(tileEntity);
-        } catch (Throwable t) {
-            throw failure("remove a legacy tile entity", t);
-        }
-    }
-
-    public static String describe(Object legacyObject) {
-        try {
-            return (String) describe.invokeExact(legacyObject);
-        } catch (Throwable t) {
-            throw failure("describe a legacy object", t);
-        }
-    }
-
-    /** {render type, opaque cube 1/0, render pass, light value}; see Bridge.blockRenderInfo. */
-    public static int[] blockRenderInfo(Object legacyBlock) {
-        try {
-            return (int[]) blockRenderInfo.invokeExact(legacyBlock);
-        } catch (Throwable t) {
-            throw failure("query how a legacy block renders", t);
-        }
-    }
-
-    /** Jar files of the loaded legacy mods. */
-    public static String[] modSources() {
-        try {
-            return (String[]) modSources.invokeExact();
-        } catch (Throwable t) {
-            throw failure("list legacy mod files", t);
-        }
-    }
-
-    /** Client only. Returns the number of blocks that failed to register icons. */
-    public static int registerIcons(Object[] legacyBlocks) {
-        try {
-            return (int) registerIcons.invokeExact(legacyBlocks);
-        } catch (Throwable t) {
-            throw failure("register legacy block icons", t);
-        }
-    }
-
-    /** Client only. Six face texture names (down, up, north, south, west, east), or null. */
-    public static String[] faceTextures(Object legacyBlock, int meta) {
-        try {
-            return (String[]) faceTextures.invokeExact(legacyBlock, meta);
-        } catch (Throwable t) {
-            throw failure("query legacy block textures", t);
-        }
-    }
-
-    private static RuntimeException failure(String action, Throwable cause) {
-        return new IllegalStateException("Retrofit could not " + action, cause);
     }
 }

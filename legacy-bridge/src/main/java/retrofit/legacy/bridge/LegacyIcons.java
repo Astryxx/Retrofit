@@ -1,10 +1,14 @@
 package retrofit.legacy.bridge;
 
 import net.minecraft.block.Block;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.client.renderer.texture.IIconRegister;
 import net.minecraft.util.IIcon;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,6 +58,50 @@ public final class LegacyIcons {
             faces[side] = icon.func_94215_i(); // getIconName
         }
         return faces;
+    }
+
+    /** Lets every given item register its icons; returns the number of items that failed. */
+    public static int registerItemIcons(Object[] items) {
+        int failed = 0;
+        for (Object item : items) {
+            try {
+                ((Item) item).func_94581_a(RECORDER); // registerIcons
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[Retrofit] Item " + item + " failed to register icons: " + t);
+            }
+        }
+        return failed;
+    }
+
+    /** The texture name of an item for a damage value, or null. */
+    public static String itemTexture(Object item, int meta) {
+        try {
+            IIcon icon = ((Item) item).func_77617_a(meta); // getIconFromDamage
+            return icon == null ? null : icon.func_94215_i();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** The damage values an item shows in the creative menu (getSubItems), or {0}. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static int[] itemSubtypes(Object legacyItem) {
+        Item item = (Item) legacyItem;
+        List stacks = new ArrayList();
+        try {
+            item.func_150895_a(item, item.func_77640_w(), stacks); // getSubItems(item, getCreativeTab(), list)
+        } catch (Throwable t) {
+            stacks.clear();
+        }
+        if (stacks.isEmpty()) {
+            return new int[]{0};
+        }
+        int[] damages = new int[stacks.size()];
+        for (int i = 0; i < damages.length; i++) {
+            damages[i] = ((ItemStack) stacks.get(i)).func_77960_j(); // getItemDamage
+        }
+        return damages;
     }
 
     private static final class Recorder implements IIconRegister {
