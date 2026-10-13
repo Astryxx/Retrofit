@@ -34,6 +34,11 @@ public class HeadlessTransformer implements IClassTransformer {
         stub("net.minecraft.client.settings.GameSettings", "func_74300_a()V", NO_HOOK); // loadOptions
         stub("cpw.mods.fml.client.FMLClientHandler", "processWindowMessages()V", NO_HOOK); // pumps LWJGL Display
         stub("net.minecraftforge.common.ForgeVersion", "startVersionCheck()V", NO_HOOK); // calls a long-dead URL
+        // bindTexture: the GL emulation tags captured quads with the texture; the host loads and binds it.
+        stub("net.minecraft.client.renderer.texture.TextureManager", "func_110577_a(Lnet/minecraft/util/ResourceLocation;)V", "bindTexture");
+        // loadProfileTextures: mods build fake players (armor stands); never fetch skins from the network for them.
+        stub("net.minecraft.client.resources.SkinManager",
+                "func_152790_a(Lcom/mojang/authlib/GameProfile;Lnet/minecraft/client/resources/SkinManager$SkinAvailableCallback;Z)V", NO_HOOK);
     }
 
     private static void stub(String className, String method, String hook) {

@@ -34,6 +34,7 @@ public final class LegacyBootstrap {
         classLoader.addClassLoaderExclusion("retrofit.legacy.boot.");
         classLoader.addClassLoaderExclusion("retrofit.legacy.compat.");
         classLoader.addClassLoaderExclusion("retrofit.legacy.gl.");
+        classLoader.addClassLoaderExclusion("retrofit.legacy.lwjgl.");
         classLoader.addClassLoaderExclusion("org.slf4j.");
         classLoader.addClassLoaderExclusion("retrofit.api.");
 

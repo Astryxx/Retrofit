@@ -62,8 +62,8 @@ public class RetrofitTransformer implements IClassTransformer {
     private static final String LOG4J_HELPERS = "org/apache/logging/log4j/core/helpers/";
     /** Legacy code must get SLF4J loggers from the host; see LegacyLoggerFactory. */
     private static final String SLF4J_FACTORY = "org/slf4j/LoggerFactory";
-    /** LWJGL 2's GL11, replaced by Retrofit's fixed-function emulation (see retrofit.legacy.gl.GL11). */
-    private static final String LWJGL_GL11 = "org/lwjgl/opengl/GL11";
+    /** LWJGL 2 classes, replaced by generated stand-ins (see LwjglShims). */
+    private static final String LWJGL = "org/lwjgl/";
 
     private static final byte[][] MARKERS = {
         "java/util/jar/Pack200".getBytes(StandardCharsets.UTF_8),
@@ -72,7 +72,7 @@ public class RetrofitTransformer implements IClassTransformer {
         "setErr".getBytes(StandardCharsets.UTF_8),
         LOG4J_HELPERS.getBytes(StandardCharsets.UTF_8),
         SLF4J_FACTORY.getBytes(StandardCharsets.UTF_8),
-        LWJGL_GL11.getBytes(StandardCharsets.UTF_8),
+        LWJGL.getBytes(StandardCharsets.UTF_8),
     };
 
     /** java.lang.System methods legacy code must not call in a shared JVM; redirected to LegacySystem. */
@@ -87,8 +87,9 @@ public class RetrofitTransformer implements IClassTransformer {
             if (typeName.equals("java/util/jar/Pack200$Unpacker")) {
                 return "retrofit/legacy/compat/Pack200$Unpacker";
             }
-            if (typeName.equals(LWJGL_GL11)) {
-                return "retrofit/legacy/gl/GL11";
+            String lwjglShim = LwjglShims.shimName(typeName);
+            if (lwjglShim != null) {
+                return lwjglShim;
             }
             if (typeName.equals(SLF4J_FACTORY)) {
                 return "retrofit/legacy/compat/log4j/LegacyLoggerFactory";

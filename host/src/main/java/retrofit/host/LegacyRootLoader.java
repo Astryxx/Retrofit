@@ -30,6 +30,8 @@ public final class LegacyRootLoader extends URLClassLoader {
     }
 
     private static final String TRANSFORMER = "retrofit.legacy.boot.RetrofitTransformer";
+    /** Generated LWJGL 2 stand-ins (see retrofit.legacy.boot.LwjglShims). */
+    private static final String LWJGL_SHIMS = "retrofit.legacy.lwjgl.";
     private static final String[] SHARED_PREFIXES = {"org.slf4j.", "retrofit.api."};
 
     private final ClassLoader host;
@@ -53,6 +55,9 @@ public final class LegacyRootLoader extends URLClassLoader {
 
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
+        if (name.startsWith(LWJGL_SHIMS)) {
+            return defineShim(name);
+        }
         if (!needsTransform(name)) {
             return super.findClass(name);
         }
@@ -69,6 +74,16 @@ public final class LegacyRootLoader extends URLClassLoader {
             return defineClass(name, bytes, 0, bytes.length, new CodeSource(source, (CodeSigner[]) null));
         } catch (IOException | ReflectiveOperationException e) {
             throw new ClassNotFoundException(name, e);
+        }
+    }
+
+    private Class<?> defineShim(String name) throws ClassNotFoundException {
+        try {
+            byte[] bytes = (byte[]) loadClass("retrofit.legacy.boot.LwjglShims")
+                    .getMethod("generate", String.class, ClassLoader.class).invoke(null, name, this);
+            return defineClass(name, bytes, 0, bytes.length);
+        } catch (ReflectiveOperationException e) {
+            throw new ClassNotFoundException(name, e.getCause() != null ? e.getCause() : e);
         }
     }
 

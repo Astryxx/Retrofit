@@ -42,6 +42,9 @@ public final class HarnessMain {
             renderTest(runtime); // client-only: models and GL
         }
         WorldBridgeSmokeTest.run(runtime);
+        if (!server) {
+            CompatReport.run(runtime);
+        }
     }
 
     /** Renders the legacy pig model once through the GL emulation and prints its bounds. */

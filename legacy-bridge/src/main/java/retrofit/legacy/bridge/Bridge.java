@@ -16,6 +16,7 @@ import net.minecraft.network.play.server.S35PacketUpdateTileEntity;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.world.World;
 import retrofit.api.HostWorld;
 
@@ -96,14 +97,96 @@ public final class Bridge {
         return sources.toArray(new String[0]);
     }
 
-    /** Client only; see {@link LegacyIcons}. */
-    public static int registerIcons(Object[] legacyBlocks) {
-        return LegacyIcons.registerIcons(legacyBlocks);
+    /** Client only: every block and item registers its icons (see {@link LegacyIcons#registerAll}). */
+    public static int registerAllIcons() {
+        return LegacyIcons.registerAll();
+    }
+
+    /** Client only: recorded icon names, kind 0 = block textures, 1 = item textures. */
+    public static String[] iconNames(int kind) {
+        return LegacyIcons.iconNames(kind);
+    }
+
+    /** Client only: an icon's place in the host's atlas. */
+    public static void setIconUV(int kind, String name, float minU, float maxU, float minV, float maxV, int width, int height) {
+        LegacyIcons.setIconUV(kind, name, minU, maxU, minV, maxV, width, height);
     }
 
     /** Client only; see {@link LegacyIcons#faceTextures}. */
     public static String[] faceTextures(Object legacyBlock, int meta) {
         return LegacyIcons.faceTextures(legacyBlock, meta);
+    }
+
+    /**
+     * Serializes everything that uses shared legacy state: the isolated world and the GL
+     * emulation (one global context in 1.7.10). The host holds it around rendering calls until it
+     * has read the capture, since chunk meshing runs on several threads.
+     */
+    public static final Object LOCK = new Object();
+
+    public static Object lock() {
+        return LOCK;
+    }
+
+    // ---- Shapes ----
+
+    /**
+     * A block's shape for a metadata value, in an otherwise empty world: {selection box (6
+     * values), then each collision box (6 values each)}. Uses the block's own
+     * setBlockBoundsBasedOnState and addCollisionBoxesToList, so multi-box and meta-dependent
+     * shapes come out right; shapes that depend on neighbours get their stand-alone form.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static double[] blockShape(Object legacyBlock, int meta) {
+        synchronized (LOCK) {
+            Block block = (Block) legacyBlock;
+            World world = IsolatedHost.with(block, meta);
+            block.func_149719_a(world, 0, 0, 0); // setBlockBoundsBasedOnState
+            double[] selection = {block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
+                    block.func_149753_y(), block.func_149669_A(), block.func_149693_C()}; // min x y z, max x y z
+            List boxes = new ArrayList();
+            AxisAlignedBB mask = AxisAlignedBB.func_72330_a(-1, -1, -1, 2, 2, 2); // getBoundingBox
+            block.func_149743_a(world, 0, 0, 0, mask, boxes, null); // addCollisionBoxesToList
+            double[] shape = new double[6 + boxes.size() * 6];
+            System.arraycopy(selection, 0, shape, 0, 6);
+            for (int i = 0; i < boxes.size(); i++) {
+                AxisAlignedBB box = (AxisAlignedBB) boxes.get(i);
+                int o = 6 + i * 6;
+                shape[o] = box.field_72340_a;     // minX
+                shape[o + 1] = box.field_72338_b; // minY
+                shape[o + 2] = box.field_72339_c; // minZ
+                shape[o + 3] = box.field_72336_d; // maxX
+                shape[o + 4] = box.field_72337_e; // maxY
+                shape[o + 5] = box.field_72334_f; // maxZ
+            }
+            return shape;
+        }
+    }
+
+    // ---- Rendering (client only; callers hold LOCK until they've read the capture) ----
+
+    public static void prepareFrame(Object legacyWorld, double x, double y, double z, float yaw, float pitch, float partialTicks) {
+        LegacyRendering.prepareFrame(legacyWorld, x, y, z, yaw, pitch, partialTicks);
+    }
+
+    public static int bakeBlock(Object legacyBlock, int meta) {
+        return LegacyRendering.bakeBlock(legacyBlock, meta);
+    }
+
+    public static boolean hasSpecialRenderer(Object tileEntity) {
+        return LegacyRendering.hasSpecialRenderer(tileEntity);
+    }
+
+    public static int renderTileEntity(Object tileEntity, float partialTicks) {
+        return LegacyRendering.renderTileEntity(tileEntity, partialTicks);
+    }
+
+    public static boolean hasItemRenderer(Object legacyItem, int meta, String type) {
+        return LegacyRendering.hasItemRenderer(legacyItem, meta, type);
+    }
+
+    public static int renderItem(Object legacyItem, int meta, String type) {
+        return LegacyRendering.renderItem(legacyItem, meta, type);
     }
 
     // ---- Blocks: ids and names ----
@@ -160,11 +243,6 @@ public final class Bridge {
     /** The legacy translation key for an item with a damage value, e.g. "item.gem.ruby.name". */
     public static String itemTranslationKey(Object legacyItem, int meta) {
         return ((Item) legacyItem).func_77667_c(new ItemStack((Item) legacyItem, 1, meta)) + ".name"; // getUnlocalizedName(stack)
-    }
-
-    /** Client only; see {@link LegacyIcons}. */
-    public static int registerItemIcons(Object[] legacyItems) {
-        return LegacyIcons.registerItemIcons(legacyItems);
     }
 
     /** Client only; see {@link LegacyIcons#itemTexture}. */

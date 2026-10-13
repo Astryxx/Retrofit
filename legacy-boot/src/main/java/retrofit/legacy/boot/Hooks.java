@@ -43,6 +43,11 @@ public final class Hooks {
         }
     }
 
+    /** Replaces TextureManager.bindTexture: records the texture for the GL emulation. */
+    public static void bindTexture(Object location) {
+        retrofit.legacy.gl.GL11.bindLegacyTexture(String.valueOf(location));
+    }
+
     /** Replaces Minecraft.displayCrashReport so a legacy crash prints instead of opening a window. */
     public static void crash(Object crashReport) {
         try {

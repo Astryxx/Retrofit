@@ -1,42 +1,85 @@
 package retrofit.legacy.bridge;
 
 import net.minecraft.block.Block;
+import net.minecraft.client.renderer.texture.IIconRegister;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.client.renderer.texture.IIconRegister;
 import net.minecraft.util.IIcon;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Finds out which textures legacy blocks use, without 1.7.10's texture atlas: blocks register
- * their icons with a recording {@link IIconRegister}, and {@code getIcon(side, meta)} then hands
- * back recorded icons whose names identify the texture files. The host turns those into 1.20.1
- * block models.
+ * Legacy icons without 1.7.10's texture atlas. Blocks and items register their icons with
+ * recording {@link IIconRegister}s (one for block textures, one for item textures, as 1.7.10 had
+ * two atlases); {@code getIcon(side, meta)} then hands back recorded icons whose names identify
+ * the texture files, and the host turns those into 1.20.1 models and atlas sprites.
+ *
+ * Once the host has stitched its atlas it gives every icon its sprite's coordinates
+ * ({@link #setIconUV}), so legacy code that draws with icon UVs (RenderBlocks, tile entity
+ * renderers, item rendering) hits the right part of the 1.20.1 block atlas, which holds both.
  *
  * Client only: IIcon and IIconRegister don't exist on a dedicated 1.7.10 server.
  */
 public final class LegacyIcons {
-    private static final Recorder RECORDER = new Recorder();
+    private static final Recorder BLOCKS = new Recorder();
+    private static final Recorder ITEMS = new Recorder();
+    private static boolean registered;
 
     private LegacyIcons() {
     }
 
-    /** Lets every given block register its icons; returns the number of blocks that failed. */
-    public static int registerIcons(Object[] blocks) {
+    /**
+     * Lets every block and item, vanilla included, register its icons (once); returns the number
+     * that failed. Vanilla icons are needed because mods draw vanilla blocks and items too.
+     */
+    public static int registerAll() {
+        if (registered) {
+            return 0;
+        }
+        registered = true;
         int failed = 0;
-        for (Object block : blocks) {
+        for (Object block : Block.field_149771_c) { // blockRegistry
             try {
-                ((Block) block).func_149651_a(RECORDER); // registerBlockIcons
+                ((Block) block).func_149651_a(BLOCKS); // registerBlockIcons
             } catch (Throwable t) {
                 failed++;
                 System.out.println("[Retrofit] Block " + block + " failed to register icons: " + t);
             }
         }
+        for (Object item : Item.field_150901_e) { // itemRegistry
+            try {
+                if (((Item) item).func_94901_k() == 0) { // getSpriteNumber: 0 = block atlas (ItemBlocks)
+                    ((Item) item).func_94581_a(BLOCKS);
+                } else {
+                    ((Item) item).func_94581_a(ITEMS);    // registerIcons
+                }
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[Retrofit] Item " + item + " failed to register icons: " + t);
+            }
+        }
         return failed;
+    }
+
+    /** Names of all recorded block (kind 0) or item (kind 1) icons. */
+    public static String[] iconNames(int kind) {
+        return (kind == 0 ? BLOCKS : ITEMS).icons.keySet().toArray(new String[0]);
+    }
+
+    /** Gives a recorded icon the coordinates of its sprite in the host's atlas. */
+    public static void setIconUV(int kind, String name, float minU, float maxU, float minV, float maxV, int width, int height) {
+        RecordedIcon icon = (kind == 0 ? BLOCKS : ITEMS).icons.get(name);
+        if (icon != null) {
+            icon.minU = minU;
+            icon.maxU = maxU;
+            icon.minV = minV;
+            icon.maxV = maxV;
+            icon.width = width;
+            icon.height = height;
+        }
     }
 
     /**
@@ -58,20 +101,6 @@ public final class LegacyIcons {
             faces[side] = icon.func_94215_i(); // getIconName
         }
         return faces;
-    }
-
-    /** Lets every given item register its icons; returns the number of items that failed. */
-    public static int registerItemIcons(Object[] items) {
-        int failed = 0;
-        for (Object item : items) {
-            try {
-                ((Item) item).func_94581_a(RECORDER); // registerIcons
-            } catch (Throwable t) {
-                failed++;
-                System.out.println("[Retrofit] Item " + item + " failed to register icons: " + t);
-            }
-        }
-        return failed;
     }
 
     /** The texture name of an item for a damage value, or null. */
@@ -105,12 +134,12 @@ public final class LegacyIcons {
     }
 
     private static final class Recorder implements IIconRegister {
-        private final Map<String, IIcon> icons = new HashMap<String, IIcon>();
+        private final Map<String, RecordedIcon> icons = new LinkedHashMap<String, RecordedIcon>();
 
         /** registerIcon */
         @Override
         public IIcon func_94245_a(String name) {
-            IIcon icon = icons.get(name);
+            RecordedIcon icon = icons.get(name);
             if (icon == null) {
                 icon = new RecordedIcon(name);
                 icons.put(name, icon);
@@ -119,9 +148,12 @@ public final class LegacyIcons {
         }
     }
 
-    /** An icon that only knows its name; UVs span the whole (separate) texture. */
+    /** An icon that knows its name and, once the host's atlas exists, its place in it. */
     private static final class RecordedIcon implements IIcon {
         private final String name;
+        private volatile float minU, minV;
+        private volatile float maxU = 1, maxV = 1;
+        private volatile int width = 16, height = 16;
 
         RecordedIcon(String name) {
             this.name = name;
@@ -130,49 +162,49 @@ public final class LegacyIcons {
         /** getIconWidth */
         @Override
         public int func_94211_a() {
-            return 16;
+            return width;
         }
 
         /** getIconHeight */
         @Override
         public int func_94216_b() {
-            return 16;
+            return height;
         }
 
         /** getMinU */
         @Override
         public float func_94209_e() {
-            return 0;
+            return minU;
         }
 
         /** getMaxU */
         @Override
         public float func_94212_f() {
-            return 1;
+            return maxU;
         }
 
-        /** getInterpolatedU */
+        /** getInterpolatedU: u in 0..16 across the icon */
         @Override
         public float func_94214_a(double u) {
-            return (float) (u / 16);
+            return minU + (maxU - minU) * (float) u / 16f;
         }
 
         /** getMinV */
         @Override
         public float func_94206_g() {
-            return 0;
+            return minV;
         }
 
         /** getMaxV */
         @Override
         public float func_94210_h() {
-            return 1;
+            return maxV;
         }
 
         /** getInterpolatedV */
         @Override
         public float func_94207_b(double v) {
-            return (float) (v / 16);
+            return minV + (maxV - minV) * (float) v / 16f;
         }
 
         /** getIconName */

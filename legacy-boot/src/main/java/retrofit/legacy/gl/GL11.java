@@ -17,8 +17,11 @@ import java.util.Map;
  * profile (1.20.1 uses a core profile, macOS has no compatibility profile at all).
  *
  * Method names and descriptors must match LWJGL 2 exactly. Only what legacy model rendering
- * needs is implemented so far; state the host owns (blending, depth, textures) is accepted and
- * ignored. Render thread only.
+ * needs is implemented; LWJGL methods without an implementation here are generated as no-ops
+ * (see LwjglShims). Besides geometry it tracks the state that decides how captured quads are
+ * drawn: the bound texture (set by the legacy TextureManager), blending, and lightmap
+ * coordinates. Only the modelview matrix is applied; projection and texture matrices are the
+ * host's. The host serializes all calls.
  */
 public final class GL11 {
     private static final int GL_COMPILE_AND_EXECUTE = 0x1301;
@@ -28,10 +31,22 @@ public final class GL11 {
     private static final int GL_NORMAL_ARRAY = 0x8075;
     private static final int GL_COLOR_ARRAY = 0x8076;
     private static final int GL_TEXTURE_COORD_ARRAY = 0x8078;
+    private static final int GL_MODELVIEW = 0x1700;
+    private static final int GL_BLEND = 0x0BE2;
+    private static final int GL_VENDOR = 0x1F00;
+    private static final int GL_RENDERER = 0x1F01;
+    private static final int GL_VERSION = 0x1F02;
+    private static final int GL_MAX_TEXTURE_SIZE = 0x0D33;
 
     private static final List<Matrix4> stack = new ArrayList<Matrix4>();
     private static Matrix4 modelview = new Matrix4();
     private static float red = 1, green = 1, blue = 1, alpha = 1;
+    private static int matrixMode = GL_MODELVIEW;
+    private static int texture;
+    private static boolean blend;
+    /** Packed lightmap coordinates set by legacy code, or -1 for the host's light. */
+    private static int light = -1;
+    private static final List<float[]> attribStack = new ArrayList<float[]>();
 
     private static final Map<Integer, List<Op>> lists = new HashMap<Integer, List<Op>>();
     private static int nextList = 1;
@@ -56,6 +71,30 @@ public final class GL11 {
         stack.clear();
         modelview = new Matrix4();
         red = green = blue = alpha = 1;
+        matrixMode = GL_MODELVIEW;
+        blend = false;
+        light = -1;
+        attribStack.clear();
+    }
+
+    /** Called when the legacy TextureManager binds a texture (see Hooks). */
+    public static void bindLegacyTexture(String location) {
+        final int index = Capture.textureIndex(location);
+        submit(new Op() {
+            public void run() {
+                texture = index;
+            }
+        });
+    }
+
+    /** Lightmap coordinates from glMultiTexCoord2f on the lightmap unit (OpenGlHelper.setLightmapTextureCoords). */
+    static void setLightmap(float u, float v) {
+        final int packed = ((int) v & 0xFFFF) << 16 | ((int) u & 0xFFFF);
+        submit(new Op() {
+            public void run() {
+                light = packed;
+            }
+        });
     }
 
     /**
@@ -74,32 +113,40 @@ public final class GL11 {
 
     // ---- Matrix stack ----
 
-    public static void glMatrixMode(int mode) {
-        // Only the modelview matrix shapes geometry; the host owns projection.
+    public static void glMatrixMode(final int mode) {
+        submit(new Op() {
+            public void run() {
+                matrixMode = mode;
+            }
+        });
     }
 
     public static void glPushMatrix() {
         if (recording == null) { // common case: no allocation
-            stack.add(modelview.copy());
+            if (matrixMode == GL_MODELVIEW) {
+                stack.add(modelview.copy());
+            }
             return;
         }
         submit(new Op() {
             public void run() {
+                if (matrixMode == GL_MODELVIEW) {
                 stack.add(modelview.copy());
+            }
             }
         });
     }
 
     public static void glPopMatrix() {
         if (recording == null) { // common case: no allocation
-            if (!stack.isEmpty()) {
+            if (matrixMode == GL_MODELVIEW && !stack.isEmpty()) {
                 modelview = stack.remove(stack.size() - 1);
             }
             return;
         }
         submit(new Op() {
             public void run() {
-                if (!stack.isEmpty()) {
+                if (matrixMode == GL_MODELVIEW && !stack.isEmpty()) {
                     modelview = stack.remove(stack.size() - 1);
                 }
             }
@@ -109,19 +156,25 @@ public final class GL11 {
     public static void glLoadIdentity() {
         submit(new Op() {
             public void run() {
+                if (matrixMode == GL_MODELVIEW) {
                 modelview.identity();
+            }
             }
         });
     }
 
     public static void glTranslatef(final float x, final float y, final float z) {
         if (recording == null) { // common case: no allocation
-            modelview.translate(x, y, z);
+            if (matrixMode == GL_MODELVIEW) {
+                modelview.translate(x, y, z);
+            }
             return;
         }
         submit(new Op() {
             public void run() {
+                if (matrixMode == GL_MODELVIEW) {
                 modelview.translate(x, y, z);
+            }
             }
         });
     }
@@ -132,24 +185,32 @@ public final class GL11 {
 
     public static void glRotatef(final float angle, final float x, final float y, final float z) {
         if (recording == null) { // common case: no allocation
-            modelview.rotate(angle, x, y, z);
+            if (matrixMode == GL_MODELVIEW) {
+                modelview.rotate(angle, x, y, z);
+            }
             return;
         }
         submit(new Op() {
             public void run() {
+                if (matrixMode == GL_MODELVIEW) {
                 modelview.rotate(angle, x, y, z);
+            }
             }
         });
     }
 
     public static void glScalef(final float x, final float y, final float z) {
         if (recording == null) { // common case: no allocation
-            modelview.scale(x, y, z);
+            if (matrixMode == GL_MODELVIEW) {
+                modelview.scale(x, y, z);
+            }
             return;
         }
         submit(new Op() {
             public void run() {
+                if (matrixMode == GL_MODELVIEW) {
                 modelview.scale(x, y, z);
+            }
             }
         });
     }
@@ -166,7 +227,9 @@ public final class GL11 {
         }
         submit(new Op() {
             public void run() {
+                if (matrixMode == GL_MODELVIEW) {
                 modelview.multiply(values);
+            }
             }
         });
     }
@@ -358,15 +421,224 @@ public final class GL11 {
                 currentColour ? red : d[o + 8] * red,
                 currentColour ? green : d[o + 9] * green,
                 currentColour ? blue : d[o + 10] * blue,
-                currentColour ? alpha : d[o + 11] * alpha);
+                currentColour ? alpha : d[o + 11] * alpha,
+                texture | (blend ? Capture.BLEND : 0), light);
+    }
+
+    // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----
+
+    private static final int GL_TRIANGLE_STRIP = 0x0005;
+    private static final int GL_TRIANGLE_FAN = 0x0006;
+    private static final int GL_QUAD_STRIP = 0x0008;
+    private static final int GL_POLYGON = 0x0009;
+
+    private static int immediateMode = -1;
+    private static float[] immediate = new float[Capture.FLOATS_PER_VERTEX * 64];
+    private static int immediateCount;
+    private static float texU, texV;
+    private static float normalX, normalY = 1, normalZ;
+
+    public static void glBegin(int mode) {
+        immediateMode = mode;
+        immediateCount = 0;
+    }
+
+    public static void glTexCoord2f(float u, float v) {
+        texU = u;
+        texV = v;
+    }
+
+    public static void glTexCoord2d(double u, double v) {
+        glTexCoord2f((float) u, (float) v);
+    }
+
+    public static void glNormal3f(float nx, float ny, float nz) {
+        normalX = nx;
+        normalY = ny;
+        normalZ = nz;
+    }
+
+    public static void glVertex3f(float x, float y, float z) {
+        if (immediateMode < 0) {
+            return;
+        }
+        int o = immediateCount * Capture.FLOATS_PER_VERTEX;
+        if (o + Capture.FLOATS_PER_VERTEX > immediate.length) {
+            float[] grown = new float[immediate.length * 2];
+            System.arraycopy(immediate, 0, grown, 0, immediate.length);
+            immediate = grown;
+        }
+        float[] d = immediate;
+        d[o] = x;
+        d[o + 1] = y;
+        d[o + 2] = z;
+        d[o + 3] = texU;
+        d[o + 4] = texV;
+        d[o + 5] = normalX;
+        d[o + 6] = normalY;
+        d[o + 7] = normalZ;
+        d[o + 8] = red;
+        d[o + 9] = green;
+        d[o + 10] = blue;
+        d[o + 11] = alpha;
+        immediateCount++;
+    }
+
+    public static void glVertex3d(double x, double y, double z) {
+        glVertex3f((float) x, (float) y, (float) z);
+    }
+
+    public static void glVertex2f(float x, float y) {
+        glVertex3f(x, y, 0);
+    }
+
+    public static void glVertex2d(double x, double y) {
+        glVertex3f((float) x, (float) y, 0);
+    }
+
+    public static void glVertex2i(int x, int y) {
+        glVertex3f(x, y, 0);
+    }
+
+    public static void glVertex3i(int x, int y, int z) {
+        glVertex3f(x, y, z);
+    }
+
+    /** Converts what was drawn since glBegin into quads (strips and fans included); lines and points are skipped. */
+    public static void glEnd() {
+        int mode = immediateMode;
+        immediateMode = -1;
+        int n = immediateCount;
+        int[] order;
+        if (mode == GL_QUADS) {
+            order = sequence(n - n % 4);
+        } else if (mode == GL_TRIANGLES) {
+            order = trianglesAsQuads(sequence(n - n % 3));
+        } else if (mode == GL_TRIANGLE_STRIP || mode == GL_QUAD_STRIP) {
+            int quads = Math.max(0, (n - 2) / 2);
+            order = new int[quads * 4];
+            for (int q = 0; q < quads; q++) {
+                int i = q * 2;
+                order[q * 4] = i;
+                order[q * 4 + 1] = i + 1;
+                order[q * 4 + 2] = i + 3;
+                order[q * 4 + 3] = i + 2;
+            }
+        } else if (mode == GL_TRIANGLE_FAN || mode == GL_POLYGON) {
+            int triangles = Math.max(0, n - 2);
+            int[] fan = new int[triangles * 3];
+            for (int t = 0; t < triangles; t++) {
+                fan[t * 3] = 0;
+                fan[t * 3 + 1] = t + 1;
+                fan[t * 3 + 2] = t + 2;
+            }
+            order = trianglesAsQuads(fan);
+        } else {
+            return;
+        }
+        final float[] local = new float[order.length * Capture.FLOATS_PER_VERTEX];
+        for (int i = 0; i < order.length; i++) {
+            System.arraycopy(immediate, order[i] * Capture.FLOATS_PER_VERTEX, local, i * Capture.FLOATS_PER_VERTEX, Capture.FLOATS_PER_VERTEX);
+        }
+        submit(new Op() {
+            public void run() {
+                emit(local, false);
+            }
+        });
+    }
+
+    private static int[] sequence(int n) {
+        int[] order = new int[n];
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+        }
+        return order;
+    }
+
+    /** Triangle vertex order -> quads with the last vertex repeated. */
+    private static int[] trianglesAsQuads(int[] triangles) {
+        int[] quads = new int[triangles.length / 3 * 4];
+        for (int t = 0; t < triangles.length / 3; t++) {
+            quads[t * 4] = triangles[t * 3];
+            quads[t * 4 + 1] = triangles[t * 3 + 1];
+            quads[t * 4 + 2] = triangles[t * 3 + 2];
+            quads[t * 4 + 3] = triangles[t * 3 + 2];
+        }
+        return quads;
     }
 
     // ---- State the host owns: accepted and ignored ----
 
     public static void glEnable(int cap) {
+        setCapability(cap, true);
     }
 
     public static void glDisable(int cap) {
+        setCapability(cap, false);
+    }
+
+    private static void setCapability(int cap, final boolean enabled) {
+        if (cap == GL_BLEND) {
+            submit(new Op() {
+                public void run() {
+                    blend = enabled;
+                }
+            });
+        }
+    }
+
+    public static boolean glIsEnabled(int cap) {
+        return cap == GL_BLEND && blend;
+    }
+
+    public static void glPushAttrib(int mask) {
+        submit(new Op() {
+            public void run() {
+                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light});
+            }
+        });
+    }
+
+    public static void glPopAttrib() {
+        submit(new Op() {
+            public void run() {
+                if (!attribStack.isEmpty()) {
+                    float[] saved = attribStack.remove(attribStack.size() - 1);
+                    red = saved[0];
+                    green = saved[1];
+                    blue = saved[2];
+                    alpha = saved[3];
+                    blend = saved[4] != 0;
+                    texture = (int) saved[5];
+                    light = (int) saved[6];
+                }
+            }
+        });
+    }
+
+    public static String glGetString(int name) {
+        switch (name) {
+            case GL_VENDOR: return "Retrofit";
+            case GL_RENDERER: return "Retrofit legacy GL emulation";
+            case GL_VERSION: return "2.1 Retrofit";
+            default: return "";
+        }
+    }
+
+    public static int glGetInteger(int name) {
+        return name == GL_MAX_TEXTURE_SIZE ? 16384 : 0;
+    }
+
+    public static int glGetError() {
+        return 0;
+    }
+
+    public static void glColor4ub(byte r, byte g, byte b, byte a) {
+        glColor4f((r & 0xFF) / 255f, (g & 0xFF) / 255f, (b & 0xFF) / 255f, (a & 0xFF) / 255f);
+    }
+
+    public static void glColor3ub(byte r, byte g, byte b) {
+        glColor4ub(r, g, b, (byte) 255);
     }
 
     public static void glBlendFunc(int sfactor, int dfactor) {
@@ -384,6 +656,4 @@ public final class GL11 {
     public static void glCullFace(int mode) {
     }
 
-    public static void glNormal3f(float nx, float ny, float nz) {
-    }
 }
