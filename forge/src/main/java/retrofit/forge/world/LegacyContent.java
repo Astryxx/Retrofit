@@ -43,6 +43,10 @@ public final class LegacyContent {
     private LegacyContent() {
     }
 
+    public static List<LegacyBlock> blocks() {
+        return java.util.Collections.unmodifiableList(BLOCKS);
+    }
+
     public static BlockEntityType<LegacyBlockEntity> blockEntityType() {
         return blockEntityType;
     }
@@ -78,7 +82,8 @@ public final class LegacyContent {
             }
             for (String name : LegacyBridge.modBlockNames()) {
                 Object legacyBlock = LegacyBridge.block(name);
-                LegacyBlock block = new LegacyBlock(legacyBlock, LegacyBridge.hasTileEntity(legacyBlock, 0));
+                LegacyBlock block = new LegacyBlock(legacyBlock, LegacyBridge.hasTileEntity(legacyBlock, 0),
+                        LegacyBridge.blockRenderInfo(legacyBlock));
                 helper.register(toResourceLocation(name), block);
                 BLOCKS.add(block);
                 BY_LEGACY.put(legacyBlock, block);

@@ -15,12 +15,38 @@ import net.minecraft.world.level.block.state.StateDefinition;
 public class LegacyBlock extends Block implements EntityBlock {
     private final Object legacyBlock;
     private final boolean hasTileEntity;
+    private final boolean opaque;
+    private final int renderPass;
 
-    public LegacyBlock(Object legacyBlock, boolean hasTileEntity) {
-        super(BlockBehaviour.Properties.of().strength(1.5f, 6f));
+    /** @param renderInfo see {@link LegacyBridge#blockRenderInfo} */
+    public LegacyBlock(Object legacyBlock, boolean hasTileEntity, int[] renderInfo) {
+        super(properties(renderInfo));
         this.legacyBlock = legacyBlock;
         this.hasTileEntity = hasTileEntity;
+        this.opaque = renderInfo[1] != 0;
+        this.renderPass = renderInfo[2];
         registerDefaultState(stateDefinition.any().setValue(LegacyContent.META, 0));
+    }
+
+    private static BlockBehaviour.Properties properties(int[] renderInfo) {
+        BlockBehaviour.Properties properties = BlockBehaviour.Properties.of().strength(1.5f, 6f);
+        if (renderInfo[1] == 0) {
+            properties.noOcclusion(); // not an opaque cube: neighbours must still draw their faces
+        }
+        int light = renderInfo[3];
+        if (light > 0) {
+            properties.lightLevel(state -> light);
+        }
+        return properties;
+    }
+
+    public boolean isOpaque() {
+        return opaque;
+    }
+
+    /** 0 = solid, 1 = translucent (legacy getRenderBlockPass). */
+    public int renderPass() {
+        return renderPass;
     }
 
     public Object legacyBlock() {

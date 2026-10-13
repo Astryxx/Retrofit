@@ -16,6 +16,7 @@ Retrofit is free, with no paid tiers.
 | **In-game boot**: the same boot inside a Forge 1.20.1 client during mod construction; 1.20.1 then loads normally | ✅ Passing |
 | **Rendering test**: vanilla 1.7.10 `ModelPig` (real `ModelRenderer`/`Tessellator`/display lists) drawn in a 1.20.1 world through GL emulation | ✅ Passing |
 | **World bridge test**: a 1.7.10 mod's block + ticking tile entity lives in a 1.20.1 world and survives save/reload | ✅ Passing |
+| **Legacy textures**: plain cube legacy blocks render with their own 1.7.10 textures as normal 1.20.1 models | ✅ Passing |
 | First real mod (BiblioCraft) | Not started |
 
 ## Layout
@@ -85,6 +86,20 @@ contains Mojang code: it stays local and is never committed or published.
 - Legacy code sees each level as a real 1.7.10 `World` (`BridgeWorld`) whose block and tile
   entity methods call the level through `retrofit.api.HostWorld`.
 
+## Legacy assets
+
+A built-in, always-on client resource pack (`LegacyAssetPack`) turns legacy blocks into ordinary
+1.20.1 blocks for the renderer. Each block registers its icons with a recording
+`IIconRegister`; `getIcon(side, meta)` then names the texture of every face, and the pack
+generates a blockstate, block models (one per metadata value) and an item model from that. The
+texture files are served straight from the legacy mod jars (and the player's 1.7.10 jar for
+vanilla texture names) under `retrofit:blocks/legacy/...`, which a block atlas source stitches
+into the 1.20.1 block atlas. Because the result is standard JSON models, it costs nothing per
+frame and works with resource packs, Embeddium and shader packs.
+
+Only legacy *mod* blocks get this treatment. Vanilla 1.7.10 blocks are never re-registered; they
+will map to the real 1.20.1 blocks (see Known issues).
+
 ## Legacy rendering
 
 Legacy code's `org.lwjgl.opengl.GL11` calls are redirected to `retrofit.legacy.gl.GL11`, which
@@ -112,7 +127,8 @@ from the calling class's loader; a legacy caller would get a second, misconfigur
 ## Known issues
 
 - FML logs "missing any signature data" because transformed classes don't carry jar signers. Cosmetic.
-- Legacy blocks have no models or textures yet (they render as the missing-model block).
+- Legacy blocks with custom rendering (render type other than 0, e.g. ISBRH) are drawn as textured cubes for now.
+- Legacy block names aren't translated yet (the item shows its raw translation key).
 - Vanilla blocks look like legacy air or stone to legacy code; a full vanilla block table is next.
 - Legacy tile entities only exist on the server; there is no client copy for rendering yet.
 - A 1.20.1 dedicated server doesn't load the legacy layer yet.

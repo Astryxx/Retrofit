@@ -23,6 +23,10 @@ public final class LegacyBridge {
     private static MethodHandle tick;
     private static MethodHandle remove;
     private static MethodHandle describe;
+    private static MethodHandle blockRenderInfo;
+    private static MethodHandle modSources;
+    private static MethodHandle registerIcons;
+    private static MethodHandle faceTextures;
 
     private LegacyBridge() {
     }
@@ -45,6 +49,10 @@ public final class LegacyBridge {
         tick = lookup.findStatic(bridge, "tick", MethodType.methodType(void.class, o));
         remove = lookup.findStatic(bridge, "remove", MethodType.methodType(void.class, o));
         describe = lookup.findStatic(bridge, "describe", MethodType.methodType(String.class, o));
+        blockRenderInfo = lookup.findStatic(bridge, "blockRenderInfo", MethodType.methodType(int[].class, o));
+        modSources = lookup.findStatic(bridge, "modSources", MethodType.methodType(String[].class));
+        registerIcons = lookup.findStatic(bridge, "registerIcons", MethodType.methodType(int.class, Object[].class));
+        faceTextures = lookup.findStatic(bridge, "faceTextures", MethodType.methodType(String[].class, o, int.class));
     }
 
     public static Object createWorld(HostWorld host, int dimension) {
@@ -132,6 +140,42 @@ public final class LegacyBridge {
             return (String) describe.invokeExact(legacyObject);
         } catch (Throwable t) {
             throw failure("describe a legacy object", t);
+        }
+    }
+
+    /** {render type, opaque cube 1/0, render pass, light value}; see Bridge.blockRenderInfo. */
+    public static int[] blockRenderInfo(Object legacyBlock) {
+        try {
+            return (int[]) blockRenderInfo.invokeExact(legacyBlock);
+        } catch (Throwable t) {
+            throw failure("query how a legacy block renders", t);
+        }
+    }
+
+    /** Jar files of the loaded legacy mods. */
+    public static String[] modSources() {
+        try {
+            return (String[]) modSources.invokeExact();
+        } catch (Throwable t) {
+            throw failure("list legacy mod files", t);
+        }
+    }
+
+    /** Client only. Returns the number of blocks that failed to register icons. */
+    public static int registerIcons(Object[] legacyBlocks) {
+        try {
+            return (int) registerIcons.invokeExact(legacyBlocks);
+        } catch (Throwable t) {
+            throw failure("register legacy block icons", t);
+        }
+    }
+
+    /** Client only. Six face texture names (down, up, north, south, west, east), or null. */
+    public static String[] faceTextures(Object legacyBlock, int meta) {
+        try {
+            return (String[]) faceTextures.invokeExact(legacyBlock, meta);
+        } catch (Throwable t) {
+            throw failure("query legacy block textures", t);
         }
     }
 

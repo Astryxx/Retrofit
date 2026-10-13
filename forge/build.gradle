@@ -31,12 +31,16 @@ minecraft {
             }
         }
         client {
-            // -PquickPlay="World Name" joins that singleplayer world on launch; -PworldTest runs WorldBridgeTest.
+            // -PquickPlay="World Name" joins that singleplayer world on launch; -PworldTest runs WorldBridgeTest,
+            // -PrenderTest runs LegacyModelTestRenderer.
             if (project.hasProperty('quickPlay')) {
                 args '--quickPlaySingleplayer', project.property('quickPlay')
             }
             if (project.hasProperty('worldTest')) {
                 property 'retrofit.worldTest', 'true'
+            }
+            if (project.hasProperty('renderTest')) {
+                property 'retrofit.renderTest', 'true'
             }
         }
     }

@@ -1,5 +1,7 @@
 package retrofit.legacy.bridge;
 
+import cpw.mods.fml.common.Loader;
+import cpw.mods.fml.common.ModContainer;
 import net.minecraft.block.Block;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
@@ -11,6 +13,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +46,51 @@ public final class Bridge {
     /** getBlockFromName */
     public static Object block(String name) {
         return Block.func_149684_b(name);
+    }
+
+    /**
+     * How a legacy block wants to be rendered and lit: {render type (0 = plain cube), opaque cube
+     * (1/0), render pass (0 solid, 1 translucent), light value (0-15)}.
+     */
+    public static int[] blockRenderInfo(Object legacyBlock) {
+        Block block = (Block) legacyBlock;
+        int renderType = 0;
+        int renderPass = 0;
+        try {
+            renderType = block.func_149645_b();    // getRenderType
+            renderPass = block.func_149701_w();    // getRenderBlockPass
+        } catch (NoSuchMethodError dedicatedServer) {
+            // Client-only in 1.7.10; a server doesn't render, so the defaults are fine.
+        }
+        return new int[]{
+                renderType,
+                block.func_149662_c() ? 1 : 0,     // isOpaqueCube
+                renderPass,
+                block.func_149750_m()              // getLightValue
+        };
+    }
+
+    /** Files of all loaded legacy mods (their jars hold the mods' textures and other assets). */
+    public static String[] modSources() {
+        List<String> sources = new ArrayList<String>();
+        for (ModContainer mod : Loader.instance().getActiveModList()) {
+            File source = mod.getSource();
+            String id = mod.getModId();
+            if (source != null && source.isFile() && !id.equals("mcp") && !id.equals("FML") && !id.equals("Forge")) {
+                sources.add(source.getAbsolutePath());
+            }
+        }
+        return sources.toArray(new String[0]);
+    }
+
+    /** Client only; see {@link LegacyIcons}. */
+    public static int registerIcons(Object[] legacyBlocks) {
+        return LegacyIcons.registerIcons(legacyBlocks);
+    }
+
+    /** Client only; see {@link LegacyIcons#faceTextures}. */
+    public static String[] faceTextures(Object legacyBlock, int meta) {
+        return LegacyIcons.faceTextures(legacyBlock, meta);
     }
 
     public static boolean hasTileEntity(Object block, int meta) {

@@ -2,10 +2,12 @@ package retrofit.forge.client;
 
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -27,7 +29,8 @@ import java.util.regex.Pattern;
 /**
  * Automated world bridge test, enabled with -Dretrofit.worldTest=true (Gradle: -PworldTest).
  * Run 1 places hello1710's counter block next to spawn, lets its legacy tile entity tick, then
- * saves and quits. Run 2 finds the block in the save and checks the counter resumed.
+ * saves and quits. Run 2 finds the block in the save and checks the counter resumed. Both runs
+ * put the player in front of the block and save a screenshot (retrofit-world-test.png).
  */
 @Mod.EventBusSubscriber(modid = RetrofitMod.MOD_ID, value = Dist.CLIENT)
 public final class WorldBridgeTest {
@@ -36,6 +39,7 @@ public final class WorldBridgeTest {
     private static final ResourceLocation COUNTER_BLOCK = new ResourceLocation("hello1710", "counter_block");
     private static final Pattern TICKS = Pattern.compile("ticks=(\\d+)");
     private static final int START_TICK = 40;
+    private static final int SCREENSHOT_TICK = 120;
     private static final int QUIT_TICK = 240;
 
     private static int serverTicks;
@@ -55,6 +59,11 @@ public final class WorldBridgeTest {
         serverTicks++;
         if (serverTicks == START_TICK) {
             start(level);
+            lookAtBlock(server);
+        } else if (serverTicks == SCREENSHOT_TICK && pos != null) {
+            Minecraft minecraft = Minecraft.getInstance();
+            minecraft.execute(() -> Screenshot.grab(minecraft.gameDirectory, "retrofit-world-test.png",
+                    minecraft.getMainRenderTarget(), message -> LOGGER.info("[WorldTest] {}", message.getString())));
         } else if (pos != null && serverTicks % 40 == 0) {
             report(level, serverTicks == QUIT_TICK);
         }
@@ -86,6 +95,16 @@ public final class WorldBridgeTest {
         pos = new BlockPos(x, top, z);
         level.setBlock(pos, counter.defaultBlockState(), 3);
         LOGGER.info("[WorldTest] Placed legacy block {} at {}: {}", COUNTER_BLOCK, pos, describe(level));
+    }
+
+    /** Stands the player 3 blocks south of the test block, looking at it. */
+    private static void lookAtBlock(MinecraftServer server) {
+        if (pos == null) {
+            return;
+        }
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            player.teleportTo(server.overworld(), pos.getX() + 0.5, pos.getY(), pos.getZ() + 3.5, 180f, 15f);
+        }
     }
 
     private static void report(ServerLevel level, boolean last) {

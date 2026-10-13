@@ -37,11 +37,13 @@ import java.util.zip.ZipFile;
 /**
  * Rendering test: draws vanilla 1.7.10's ModelPig, rendered by real 1.7.10 code through
  * Retrofit's GL emulation, as an animated pig a few blocks in front of the player.
- * Uses the pig texture from the player's own 1.7.10 jar.
+ * Uses the pig texture from the player's own 1.7.10 jar. Enabled with -Dretrofit.renderTest=true
+ * (Gradle: -PrenderTest).
  */
 @Mod.EventBusSubscriber(modid = RetrofitMod.MOD_ID, value = Dist.CLIENT)
 public final class LegacyModelTestRenderer {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final boolean ENABLED = Boolean.getBoolean("retrofit.renderTest");
     private static final ResourceLocation TEXTURE = new ResourceLocation(RetrofitMod.MOD_ID, "legacy/pig");
     private static final String PIG_TEXTURE_ENTRY = "assets/minecraft/textures/entity/pig/pig.png";
 
@@ -60,7 +62,7 @@ public final class LegacyModelTestRenderer {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES || failed) {
+        if (!ENABLED || event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES || failed) {
             return;
         }
         LegacyRuntime runtime = RetrofitMod.runtime();
@@ -88,7 +90,7 @@ public final class LegacyModelTestRenderer {
     /** Saves one screenshot after the pig has been on screen for a while, as test evidence. */
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END || screenshotTaken || framesDrawn < 120) {
+        if (!ENABLED || event.phase != TickEvent.Phase.END || screenshotTaken || framesDrawn < 120) {
             return;
         }
         screenshotTaken = true;
