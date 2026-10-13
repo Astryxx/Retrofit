@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -144,9 +145,11 @@ final class LegacyAssetPack implements PackResources {
         putJson("minecraft", "atlases/blocks.json", atlas);
 
         int translations = addTranslations(modJars);
+        int passedThrough = addModFiles(modJars);
 
-        LOGGER.info("Legacy asset pack: {} blocks, {} items, {}/{} textures found in {} jars, {} translations{}",
+        LOGGER.info("Legacy asset pack: {} blocks, {} items, {}/{} textures found in {} jars, {} translations, {} sound and texture files{}",
                 blocks.size(), items.size(), found, blockTextures.size() + itemTextures.size(), textureSources.size(), translations,
+                passedThrough,
                 nonCube > 0 ? ", " + nonCube + " blocks with custom rendering" : "");
     }
 
@@ -404,6 +407,91 @@ final class LegacyAssetPack implements PackResources {
             count += language.getValue().size();
         }
         return count;
+    }
+
+    /**
+     * Mods' sounds and textures under their own namespace, for what 1.20.1 loads by name: sound
+     * events (sounds.json and the .ogg files) and textures named in code (armor, entities). Paths
+     * are lowercased as 1.20.1 requires; sounds.json is rewritten to match, with names that had no
+     * namespace resolved against the mod's own (1.7.10 did that; 1.20.1 would use minecraft:).
+     */
+    private int addModFiles(List<ZipFile> modJars) throws IOException {
+        int count = 0;
+        for (ZipFile jar : modJars) {
+            for (Enumeration<? extends ZipEntry> entries = jar.entries(); entries.hasMoreElements(); ) {
+                ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (entry.isDirectory() || !name.startsWith("assets/")) {
+                    continue;
+                }
+                int slash = name.indexOf('/', 7);
+                if (slash < 0) {
+                    continue;
+                }
+                String namespace = name.substring(7, slash).toLowerCase(Locale.ROOT);
+                String path = name.substring(slash + 1);
+                if (namespace.equals("minecraft") || namespace.equals(retrofit.forge.RetrofitMod.MOD_ID)) {
+                    continue;
+                }
+                if (path.equals("sounds.json")) {
+                    putJson(namespace, "sounds.json", soundsJson(namespace, jar, entry));
+                    count++;
+                } else if (path.startsWith("sounds/") || path.startsWith("textures/")) {
+                    String target = sanitize(path);
+                    if (!files.getOrDefault(namespace, Map.of()).containsKey(target)) {
+                        put(namespace, target, () -> jar.getInputStream(entry));
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
+    private static String sanitize(String path) {
+        return path.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_./-]", "_");
+    }
+
+    private static JsonObject soundsJson(String namespace, ZipFile jar, ZipEntry entry) throws IOException {
+        JsonObject legacy;
+        try (Reader reader = new InputStreamReader(jar.getInputStream(entry), StandardCharsets.UTF_8)) {
+            legacy = com.google.gson.JsonParser.parseReader(reader).getAsJsonObject();
+        } catch (RuntimeException e) {
+            LOGGER.warn("Unreadable sounds.json in {}", jar.getName(), e);
+            return new JsonObject();
+        }
+        JsonObject modern = new JsonObject();
+        for (Map.Entry<String, com.google.gson.JsonElement> event : legacy.entrySet()) {
+            if (!event.getValue().isJsonObject()) {
+                continue;
+            }
+            JsonObject definition = event.getValue().getAsJsonObject().deepCopy();
+            definition.remove("category"); // 1.7.10 only
+            if (definition.has("sounds")) {
+                JsonArray sounds = new JsonArray();
+                for (com.google.gson.JsonElement sound : definition.getAsJsonArray("sounds")) {
+                    if (sound.isJsonPrimitive()) {
+                        sounds.add(soundName(namespace, sound.getAsString()));
+                    } else if (sound.isJsonObject()) {
+                        JsonObject object = sound.getAsJsonObject().deepCopy();
+                        if (object.has("name")) {
+                            boolean event2 = object.has("type") && object.get("type").getAsString().equals("event");
+                            object.addProperty("name", event2 ? sanitize(object.get("name").getAsString())
+                                    : soundName(namespace, object.get("name").getAsString()));
+                        }
+                        sounds.add(object);
+                    }
+                }
+                definition.add("sounds", sounds);
+            }
+            modern.add(sanitize(event.getKey()), definition);
+        }
+        return modern;
+    }
+
+    private static String soundName(String namespace, String name) {
+        int colon = name.indexOf(':');
+        return colon < 0 ? namespace + ":" + sanitize(name) : name.substring(0, colon).toLowerCase(Locale.ROOT) + ":" + sanitize(name.substring(colon + 1));
     }
 
     // ---- Pack plumbing ----

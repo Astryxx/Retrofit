@@ -143,6 +143,11 @@ public final class WorldTestClient {
         boolean namesOk = blockName.equals("Counter Block (1.7.10)") && gemNames.equals("Ruby (1.7.10) / Sapphire (1.7.10)");
         LOGGER.info("[WorldTest] Client names: block '{}', items '{}' ({})", blockName, gemNames, namesOk ? "OK" : "FAILED");
 
+        // Mod sounds: BiblioCraft's sounds.json, served by the asset pack (only when BiblioCraft is installed).
+        var sound = minecraft.getSoundManager().getSoundEvent(new ResourceLocation("bibliocraft", "copen"));
+        LOGGER.info("[WorldTest] Client sound bibliocraft:copen: {}", sound == null ? "not registered (BiblioCraft missing?)"
+                : "OK, " + sound.getSound(net.minecraft.util.RandomSource.create()).getLocation());
+
         if (syncOk && planks && namesOk) {
             LOGGER.info("[WorldTest] Client PASSED");
         } else {
