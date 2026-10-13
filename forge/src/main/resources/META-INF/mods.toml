@@ -1,0 +1,25 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "To be decided"
+
+[[mods]]
+modId = "retrofit"
+version = "${file.jarVersion}"
+displayName = "Retrofit"
+description = '''
+Play Minecraft 1.7.10 Forge mods in 1.20.1, using your own 1.7.10 installation.
+'''
+
+[[dependencies.retrofit]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.retrofit]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.20.2)"
+ordering = "NONE"
+side = "BOTH"

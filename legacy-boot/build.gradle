@@ -1,0 +1,15 @@
+// Code that runs inside the 1.7.10 world. It is read by Forge 1.7.10's ASM 5,
+// so it must be compiled to Java 8 bytecode.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+dependencies {
+    compileOnly('net.minecraft:launchwrapper:1.12') { transitive = false }
+    compileOnly 'org.ow2.asm:asm-all:5.0.3'
+    // Retrofit's replacement for Forge's log4j 2.0-beta9 (see LegacyInstall.LOGGING_LIBRARIES).
+    compileOnly 'org.apache.logging.log4j:log4j-api:2.19.0'
+    compileOnly 'org.apache.logging.log4j:log4j-to-slf4j:2.19.0'
+    compileOnly 'org.slf4j:slf4j-api:2.0.1'
+}

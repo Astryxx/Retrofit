@@ -1,0 +1,83 @@
+// The Forge 1.20.1 mod. It contains the host code (shared with the harness) and carries the
+// legacy-side code as a nested jar, which is extracted at runtime and loaded only into the
+// isolated 1.7.10 class loader.
+plugins {
+    id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
+}
+
+version = '0.1.0'
+group = 'retrofit'
+base {
+    archivesName = 'retrofit-forge'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+sourceSets.main.java.srcDir project(':host').file('src/main/java')
+sourceSets.main.java.srcDir project(':bridge-api').file('src/main/java')
+
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    copyIdeResources = true
+
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'info'
+            mods {
+                retrofit {
+                    source sourceSets.main
+                }
+            }
+        }
+        client {
+            // -PquickPlay="World Name" joins that singleplayer world on launch; -PworldTest runs WorldBridgeTest.
+            if (project.hasProperty('quickPlay')) {
+                args '--quickPlaySingleplayer', project.property('quickPlay')
+            }
+            if (project.hasProperty('worldTest')) {
+                property 'retrofit.worldTest', 'true'
+            }
+        }
+    }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.26'
+}
+
+def legacyBootJar = project(':legacy-boot').tasks.named('jar')
+def legacyBridgeJar = project(':legacy-bridge').tasks.named('jar')
+
+tasks.named('processResources', ProcessResources) {
+    from(legacyBootJar.flatMap { it.archiveFile }) {
+        into 'retrofit'
+        rename { 'legacy-boot.jar' }
+    }
+    from(legacyBridgeJar.flatMap { it.archiveFile }) {
+        into 'retrofit'
+        rename { 'legacy-bridge.jar' }
+    }
+}
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes([
+            'Specification-Title'   : 'retrofit',
+            'Implementation-Title'  : 'Retrofit',
+            'Implementation-Version': project.version,
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+// The legacy layer reads 1.7.10 mods from <game dir>/retrofit/mods; put the test mod there for dev runs.
+tasks.matching { it.name == 'runClient' }.configureEach {
+    dependsOn ':testmods:hello1710:jar'
+    doFirst {
+        copy {
+            from project(':testmods:hello1710').tasks.jar.archiveFile
+            into file('run/retrofit/mods')
+        }
+    }
+}

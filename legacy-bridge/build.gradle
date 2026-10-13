@@ -1,0 +1,15 @@
+// Legacy-side half of the world bridge. Loaded by the LaunchClassLoader, so it runs as part
+// of the 1.7.10 world and compiles against its classes (SRG names), like a 1.7.10 mod.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+dependencies {
+    compileOnly project(':bridge-api')
+    compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+}
+
+tasks.named('compileJava') {
+    dependsOn ':harness:dumpSrgJar'
+}

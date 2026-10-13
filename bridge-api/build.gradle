@@ -1,0 +1,7 @@
+// Interfaces shared by the host (1.20.1 side) and the legacy bridge (1.7.10 side).
+// The legacy loaders delegate the retrofit.api package to the host, so both sides see the
+// same classes. Java 8 bytecode, so the legacy bridge can compile against it.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}

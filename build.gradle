@@ -1,0 +1,24 @@
+subprojects {
+    apply plugin: 'java'
+
+    repositories {
+        mavenCentral()
+        maven {
+            url 'https://libraries.minecraft.net/'
+            content { includeGroup 'net.minecraft' }
+        }
+        maven {
+            url 'https://maven.minecraftforge.net/'
+            content { includeGroup 'net.minecraftforge' }
+            // Old Forge builds (1.7.10) were published without POMs.
+            metadataSources {
+                mavenPom()
+                artifact()
+            }
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+}

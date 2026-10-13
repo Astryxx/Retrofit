@@ -1,0 +1,61 @@
+// Standalone Java 17 host used to boot real 1.7.10 + Forge outside of 1.20.1.
+// This is the proving ground for the bootstrap before it moves into the 1.20.1 mod.
+apply plugin: 'application'
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+}
+
+// Same library versions Minecraft 1.20.1 provides, so the harness matches the real host.
+dependencies {
+    implementation project(':host')
+    implementation project(':bridge-api')
+    implementation 'com.google.code.gson:gson:2.10'
+    implementation 'org.apache.commons:commons-compress:1.21'
+    implementation 'org.slf4j:slf4j-api:2.0.1'
+    implementation 'org.apache.logging.log4j:log4j-api:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:2.19.0'
+}
+
+application {
+    mainClass = 'retrofit.harness.HarnessMain'
+}
+
+def legacyGameDir = rootProject.file('run/legacy')
+
+tasks.named('run') {
+    dependsOn ':legacy-boot:jar', ':legacy-bridge:jar', ':testmods:hello1710:jar'
+    workingDir = legacyGameDir
+    doFirst {
+        legacyGameDir.mkdirs()
+        copy {
+            from project(':testmods:hello1710').tasks.jar.archiveFile
+            into new File(legacyGameDir, 'mods')
+        }
+    }
+    args = [
+        '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--bridge-jar', project(':legacy-bridge').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--game-dir', legacyGameDir.absolutePath
+    ]
+}
+
+// Writes the patched, deobfuscated 1.7.10 classes (from the player's own install) to a local jar
+// that legacy-side code compiles against. Local only: never publish or commit it.
+def srgJar = rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar')
+tasks.register('dumpSrgJar', JavaExec) {
+    dependsOn ':legacy-boot:jar'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'retrofit.harness.HarnessMain'
+    def dumpGameDir = rootProject.file('run/legacy-dump')
+    workingDir = dumpGameDir
+    outputs.file srgJar
+    inputs.file project(':legacy-boot').tasks.jar.archiveFile
+    doFirst { dumpGameDir.mkdirs() }
+    args = [
+        '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--game-dir', dumpGameDir.absolutePath,
+        '--dump-srg', srgJar.absolutePath
+    ]
+}

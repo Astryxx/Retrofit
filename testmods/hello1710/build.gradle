@@ -1,0 +1,15 @@
+// A minimal 1.7.10 Forge mod used to prove the legacy boot path works.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+// Compiled against the patched, deobfuscated 1.7.10 classes from the player's own install
+// (see :harness:dumpSrgJar), the same SRG names real 1.7.10 mod jars use.
+dependencies {
+    compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+}
+
+tasks.named('compileJava') {
+    dependsOn ':harness:dumpSrgJar'
+}

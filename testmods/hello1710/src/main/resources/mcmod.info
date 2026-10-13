@@ -1,0 +1,10 @@
+[
+  {
+    "modid": "hello1710",
+    "name": "Hello 1.7.10",
+    "description": "Retrofit boot-test mod.",
+    "version": "1.0",
+    "mcversion": "1.7.10",
+    "authorList": ["Retrofit"]
+  }
+]
