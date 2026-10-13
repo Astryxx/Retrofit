@@ -3,7 +3,10 @@ package retrofit.testmods.hello;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import net.minecraftforge.common.MinecraftForge;
 import cpw.mods.fml.common.network.NetworkRegistry;
 import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
 import cpw.mods.fml.common.registry.GameRegistry;
@@ -53,9 +56,18 @@ public class Hello1710 {
     public void init(FMLInitializationEvent event) {
         System.out.println("[hello1710] init");
         NetworkRegistry.INSTANCE.registerGuiHandler(instance, new CrateBlock.Guis());
+        HelloEvents events = new HelloEvents();
+        FMLCommonHandler.instance().bus().register(events);
+        MinecraftForge.EVENT_BUS.register(events);
         // Two diamonds side by side make a sapphire; a ruby smelts into a diamond.
         GameRegistry.addRecipe(new ItemStack(gem, 1, 1), "DD", 'D', Items.field_151045_i);
         GameRegistry.addSmelting(new ItemStack(gem, 1, 0), new ItemStack(Items.field_151045_i), 1.0f);
+    }
+
+    @Mod.EventHandler
+    public void serverStarting(FMLServerStartingEvent event) {
+        event.registerServerCommand(new HelloEvents.HelloCommand());
+        System.out.println("[hello1710] FMLServerStartingEvent: registered /hello");
     }
 
     @Mod.EventHandler

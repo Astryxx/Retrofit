@@ -20,6 +20,7 @@ public final class LegacyBridge {
     private static final String[] ENTRY_CLASSES = {
             "retrofit.legacy.bridge.Bridge", "retrofit.legacy.bridge.Interactions", "retrofit.legacy.bridge.LegacyPlayers",
             "retrofit.legacy.bridge.Recipes", "retrofit.legacy.bridge.Guis", "retrofit.legacy.bridge.Network",
+            "retrofit.legacy.bridge.Events",
     };
     /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
     private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis"};
@@ -72,6 +73,11 @@ public final class LegacyBridge {
         } catch (Throwable t) {
             throw new IllegalStateException("Retrofit's legacy bridge failed in " + name, t);
         }
+    }
+
+    /** For client code outside this package: report a legacy failure once (see LegacyErrors). */
+    public static void reportClientFailure(String what, RuntimeException e) {
+        LegacyErrors.report(what, "running", e);
     }
 
     // ---- Worlds and blocks ----

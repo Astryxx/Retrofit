@@ -14,6 +14,9 @@ public interface HostPlayer {
 
     // ---- Server side ----
 
+    /** The player's permission level (0 to 4; operators usually 4), for legacy command checks. */
+    int permissionLevel();
+
     /**
      * A mod opened a container GUI (FML openGui). The host opens a menu over the legacy container
      * and has the client build the matching GUI; returns the window id, or -1 if it couldn't.

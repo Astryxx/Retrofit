@@ -1,0 +1,280 @@
+package retrofit.forge.world;
+
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.logging.LogUtils;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.event.level.LevelEvent;
+import net.minecraftforge.event.server.ServerAboutToStartEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStartingEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.eventbus.api.Event;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import org.slf4j.Logger;
+import retrofit.forge.RetrofitMod;
+
+/**
+ * Fires the legacy FML and Forge events at the matching 1.20.1 moments (see the legacy bridge's
+ * Events): server, world and player ticks, logins, respawns and dimension changes, the server
+ * lifecycle, PlayerInteractEvent, and world load, save and unload. Commands mods register in
+ * FMLServerStartingEvent become 1.20.1 commands taking the rest of the line as arguments.
+ * Client ticks are fired by the client's own subscriber (retrofit.forge.client.LegacyClientEvents).
+ *
+ * A legacy handler that throws is reported once and never stops the server.
+ */
+@Mod.EventBusSubscriber(modid = RetrofitMod.MOD_ID)
+public final class LegacyEvents {
+    private static final Logger LOGGER = LogUtils.getLogger();
+    private static String[] commands = new String[0];
+
+    private LegacyEvents() {
+    }
+
+    private static boolean active() {
+        return RetrofitMod.runtime() != null;
+    }
+
+    private static void fire(String what, Runnable call) {
+        try {
+            call.run();
+        } catch (RuntimeException e) {
+            LegacyErrors.report("event handler", what, e);
+        }
+    }
+
+    // ---- Server lifecycle ----
+
+    @SubscribeEvent
+    public static void onServerAboutToStart(ServerAboutToStartEvent event) {
+        if (active()) {
+            java.io.File directory = event.getServer().getWorldPath(LevelResource.ROOT).resolve("retrofit").toFile();
+            fire("server about to start", () -> LegacyBridge.call("serverAboutToStart", directory));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerStarting(ServerStartingEvent event) {
+        if (!active()) {
+            return;
+        }
+        fire("server starting", () -> LegacyBridge.call("serverStarting"));
+        try {
+            commands = LegacyBridge.call("modCommands");
+        } catch (RuntimeException e) {
+            LegacyErrors.report("commands", "being listed", e);
+        }
+        registerCommands(event.getServer().getCommands().getDispatcher());
+        if (commands.length > 0) {
+            LOGGER.info("Legacy commands: {}", String.join(", ", commands));
+        }
+    }
+
+    /** /reload rebuilds the command tree: put the legacy commands back. */
+    @SubscribeEvent
+    public static void onRegisterCommands(RegisterCommandsEvent event) {
+        if (active()) {
+            registerCommands(event.getDispatcher());
+        }
+    }
+
+    private static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        for (String name : commands) {
+            if (dispatcher.getRoot().getChild(name) != null) {
+                continue; // 1.20.1 (or another mod) already has it
+            }
+            dispatcher.register(Commands.literal(name)
+                    .executes(context -> run(context.getSource(), name))
+                    .then(Commands.argument("arguments", StringArgumentType.greedyString())
+                            .executes(context -> run(context.getSource(), name + " " + StringArgumentType.getString(context, "arguments")))));
+        }
+    }
+
+    private static int run(CommandSourceStack source, String line) {
+        ServerPlayer player = source.getPlayer();
+        try {
+            Object mirror = player == null ? null : LegacyPlayers.mirror(player, true);
+            int result = LegacyBridge.call("runCommand", mirror, line);
+            if (player != null) {
+                LegacyPlayers.writeBack(player, mirror);
+            }
+            return result;
+        } catch (RuntimeException e) {
+            LegacyErrors.report("command /" + line.split(" ")[0], "running", e);
+            return 0;
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        if (active()) {
+            fire("server started", () -> LegacyBridge.call("serverStarted"));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerStopping(ServerStoppingEvent event) {
+        if (active()) {
+            fire("server stopping", () -> LegacyBridge.call("serverStopping"));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerStopped(ServerStoppedEvent event) {
+        if (active()) {
+            fire("server stopped", () -> LegacyBridge.call("serverStopped"));
+        }
+    }
+
+    // ---- Ticks ----
+
+    @SubscribeEvent
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (active()) {
+            boolean start = event.phase == TickEvent.Phase.START;
+            fire("server tick", () -> LegacyBridge.call("serverTick", start));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+        if (active() && !event.level.isClientSide && LegacyContent.hasLegacyWorld(event.level)) {
+            boolean start = event.phase == TickEvent.Phase.START;
+            Object world = LegacyContent.legacyWorld(event.level);
+            fire("world tick", () -> LegacyBridge.call("worldTick", world, start));
+        }
+    }
+
+    /** Both sides (clients for the local player), as 1.7.10's PlayerTickEvent; the mirror is synced first. */
+    @SubscribeEvent
+    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        Player player = event.player;
+        if (!active() || player.level().isClientSide && player != localPlayer()) {
+            return;
+        }
+        boolean start = event.phase == TickEvent.Phase.START;
+        fire("player tick", () -> {
+            Object mirror = LegacyPlayers.mirror(player, false);
+            LegacyBridge.call("playerTick", mirror, start);
+        });
+    }
+
+    private static Player localPlayer() {
+        return net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient() ? retrofit.forge.client.ClientHooks.localPlayer() : null;
+    }
+
+    // ---- Players ----
+
+    @SubscribeEvent
+    public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (active()) {
+            fire("player login", () -> LegacyBridge.call("playerLoggedIn", LegacyPlayers.mirror(event.getEntity(), true)));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (active()) {
+            fire("player logout", () -> LegacyBridge.call("playerLoggedOut", LegacyPlayers.mirror(event.getEntity(), true)));
+            LegacyPlayers.forget(event.getEntity(), true);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (active()) {
+            fire("player respawn", () -> LegacyBridge.call("playerRespawned", LegacyPlayers.mirror(event.getEntity(), true)));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (!active()) {
+            return;
+        }
+        LegacyPlayers.forget(event.getEntity(), false);
+        MinecraftServer server = event.getEntity().getServer();
+        ServerLevel from = server == null ? null : server.getLevel(event.getFrom());
+        int fromId = from == null ? 0 : LegacyContent.legacyDimension(from);
+        int toId = LegacyContent.legacyDimension(event.getEntity().level());
+        fire("player dimension change", () -> LegacyBridge.call("playerChangedDimension", LegacyPlayers.mirror(event.getEntity(), true), fromId, toId));
+    }
+
+    // ---- PlayerInteractEvent ----
+
+    @SubscribeEvent
+    public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        if (active() && event.getHand() == InteractionHand.MAIN_HAND) {
+            interact(event, 1, event.getPos().getX(), event.getPos().getY(), event.getPos().getZ(), event.getFace() == null ? -1 : event.getFace().get3DDataValue());
+        }
+    }
+
+    @SubscribeEvent
+    public static void onRightClickItem(PlayerInteractEvent.RightClickItem event) {
+        if (active() && event.getHand() == InteractionHand.MAIN_HAND) {
+            interact(event, 0, 0, 0, 0, -1);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
+        if (active() && event.getAction() == PlayerInteractEvent.LeftClickBlock.Action.START) {
+            interact(event, 2, event.getPos().getX(), event.getPos().getY(), event.getPos().getZ(), event.getFace() == null ? -1 : event.getFace().get3DDataValue());
+        }
+    }
+
+    private static void interact(PlayerInteractEvent event, int action, int x, int y, int z, int face) {
+        Player player = event.getEntity();
+        Level level = event.getLevel();
+        try {
+            Object mirror = LegacyPlayers.mirror(player, true);
+            int[] result = LegacyBridge.call("interact", mirror, action, x, y, z, face, LegacyContent.legacyWorld(level));
+            LegacyPlayers.writeBack(player, mirror);
+            if (result[0] != 0 && event.isCancelable()) {
+                event.setCanceled(true);
+            }
+            if (event instanceof PlayerInteractEvent.RightClickBlock block) {
+                if (result[1] != 0) {
+                    block.setUseBlock(Event.Result.DENY);
+                }
+                if (result[2] != 0) {
+                    block.setUseItem(Event.Result.DENY);
+                }
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report("event handler", "PlayerInteractEvent", e);
+        }
+    }
+
+    // ---- Worlds ----
+
+    @SubscribeEvent
+    public static void onLevelSave(LevelEvent.Save event) {
+        if (active() && event.getLevel() instanceof Level level && !level.isClientSide && LegacyContent.hasLegacyWorld(level)) {
+            Object world = LegacyContent.legacyWorld(level);
+            fire("world save", () -> LegacyBridge.call("worldSaved", world));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLevelUnload(LevelEvent.Unload event) {
+        if (active() && event.getLevel() instanceof Level level && LegacyContent.hasLegacyWorld(level)) {
+            Object world = LegacyContent.legacyWorld(level);
+            fire("world unload", () -> LegacyBridge.call("worldUnloaded", world));
+        }
+    }
+}

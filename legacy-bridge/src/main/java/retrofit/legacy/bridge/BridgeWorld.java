@@ -28,7 +28,7 @@ public class BridgeWorld extends World {
 
     public BridgeWorld(HostWorld host, int dimension) {
         // The (saveHandler, name, settings, provider, profiler) constructor: the other one is client-only.
-        super(new BridgeSaveHandler(), "Retrofit", LegacyWorlds.survivalSettings(),
+        super(new BridgeSaveHandler(false), "Retrofit", LegacyWorlds.survivalSettings(),
                 WorldProvider.func_76570_a(dimension), new Profiler()); // getProviderForDimension
         this.host = host;
         this.field_72995_K = host.isClientSide(); // isRemote

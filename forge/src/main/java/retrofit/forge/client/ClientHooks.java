@@ -21,6 +21,10 @@ public final class ClientHooks {
         }
     }
 
+    public static net.minecraft.world.entity.player.Player localPlayer() {
+        return Minecraft.getInstance().player;
+    }
+
     /** A legacy mod packet from the server, for the local player. */
     public static void legacyPayload(String channel, byte[] data) {
         LocalPlayer player = Minecraft.getInstance().player;

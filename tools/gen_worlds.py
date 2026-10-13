@@ -110,7 +110,7 @@ CLASSES = {
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld host, int dimension) {
         // The (saveHandler, name, settings, provider, profiler) constructor: the other one is client-only.
-        super(new BridgeSaveHandler(), "Retrofit", LegacyWorlds.survivalSettings(),
+        super(new BridgeSaveHandler(false), "Retrofit", LegacyWorlds.survivalSettings(),
                 WorldProvider.func_76570_a(dimension), new Profiler()); // getProviderForDimension
         this.host = host;
         this.field_72995_K = host.isClientSide(); // isRemote
@@ -130,7 +130,7 @@ public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld
  */
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorldServer extends WorldServer {""", """    public BridgeWorldServer(HostWorld host, int dimension) {
-        super(LegacyWorlds.server(), new BridgeSaveHandler(), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
+        super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
     }
 
@@ -140,7 +140,7 @@ public class BridgeWorldServer extends WorldServer {""", """    public BridgeWor
      */
     @Override
     public java.io.File getChunkSaveLocation() {
-        return new java.io.File(net.minecraft.launchwrapper.Launch.minecraftHome, "world-data/DIM" + this.field_73011_w.field_76574_g);
+        return LegacyWorlds.dimensionDirectory(this.field_73011_w.field_76574_g); // provider.dimensionId
     }
 
     /** scheduleBlockUpdate from a save (WorldServer) */

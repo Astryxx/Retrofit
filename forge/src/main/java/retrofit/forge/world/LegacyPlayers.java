@@ -9,12 +9,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
 import retrofit.api.HostPlayer;
-import retrofit.forge.RetrofitMod;
 
 import java.util.Map;
 import java.util.UUID;
@@ -25,11 +20,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * code runs on a player's behalf, {@link #mirror} copies the player into the mirror; afterwards
  * {@link #writeBack} applies what legacy code changed (inventory slots, food, health).
  *
- * Positions of all players are copied every server tick into worlds that have legacy content,
- * so tile entities that look for nearby players find them. Clients only mirror the local player
- * and never write back: the server's results reach them through 1.20.1's own syncing.
+ * Every player is mirrored and synced each tick (see LegacyEvents, which also fires the legacy
+ * player tick events), so tile entities that look for nearby players find them. Clients only
+ * mirror the local player and never write back outside GUIs: the server's results reach them
+ * through 1.20.1's own syncing.
  */
-@Mod.EventBusSubscriber(modid = RetrofitMod.MOD_ID)
 public final class LegacyPlayers {
     private static final int SNEAKING = 1;
     private static final int CREATIVE = 2;
@@ -136,32 +131,12 @@ public final class LegacyPlayers {
 
     // ---- Keeping mirrors current ----
 
-    @SubscribeEvent
-    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        Player player = event.player;
-        if (event.phase != TickEvent.Phase.END || player.level().isClientSide || RetrofitMod.runtime() == null
-                || player.tickCount % 2 != 0 || !LegacyContent.hasLegacyWorld(player.level())) {
-            return;
+    /** Removes a player's mirrors (logout), or only those outside its current level (dimension change). */
+    static void forget(Player player, boolean loggedOut) {
+        if (loggedOut) {
+            SERVER_HOSTS.remove(player.getUUID());
         }
-        Host host = SERVER_HOSTS.computeIfAbsent(player.getUUID(), id -> new Host());
-        host.player = player;
-        Object world = LegacyContent.legacyWorld(player.level());
-        sync(player, LegacyBridge.call("player", world, host, player.getUUID().toString(), player.getGameProfile().getName()));
-    }
-
-    @SubscribeEvent
-    public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        if (RetrofitMod.runtime() != null) {
-            SERVER_HOSTS.remove(event.getEntity().getUUID());
-            LegacyBridge.call("removePlayer", event.getEntity().getUUID().toString(), null);
-        }
-    }
-
-    @SubscribeEvent
-    public static void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        if (RetrofitMod.runtime() != null) {
-            LegacyBridge.call("removePlayer", event.getEntity().getUUID().toString(), null);
-        }
+        LegacyBridge.call("removePlayer", player.getUUID().toString(), null);
     }
 
     /** What the legacy mirror asks of the real player. */
@@ -193,6 +168,19 @@ public final class LegacyPlayers {
             } else if (target != null) {
                 target.moveTo(x, y, z, yaw, pitch);
             }
+        }
+
+        @Override
+        public int permissionLevel() {
+            Player target = player;
+            if (target instanceof ServerPlayer server) {
+                for (int level = 4; level > 0; level--) {
+                    if (server.hasPermissions(level)) {
+                        return level;
+                    }
+                }
+            }
+            return 0;
         }
 
         @Override

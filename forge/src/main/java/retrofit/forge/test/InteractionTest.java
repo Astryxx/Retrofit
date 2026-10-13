@@ -136,6 +136,11 @@ final class InteractionTest {
                 .map(recipe -> recipe.getResultItem(level.registryAccess())).orElse(ItemStack.EMPTY);
         passed += check(smelted.is(Items.DIAMOND), "smelt", "a ruby smelts into " + smelted);
 
+        // 8. A command the legacy mod registered in FMLServerStartingEvent.
+        total++;
+        int commandResult = player.server.getCommands().performPrefixedCommand(player.createCommandSourceStack(), "hello retrofit");
+        passed += check(commandResult == 1, "command", "/hello returned " + commandResult);
+
         if (passed == total) {
             LOGGER.info("[WorldTest] Interaction PASSED: {}/{}", passed, total);
         } else {

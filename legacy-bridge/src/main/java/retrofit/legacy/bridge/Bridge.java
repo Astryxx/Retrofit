@@ -42,7 +42,9 @@ public final class Bridge {
     }
 
     public static Object createWorld(HostWorld host, int dimension) {
-        return LegacyWorlds.create(host, dimension);
+        Object world = LegacyWorlds.create(host, dimension);
+        Events.worldLoaded(world);
+        return world;
     }
 
     /** Registry names of all blocks added by legacy mods ("modid:name"). */

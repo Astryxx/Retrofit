@@ -17,6 +17,7 @@ import java.lang.reflect.Field;
 /** Creates the legacy server and the legacy world for each host level. */
 public final class LegacyWorlds {
     private static BridgeServer server;
+    private static volatile File saveDirectory;
 
     private LegacyWorlds() {
     }
@@ -24,6 +25,21 @@ public final class LegacyWorlds {
     /** A server world (WorldServer) for server levels, a client world (WorldClient) for client levels. */
     static World create(HostWorld host, int dimension) {
         return host.isClientSide() ? ClientWorlds.create(host, dimension) : new BridgeWorldServer(host, dimension);
+    }
+
+    /** Where legacy world data of the running server goes: the host world's "retrofit" folder. */
+    static void setSaveDirectory(File directory) {
+        saveDirectory = directory;
+    }
+
+    static File saveDirectory() {
+        File directory = saveDirectory;
+        return directory != null ? directory : new File(Launch.minecraftHome, "world-data");
+    }
+
+    /** A legacy dimension's own folder, as 1.7.10 laid it out: the overworld at the top, others in DIM<n>. */
+    static File dimensionDirectory(int dimension) {
+        return dimension == 0 ? saveDirectory() : new File(saveDirectory(), "DIM" + dimension);
     }
 
     static WorldSettings survivalSettings() {

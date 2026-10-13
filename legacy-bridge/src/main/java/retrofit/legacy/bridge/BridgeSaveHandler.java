@@ -10,10 +10,17 @@ import net.minecraft.world.storage.WorldInfo;
 import java.io.File;
 
 /**
- * Save handler for {@link BridgeWorld}: the host level saves everything, so this stores
- * nothing. (1.7.10's own no-op handler, SaveHandlerMP, only exists on the client.)
+ * Save handler of legacy worlds. The host level saves blocks, tile entities and players; what
+ * remains is mods' world data (WorldSavedData), kept in the host world's "retrofit" folder for
+ * server worlds. Client and isolated worlds store nothing (as 1.7.10's SaveHandlerMP).
  */
 final class BridgeSaveHandler implements ISaveHandler {
+    private final boolean persistent;
+
+    BridgeSaveHandler(boolean persistent) {
+        this.persistent = persistent;
+    }
+
     /** loadWorldInfo */
     @Override
     public WorldInfo func_75757_d() {
@@ -55,13 +62,18 @@ final class BridgeSaveHandler implements ISaveHandler {
     /** getWorldDirectory */
     @Override
     public File func_75765_b() {
-        return null;
+        return persistent ? LegacyWorlds.saveDirectory() : null;
     }
 
-    /** getMapFileFromName */
+    /** getMapFileFromName: shared world data (world.mapStorage) */
     @Override
     public File func_75758_b(String name) {
-        return null;
+        if (!persistent) {
+            return null;
+        }
+        File data = new File(LegacyWorlds.saveDirectory(), "data");
+        data.mkdirs();
+        return new File(data, name + ".dat");
     }
 
     /** getWorldDirectoryName */

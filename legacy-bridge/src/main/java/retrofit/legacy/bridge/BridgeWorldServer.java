@@ -26,7 +26,7 @@ public class BridgeWorldServer extends WorldServer {
     private final HostWorld host;
 
     public BridgeWorldServer(HostWorld host, int dimension) {
-        super(LegacyWorlds.server(), new BridgeSaveHandler(), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
+        super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
     }
 
@@ -36,7 +36,7 @@ public class BridgeWorldServer extends WorldServer {
      */
     @Override
     public java.io.File getChunkSaveLocation() {
-        return new java.io.File(net.minecraft.launchwrapper.Launch.minecraftHome, "world-data/DIM" + this.field_73011_w.field_76574_g);
+        return LegacyWorlds.dimensionDirectory(this.field_73011_w.field_76574_g); // provider.dimensionId
     }
 
     /** scheduleBlockUpdate from a save (WorldServer) */

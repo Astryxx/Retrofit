@@ -53,6 +53,12 @@ final class BridgePlayerMP extends EntityPlayerMP {
         Guis.openChest(this, inventory);
     }
 
+    /** canCommandSenderUseCommand: the host's permission level (1.7.10 asked its own ops list). */
+    @Override
+    public boolean func_70003_b(int level, String command) {
+        return "tell".equals(command) || "help".equals(command) || "me".equals(command) || host.permissionLevel() >= level;
+    }
+
     /** addChatMessage */
     @Override
     public void func_145747_a(IChatComponent component) {
