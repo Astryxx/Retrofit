@@ -12,6 +12,9 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void registerRenderers() {
+        HelloClientEvents events = new HelloClientEvents();
+        cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(events);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(events);
         RenderingRegistry.registerEntityRenderingHandler(RubyGolem.class, new RenderBiped(new ModelBiped(), 0.5f) {
             @Override
             protected ResourceLocation func_110775_a(Entity entity) { // getEntityTexture

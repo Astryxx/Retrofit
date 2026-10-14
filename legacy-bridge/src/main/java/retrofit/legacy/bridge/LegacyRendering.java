@@ -199,8 +199,15 @@ public final class LegacyRendering {
             skins.setAccessible(true);
             skins.set(minecraft, allocate(SkinManager.class));
             font = new FontRenderer(settings, new ResourceLocation("textures/font/ascii.png"), textures, false);
+            font.func_110549_a(minecraft.func_110442_L()); // onResourceManagerReload: glyph widths from the font texture
             minecraft.field_71466_p = font; // fontRenderer
             minecraft.field_71464_q = font; // standardGalacticFontRenderer
+            Field languages = Minecraft.class.getDeclaredField("field_135017_as"); // mcLanguageManager (ScaledResolution asks it about Unicode)
+            languages.setAccessible(true);
+            if (languages.get(minecraft) == null) {
+                languages.set(minecraft, new net.minecraft.client.resources.LanguageManager(
+                        new net.minecraft.client.resources.data.IMetadataSerializer(), System.getProperty("retrofit.language", "en_US")));
+            }
             Field sounds = Minecraft.class.getDeclaredField("field_147127_av"); // mcSoundHandler
             sounds.setAccessible(true);
             sounds.set(minecraft, allocate(BridgeSoundHandler.class));

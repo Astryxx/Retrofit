@@ -6,3 +6,5 @@ tile.ruby_ore.name=Ruby Ore (1.7.10)
 item.ruby_helmet.name=Ruby Helmet (1.7.10)
 entity.RubyGolem.name=Ruby Golem (1.7.10)
 entity.hello1710.RubyGolem.name=Ruby Golem (1.7.10)
+key.hello1710.ping=Ping (1.7.10)
+key.categories.hello1710=Hello 1.7.10

@@ -88,6 +88,7 @@ public final class WorldTestServer {
             }
         }
         if (serverTicks == START_TICK) {
+            level.setDayTime(6000); // noon, for the screenshots
             start(level);
             if (pos != null) {
                 placeShowcase(level);

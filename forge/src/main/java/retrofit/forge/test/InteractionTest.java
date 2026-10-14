@@ -29,6 +29,7 @@ import retrofit.forge.world.LegacyBlock;
 import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyItem;
 import retrofit.forge.world.LegacyMenu;
+import retrofit.forge.world.LegacyMob;
 import retrofit.forge.world.LegacyBridge;
 import retrofit.forge.world.LegacyPlayers;
 import net.minecraft.world.inventory.ClickType;
@@ -300,7 +301,7 @@ final class InteractionTest {
     private static int entity(ServerPlayer player, ServerLevel level, BlockPos at) {
         var type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("hello1710", "rubygolem"));
         net.minecraft.world.entity.Entity golem = type == null ? null : type.create(level);
-        if (!(golem instanceof retrofit.forge.world.LegacyMob mob)) {
+        if (!(golem instanceof LegacyMob mob)) {
             return check(false, "entity", "hello1710:rubygolem is " + golem);
         }
         // 1.7.10 code assumes y >= 0 (pathfinding included); the test world is superflat at the 1.20.1 floor,
@@ -333,20 +334,35 @@ final class InteractionTest {
         mob.tick();
         float after = mob.getHealth();
         level.getEntitiesOfClass(ItemEntity.class, mob.getBoundingBox().inflate(4)).forEach(ItemEntity::discard);
-        mob.hurt(level.damageSources().playerAttack(player), 1000);
-        for (int i = 0; i < 30 && !mob.isRemoved(); i++) {
-            mob.tick(); // 1.7.10's death animation, then setDead
-        }
         Item gem = ForgeRegistries.ITEMS.getValue(new ResourceLocation("hello1710", "test_gem"));
-        List<ItemEntity> drops = level.getEntitiesOfClass(ItemEntity.class, new AABB(at).inflate(8));
-        boolean dropped = drops.stream().anyMatch(item -> item.getItem().is(gem));
+        // 1.7.10 drops 0-2 items at random (dropFewItems): kill more golems until one drops something.
+        boolean removed = true;
+        boolean dropped = false;
+        List<ItemEntity> drops = List.of();
+        for (int kill = 0; kill < 6 && !dropped; kill++) {
+            LegacyMob victim = mob;
+            if (kill > 0) {
+                victim = (LegacyMob) type.create(level);
+                victim.moveTo(at.getX() + 0.5, at.getY(), at.getZ() + 1.5, 0, 0);
+                level.addFreshEntity(victim);
+                victim.tick();
+            }
+            victim.hurt(level.damageSources().playerAttack(player), 1000);
+            for (int i = 0; i < 30 && !victim.isRemoved(); i++) {
+                victim.tick(); // 1.7.10's death animation, then setDead
+            }
+            removed &= victim.isRemoved();
+            drops = level.getEntitiesOfClass(ItemEntity.class, new AABB(at).inflate(8));
+            dropped = drops.stream().anyMatch(item -> item.getItem().is(gem));
+        }
         LOGGER.info("[WorldTest] Golem drops: {}", drops.stream().map(item -> item.getItem() + " at " + item.blockPosition()).toList());
-        return check(moved && hit && after < before && mob.isRemoved() && dropped, "entity",
-                "moved " + moved + ", health " + before + " -> " + after + ", removed after death " + mob.isRemoved() + ", dropped a ruby " + dropped);
+        return check(moved && hit && after < before && removed && dropped, "entity",
+                "moved " + moved + ", health " + before + " -> " + after + ", removed after death " + removed + ", dropped a ruby " + dropped);
     }
 
-    /** A golem to be seen in the screenshot. */
+    /** A golem to be seen in the screenshot (the ones from earlier runs go first). */
     static void spawnGolem(ServerLevel level, BlockPos near) {
+        level.getEntitiesOfClass(LegacyMob.class, new AABB(near).inflate(48)).forEach(LegacyMob::discard);
         var type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("hello1710", "rubygolem"));
         net.minecraft.world.entity.Entity golem = type == null ? null : type.create(level);
         if (golem != null) {

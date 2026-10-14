@@ -41,7 +41,6 @@ public final class ClientGuis {
     private static Method mouseReleased;
     private static Method mouseDragged;
     private static Method keyTyped;
-    private static boolean fontReady;
 
     private ClientGuis() {
     }
@@ -142,10 +141,6 @@ public final class ClientGuis {
     public static void guiInit(Object screen, int width, int height, int windowWidth, int windowHeight) {
         Minecraft minecraft = minecraft();
         LegacyRendering.ensureEnvironment();
-        if (!fontReady) {
-            fontReady = true;
-            minecraft.field_71466_p.func_110549_a(minecraft.func_110442_L()); // fontRenderer.onResourceManagerReload: glyph widths
-        }
         minecraft.field_71443_c = windowWidth;  // displayWidth
         minecraft.field_71440_d = windowHeight; // displayHeight
         minecraft.field_71462_r = (GuiScreen) screen; // currentScreen

@@ -23,7 +23,7 @@ public final class LegacyBridge {
             "retrofit.legacy.bridge.Events", "retrofit.legacy.bridge.WorldGen", "retrofit.legacy.bridge.Entities",
     };
     /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
-    private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis"};
+    private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis", "retrofit.legacy.bridge.ClientEvents"};
     private static final Map<String, MethodHandle> HANDLES = new HashMap<>();
     private static MethodHandle tick;
     private static MethodHandle canUpdate;
@@ -34,7 +34,7 @@ public final class LegacyBridge {
     private LegacyBridge() {
     }
 
-    static synchronized void init(LegacyRuntime runtime) throws ReflectiveOperationException {
+    public static synchronized void init(LegacyRuntime runtime) throws ReflectiveOperationException {
         if (!HANDLES.isEmpty()) {
             return;
         }

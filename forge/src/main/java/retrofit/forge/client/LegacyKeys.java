@@ -62,6 +62,12 @@ public final class LegacyKeys {
         return glfwKey >= 0 && glfwKey < TO_LEGACY.length ? TO_LEGACY[glfwKey] : 0;
     }
 
+    /** The GLFW key of an LWJGL 2 code, or -1 (unknown key). */
+    public static int toGlfw(int legacyKey) {
+        int glfw = legacyKey >= 0 && legacyKey < TO_GLFW.length ? TO_GLFW[legacyKey] : 0;
+        return glfw == 0 ? -1 : glfw;
+    }
+
     /** Keys that type a character: their key event waits for the character (legacy keyTyped takes both). */
     public static boolean typesCharacter(int glfwKey) {
         return glfwKey >= GLFW.GLFW_KEY_SPACE && glfwKey <= GLFW.GLFW_KEY_GRAVE_ACCENT

@@ -91,6 +91,10 @@ public final class WorldTestClient {
             return;
         }
         ticksInWorld++;
+        if (ticksInWorld == CHECK_TICK - 40 || ticksInWorld == CHECK_TICK - 30) {
+            // The test mod's 1.7.10 key binding (K), pressed the way a player would.
+            net.minecraft.client.KeyMapping.click(com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM.getOrCreate(org.lwjgl.glfw.GLFW.GLFW_KEY_K));
+        }
         if (ticksInWorld == CHECK_TICK) {
             check(minecraft);
             Screenshot.grab(minecraft.gameDirectory, "retrofit-world-test.png", minecraft.getMainRenderTarget(),

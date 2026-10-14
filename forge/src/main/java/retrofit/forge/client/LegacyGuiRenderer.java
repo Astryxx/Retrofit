@@ -34,7 +34,7 @@ final class LegacyGuiRenderer {
         // Copies: drawing an item can run a legacy item renderer, which reuses the capture.
         float[] d = java.util.Arrays.copyOf(LegacyCapture.data(), vertices * FLOATS);
         int[] states = java.util.Arrays.copyOf(LegacyCapture.states(), vertices);
-        if (DEBUG && menu != null && REPORTED.add(menu.getClass().getName() + menu.containerId)) {
+        if (DEBUG && REPORTED.add(menu == null ? "hud" : menu.getClass().getName() + menu.containerId)) {
             java.util.Map<String, int[]> perTexture = new java.util.TreeMap<>();
             for (int v = 0; v + 3 < vertices; v += 4) {
                 int state = states[v];
