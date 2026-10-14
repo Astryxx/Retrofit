@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SERVER_JAR = ROOT / 'run' / 'legacy-srg' / 'minecraft-1.7.10-forge-srg-server.jar'
 CLASSES = ROOT / 'legacy-bridge' / 'build' / 'classes' / 'java' / 'main'
 # Classes only ever loaded on clients (see their docs).
-CLIENT_ONLY = {'ClientGuis', 'ClientPlayers', 'ClientWorlds', 'BridgeClientPlayer', 'BridgeClientNetHandler',
+CLIENT_ONLY = {'ClientGuis', 'ClientEvents', 'ClientPlayers', 'ClientWorlds', 'BridgeClientPlayer', 'BridgeClientNetHandler',
                'BridgeSoundHandler', 'BridgeEffectRenderer', 'BridgeSkinManager', 'BridgeWorldClient',
                'LegacyRendering', 'LegacyIcons', 'CameraEntity'}
 
