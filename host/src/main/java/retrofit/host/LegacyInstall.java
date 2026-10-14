@@ -40,6 +40,13 @@ public final class LegacyInstall {
             new Library("org.apache.logging.log4j", "log4j-api", "2.19.0", null, List.of()),
             new Library("org.apache.logging.log4j", "log4j-to-slf4j", "2.19.0", null, List.of()));
 
+    /**
+     * Unpacks Forge 1.7.10's Pack200-compressed patches. Not every 1.20.1 distribution lets mods
+     * see Minecraft's own copy (dedicated servers don't), so it is fetched like the legacy libraries.
+     */
+    private static final Library COMMONS_COMPRESS = new Library("org.apache.commons", "commons-compress", "1.21", null,
+            List.of("4ec95b60d4e86b5c95a0e919cb172a0af98011ef"));
+
     private final Path minecraftHome;
     private final Path cacheDir;
     private final boolean server;
@@ -86,6 +93,11 @@ public final class LegacyInstall {
      * win), then on the client vanilla's libraries, then Forge and the game jar. The server jar
      * bundles its own libraries.
      */
+    /** commons-compress, from the launcher's libraries or downloaded (see {@link #COMMONS_COMPRESS}). */
+    public Path commonsCompress() throws IOException {
+        return COMMONS_COMPRESS.locate(minecraftHome.resolve("libraries"), cacheDir.resolve("libraries"));
+    }
+
     public List<Path> classpath() throws IOException {
         Map<String, Library> libraries = new LinkedHashMap<>();
         for (Library library : LOGGING_LIBRARIES) {

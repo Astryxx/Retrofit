@@ -1,7 +1,5 @@
 package retrofit.host;
 
-import org.apache.commons.compress.harmony.pack200.Pack200Exception;
-import org.apache.commons.compress.harmony.unpack200.Archive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +10,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -55,7 +54,8 @@ public final class LegacyHost {
         log.info("Legacy classpath: {} entries from {}", urls.size(), minecraftHome);
 
         LegacyRootLoader root = new LegacyRootLoader(urls.toArray(URL[]::new), LegacyHost.class.getClassLoader());
-        root.loadClass("retrofit.legacy.compat.Pack200").getField("impl").set(null, pack200(gameDir.resolve(".retrofit").resolve("pack200.log")));
+        root.loadClass("retrofit.legacy.compat.Pack200").getField("impl").set(null,
+                pack200(install.commonsCompress(), gameDir.resolve(".retrofit").resolve("pack200.log")));
         // A lambda, not a method reference: log4j picks the logging context from the first
         // visible caller frame, and method references run in hidden frames it skips.
         Function<String, Logger> hostLoggers = name -> LoggerFactory.getLogger(name);
@@ -87,22 +87,27 @@ public final class LegacyHost {
     }
 
     /**
-     * Unpacks Forge's binary patches with commons-compress, using its Archive class directly:
-     * the Pack200 adapter logs to System.out by default and then closes it, which would cut
-     * off the host's console. Its log goes to {@code logFile} instead.
+     * Unpacks Forge's binary patches with commons-compress (in a class loader of its own), using
+     * its Archive class directly: the Pack200 adapter logs to System.out by default and then
+     * closes it, which would cut off the host's console. Its log goes to {@code logFile} instead.
      */
-    private static BiConsumer<InputStream, JarOutputStream> pack200(Path logFile) {
+    private static BiConsumer<InputStream, JarOutputStream> pack200(Path commonsCompress, Path logFile) throws IOException {
+        URLClassLoader loader = new URLClassLoader(new URL[]{commonsCompress.toUri().toURL()}, ClassLoader.getPlatformClassLoader());
         return (in, out) -> {
             try {
                 Files.createDirectories(logFile.getParent());
+                Class<?> archiveClass = loader.loadClass("org.apache.commons.compress.harmony.unpack200.Archive");
                 // Buffer first: some commons-compress versions reflect into FilterInputStream wrappers, which Java 17 forbids.
-                Archive archive = new Archive(new ByteArrayInputStream(in.readAllBytes()), out);
-                archive.setLogFile(logFile.toString());
-                archive.unpack();
+                Object archive = archiveClass.getConstructor(InputStream.class, JarOutputStream.class)
+                        .newInstance(new ByteArrayInputStream(in.readAllBytes()), out);
+                archiveClass.getMethod("setLogFile", String.class).invoke(archive, logFile.toString());
+                archiveClass.getMethod("unpack").invoke(archive);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
-            } catch (Pack200Exception e) {
-                throw new UncheckedIOException(new IOException(e));
+            } catch (InvocationTargetException e) {
+                throw new UncheckedIOException(new IOException("Could not unpack Forge 1.7.10's patches", e.getCause()));
+            } catch (ReflectiveOperationException e) {
+                throw new UncheckedIOException(new IOException("commons-compress is unusable", e));
             }
         };
     }

@@ -1,12 +1,11 @@
 // Java 17 host-side code that boots the legacy world. Used by the harness and
-// compiled into the Forge mod. Gson and commons-compress are provided by
-// Minecraft 1.20.1 at runtime, so they are compile-only here.
+// compiled into the Forge mod. Gson and SLF4J are provided by Minecraft 1.20.1 at
+// runtime, so they are compile-only here; commons-compress is fetched at runtime.
 tasks.withType(JavaCompile).configureEach {
     options.release = 17
 }
 
 dependencies {
     compileOnly 'com.google.code.gson:gson:2.10'
-    compileOnly 'org.apache.commons:commons-compress:1.21'
     compileOnly 'org.slf4j:slf4j-api:2.0.1'
 }
