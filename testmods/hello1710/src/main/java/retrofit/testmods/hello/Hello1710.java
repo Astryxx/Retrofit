@@ -37,6 +37,7 @@ public class Hello1710 {
         HelloWorldGen.rubyOre = new HelloWorldGen.RubyOre();
         GameRegistry.registerBlock(HelloWorldGen.rubyOre, "ruby_ore");
         GameRegistry.registerWorldGenerator(new HelloWorldGen(), 10);
+        GameRegistry.registerItem(new RubyHelmet(), "ruby_helmet");
         gem = new TestGem();
         GameRegistry.registerItem(gem, "test_gem");
         System.out.println("[hello1710] Registered counter_block (with CounterTile) and test_gem");

@@ -115,6 +115,9 @@ final class LegacyAssetPack implements PackResources {
         for (LegacyItem item : items) {
             addItem(item, itemTextures);
         }
+        for (retrofit.forge.world.LegacyArmorItem armor : LegacyContent.armor()) {
+            addItem(armor, itemTextures);
+        }
         // Every recorded icon goes into the atlas, vanilla ones included: legacy renderers draw
         // vanilla blocks and items too (items on shelves, blocks inside machines).
         for (String name : LegacyBridge.iconNames(0)) {
@@ -292,8 +295,8 @@ final class LegacyAssetPack implements PackResources {
     // ---- Items ----
 
     /** One flat item model per subtype; the item's main model picks one with {@link LegacyItemProperties#META}. */
-    private void addItem(LegacyItem item, Map<String, String> textureIds) {
-        ResourceLocation key = ForgeRegistries.ITEMS.getKey(item);
+    private void addItem(retrofit.forge.world.LegacyStackItem item, Map<String, String> textureIds) {
+        ResourceLocation key = ForgeRegistries.ITEMS.getKey((net.minecraft.world.item.Item) item);
         int[] metas = item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0};
         JsonArray overrides = new JsonArray();
         String baseModel = null;

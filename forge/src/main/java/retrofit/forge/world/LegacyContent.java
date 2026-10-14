@@ -37,6 +37,7 @@ public final class LegacyContent {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final List<LegacyBlock> BLOCKS = new ArrayList<>();
     private static final List<LegacyItem> ITEMS = new ArrayList<>();
+    private static final List<LegacyArmorItem> ARMOR = new ArrayList<>();
     private static final Map<LegacyBlock, String> LEGACY_NAMES = new IdentityHashMap<>();
     private static final Map<Object, LegacyBlock> BY_LEGACY = new IdentityHashMap<>();
     private static final Map<Level, Object> WORLDS = new WeakHashMap<>();
@@ -52,6 +53,10 @@ public final class LegacyContent {
 
     public static List<LegacyItem> items() {
         return java.util.Collections.unmodifiableList(ITEMS);
+    }
+
+    public static List<LegacyArmorItem> armor() {
+        return java.util.Collections.unmodifiableList(ARMOR);
     }
 
     public static BlockEntityType<LegacyBlockEntity> blockEntityType() {
@@ -111,11 +116,18 @@ public final class LegacyContent {
             }
             for (String name : LegacyBridge.modItemNames()) {
                 Object legacyItem = LegacyBridge.item(name);
+                int[] armor = LegacyBridge.call("armorInfo", legacyItem);
+                if (armor[0] >= 0) {
+                    LegacyArmorItem item = new LegacyArmorItem(legacyItem, LegacyBridge.itemInfo(legacyItem), armor);
+                    helper.register(toResourceLocation(name), item);
+                    ARMOR.add(item);
+                    continue;
+                }
                 LegacyItem item = new LegacyItem(legacyItem, LegacyBridge.itemInfo(legacyItem));
                 helper.register(toResourceLocation(name), item);
                 ITEMS.add(item);
             }
-            LOGGER.info("Registered {} legacy items", ITEMS.size());
+            LOGGER.info("Registered {} legacy items ({} armor pieces)", ITEMS.size() + ARMOR.size(), ARMOR.size());
         });
         event.register(Registries.MENU, helper ->
                 helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_menu"), LegacyMenu.type()));
@@ -149,6 +161,8 @@ public final class LegacyContent {
                     event.accept(block);
                 }
             }
+        } else if (event.getTabKey() == CreativeModeTabs.COMBAT) {
+            ARMOR.forEach(event::accept);
         } else if (event.getTabKey() == CreativeModeTabs.INGREDIENTS) {
             for (LegacyItem item : ITEMS) {
                 for (int meta : item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0}) {

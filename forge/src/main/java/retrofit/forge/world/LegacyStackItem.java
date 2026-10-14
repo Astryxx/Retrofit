@@ -14,4 +14,9 @@ public interface LegacyStackItem {
     int meta(ItemStack stack);
 
     ItemStack stackOf(int meta);
+
+    /** 1: the legacy item ticks in inventories (onUpdate); 2: while worn (onArmorTick). */
+    default int tickFlags() {
+        return 0;
+    }
 }

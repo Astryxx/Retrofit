@@ -110,6 +110,26 @@ public class LegacyBlockEntity extends BlockEntity {
         }
     }
 
+    // ---- Item handler (hoppers, pipes) ----
+
+    @Override
+    public <T> net.minecraftforge.common.util.LazyOptional<T> getCapability(net.minecraftforge.common.capabilities.Capability<T> capability,
+                                                                             @javax.annotation.Nullable net.minecraft.core.Direction side) {
+        if (capability == net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER && !broken && level != null) {
+            try {
+                Object tile = legacyTile();
+                int legacySide = side == null ? -1 : side.get3DDataValue();
+                int[] slots = tile == null ? null : LegacyBridge.call("inventorySlots", tile, legacySide);
+                if (slots != null) {
+                    return net.minecraftforge.common.util.LazyOptional.of(() -> new LegacyItemHandler(tile, legacySide, slots)).cast();
+                }
+            } catch (RuntimeException e) {
+                fail("offering its inventory", e);
+            }
+        }
+        return super.getCapability(capability, side);
+    }
+
     // ---- Saving ----
 
     @Override

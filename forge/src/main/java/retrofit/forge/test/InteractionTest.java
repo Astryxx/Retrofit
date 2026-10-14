@@ -146,6 +146,17 @@ final class InteractionTest {
         total++;
         passed += worldGen(level);
 
+        // 10. Legacy armor: a real 1.20.1 armor piece with the legacy armor points (diamond helmet: 3).
+        total++;
+        net.minecraft.world.item.Item helmet = ForgeRegistries.ITEMS.getValue(new ResourceLocation("hello1710", "ruby_helmet"));
+        player.getInventory().setItem(39, new ItemStack(helmet));
+        player.getInventory().setChanged();
+        int armor = (int) player.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
+        String texture = helmet instanceof net.minecraft.world.item.ArmorItem
+                ? ((net.minecraft.world.item.ArmorItem) helmet).getArmorTexture(new ItemStack(helmet), player, net.minecraft.world.entity.EquipmentSlot.HEAD, null) : null;
+        passed += check(helmet instanceof retrofit.forge.world.LegacyArmorItem && "hello1710:textures/models/armor/ruby_layer_1.png".equals(texture),
+                "armor", helmet + ", armor attribute now " + armor + ", texture " + texture);
+
         if (passed == total) {
             LOGGER.info("[WorldTest] Interaction PASSED: {}/{}", passed, total);
         } else {
@@ -184,6 +195,12 @@ final class InteractionTest {
         }
         menu.clicked(9, 0, ClickType.QUICK_MOVE, player); // inventory slot 9 -> crate (legacy transferStackInSlot)
         menu.broadcastChanges();
+        // A 1.20.1 hopper-style transfer through Forge's item handler on the legacy crate.
+        var crateEntity = level.getBlockEntity(at);
+        var handler = crateEntity == null ? null : crateEntity.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER, Direction.UP).orElse(null);
+        ItemStack left = handler == null ? null : net.minecraftforge.items.ItemHandlerHelper.insertItem(handler, new ItemStack(Items.EMERALD, 5), false);
+        check(handler != null && left != null && left.isEmpty(), "GUI item handler",
+                (handler == null ? "no handler" : handler.getSlots() + " slots") + ", 5 emeralds inserted, left " + left);
         int after = 0;
         for (int i = 0; i < 9; i++) {
             after += menu.slots.get(i).getItem().is(Items.DIAMOND) ? menu.slots.get(i).getItem().getCount() : 0;

@@ -171,6 +171,29 @@ public final class LegacyEvents {
             Object mirror = LegacyPlayers.mirror(player, false);
             LegacyBridge.call("playerTick", mirror, start);
         });
+        if (!start && !player.level().isClientSide && hasTickingItems(player)) {
+            fire("inventory tick", () -> {
+                Object mirror = LegacyPlayers.mirror(player, true);
+                LegacyBridge.call("inventoryTick", mirror, LegacyContent.legacyWorld(player.level()));
+                LegacyPlayers.writeBack(player, mirror);
+            });
+        }
+    }
+
+    /** Whether any carried or worn legacy item wants its tick (onUpdate, onArmorTick); most don't. */
+    private static boolean hasTickingItems(Player player) {
+        var inventory = player.getInventory();
+        for (int i = 0; i < 36; i++) {
+            if (inventory.getItem(i).getItem() instanceof LegacyStackItem item && (item.tickFlags() & 1) != 0) {
+                return true;
+            }
+        }
+        for (int i = 36; i < 40; i++) {
+            if (inventory.getItem(i).getItem() instanceof LegacyStackItem item && (item.tickFlags() & 2) != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Player localPlayer() {

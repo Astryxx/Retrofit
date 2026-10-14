@@ -47,6 +47,7 @@ public class LegacyItem extends Item implements LegacyStackItem {
 
     private final Object legacyItem;
     private final boolean hasSubtypes;
+    private final int tickFlags;
     private final Map<Integer, String> translationKeys = new ConcurrentHashMap<>();
     private final Map<Integer, Multimap<Attribute, AttributeModifier>> attributes = new ConcurrentHashMap<>();
 
@@ -55,6 +56,12 @@ public class LegacyItem extends Item implements LegacyStackItem {
         super(properties(info));
         this.legacyItem = legacyItem;
         this.hasSubtypes = info[2] != 0;
+        this.tickFlags = LegacyBridge.call("tickFlags", legacyItem);
+    }
+
+    @Override
+    public int tickFlags() {
+        return tickFlags;
     }
 
     private static Item.Properties properties(int[] info) {
