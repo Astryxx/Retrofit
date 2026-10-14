@@ -28,6 +28,7 @@ import retrofit.forge.world.LegacyBlock;
 import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyItem;
 import retrofit.forge.world.LegacyMenu;
+import retrofit.forge.world.LegacyBridge;
 import net.minecraft.world.inventory.ClickType;
 
 import java.util.List;
@@ -252,6 +253,42 @@ final class InteractionTest {
         String crateData = crate == null ? "none" : crate.saveWithoutMetadata().toString();
         boolean filled = crateData.contains("test_gem") || crateData.contains("Items");
         return check(ores > 0 && filled, "world generation", ores + " ruby ore blocks; crate " + crateData);
+    }
+
+    private static Block bookcase() {
+        for (LegacyBlock block : LegacyContent.blocks()) {
+            if (LegacyBridge.describe(block.legacyBlock()).startsWith("jds.bibliocraft.blocks.BlockBookcase@")) {
+                return block;
+            }
+        }
+        return null;
+    }
+
+    /** Placed early, so clients have its tile entity when its GUI opens. */
+    static void placeBookcase(ServerLevel level, BlockPos near) {
+        Block bookcase = bookcase();
+        if (bookcase != null) {
+            level.setBlock(near.south().east(), bookcase.defaultBlockState(), 3);
+        }
+    }
+
+    /** A real mod's GUI, if BiblioCraft is installed: its bookcase, opened the way a player would. */
+    static void openModGui(ServerPlayer player, BlockPos near) {
+        Block bookcase = bookcase();
+        if (bookcase == null) {
+            LOGGER.info("[WorldTest] BiblioCraft GUI: skipped (BiblioCraft not installed)");
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos at = near.south().east();
+        player.closeContainer();
+        // BiblioCraft opens a bookcase's GUI when its upper half is clicked holding something that isn't a book.
+        ItemStack held = new ItemStack(Items.STONE);
+        player.getInventory().setItem(player.getInventory().selected, held);
+        player.gameMode.useItemOn(player, level, held, InteractionHand.MAIN_HAND,
+                new BlockHitResult(Vec3.atCenterOf(at).add(0, 0.25, 0.5), Direction.SOUTH, at, false));
+        check(player.containerMenu instanceof LegacyMenu, "BiblioCraft GUI", "menu " + player.containerMenu.getClass().getSimpleName()
+                + " with " + player.containerMenu.slots.size() + " slots");
     }
 
     private static int check(boolean ok, String step, String detail) {

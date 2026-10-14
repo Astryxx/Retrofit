@@ -34,7 +34,7 @@ public final class WorldTestClient {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int CHECK_TICK = 160;
     /** After the server half's verdict (server tick 200), which in singleplayer shares this game. */
-    private static final int QUIT_TICK = 480;
+    private static final int QUIT_TICK = 560;
 
     /** Give up if no world is reached (e.g. disconnected), instead of hanging. */
     private static final int GIVE_UP_TICK = 2400;
@@ -49,6 +49,8 @@ public final class WorldTestClient {
     private static int ticksOnTitle;
     private static boolean connecting;
     private static int guiTicks;
+    private static Object lastScreen;
+    private static int screens;
     private static boolean pongInChat;
 
     @SubscribeEvent
@@ -94,6 +96,9 @@ public final class WorldTestClient {
             Screenshot.grab(minecraft.gameDirectory, "retrofit-world-test.png", minecraft.getMainRenderTarget(),
                     message -> LOGGER.info("[WorldTest] Client: {}", message.getString()));
         }
+        if (ticksInWorld % 40 == 0 && ticksInWorld > 200) {
+            LOGGER.info("[WorldTest] Client screen at tick {}: {}", ticksInWorld, minecraft.screen == null ? "none" : minecraft.screen.getClass().getName());
+        }
         if (minecraft.screen instanceof retrofit.forge.client.LegacyScreen screen) {
             guiTest(minecraft, screen);
         }
@@ -105,7 +110,19 @@ public final class WorldTestClient {
 
     /** The crate GUI the server opened: click its legacy Ping button, then screenshot it. */
     private static void guiTest(Minecraft minecraft, retrofit.forge.client.LegacyScreen screen) {
+        if (screen != lastScreen) {
+            lastScreen = screen;
+            guiTicks = 0;
+            screens++;
+        }
         guiTicks++;
+        if (screens > 1) {
+            if (guiTicks == 40) {
+                Screenshot.grab(minecraft.gameDirectory, "retrofit-gui-test-" + screens + ".png", minecraft.getMainRenderTarget(),
+                        message -> LOGGER.info("[WorldTest] Client: {}", message.getString()));
+            }
+            return;
+        }
         if (guiTicks == 30) {
             double x = screen.getGuiLeft() + 140;
             double y = screen.getGuiTop() + 30;

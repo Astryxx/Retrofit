@@ -44,6 +44,7 @@ public final class RetrofitMod {
             for (String jar : LEGACY_JARS) {
                 jars.add(extractJar(jar, legacyDir.resolve(".retrofit")));
             }
+            System.setProperty("retrofit.language", legacyLanguage());
             String ipv4Before = System.getProperty("java.net.preferIPv4Stack");
             runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true, server);
             // Legacy code must not change JVM-wide settings (see LegacySystem); check the one FML 1.7.10 sets.
@@ -52,6 +53,26 @@ public final class RetrofitMod {
         } catch (Exception e) {
             throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10. See the log above for details.", e);
         }
+    }
+
+    /** The player's language from options.txt ("de_de"), in 1.7.10's form ("de_DE"); English if unknown. */
+    private static String legacyLanguage() {
+        Path options = FMLPaths.GAMEDIR.get().resolve("options.txt");
+        try {
+            if (Files.isRegularFile(options)) {
+                for (String line : Files.readAllLines(options)) {
+                    if (line.startsWith("lang:")) {
+                        String[] parts = line.substring(5).trim().split("_");
+                        if (parts.length == 2) {
+                            return parts[0].toLowerCase(java.util.Locale.ROOT) + "_" + parts[1].toUpperCase(java.util.Locale.ROOT);
+                        }
+                    }
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.debug("Could not read the language from {}", options, e);
+        }
+        return "en_US";
     }
 
     /** The booted legacy world, or null if it is not running (e.g. on a dedicated server). */

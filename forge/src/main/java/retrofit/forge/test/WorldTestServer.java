@@ -81,6 +81,8 @@ public final class WorldTestServer {
                 prepare(player);
             } else if (sinceJoin == 220) {
                 InteractionTest.openGui(player, pos);
+            } else if (sinceJoin == 320) {
+                InteractionTest.openModGui(player, pos);
             }
         }
         if (serverTicks == START_TICK) {
@@ -155,6 +157,7 @@ public final class WorldTestServer {
         if (crate != null) {
             level.setBlock(pos.south(), crate.defaultBlockState(), 3); // opened by the GUI test later
         }
+        InteractionTest.placeBookcase(level, pos); // likewise, if BiblioCraft is installed
     }
 
     /**

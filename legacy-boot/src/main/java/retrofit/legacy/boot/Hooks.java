@@ -38,8 +38,41 @@ public final class Hooks {
             Object manager = managerField.get(minecraft);
             Method reload = manager.getClass().getMethod("func_110541_a", List.class); // reloadResources
             reload.invoke(manager, packs);
+            loadLanguage(game, manager);
         } catch (ReflectiveOperationException e) {
             System.out.println("[Retrofit] Could not load legacy resource packs: " + e);
+        }
+    }
+
+    /**
+     * Legacy client translations (I18n, used by GUIs): 1.7.10's LanguageManager loaded them on
+     * resource reload. English always, plus the player's language (retrofit.language, set by the
+     * host from its options, in 1.7.10's "xx_YY" form).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void loadLanguage(ClassLoader game, Object manager) {
+        try {
+            Class<?> localeClass = Class.forName("net.minecraft.client.resources.Locale", true, game);
+            Object locale = localeClass.getConstructor().newInstance();
+            List languages = new ArrayList();
+            languages.add("en_US");
+            String language = System.getProperty("retrofit.language", "en_US");
+            if (!language.equals("en_US")) {
+                languages.add(language);
+            }
+            Class<?> managerType = Class.forName("net.minecraft.client.resources.IResourceManager", true, game);
+            localeClass.getMethod("func_135022_a", managerType, List.class).invoke(locale, manager, languages); // loadLocaleDataFiles
+            Method set = Class.forName("net.minecraft.client.resources.I18n", true, game).getDeclaredMethod("func_135051_a", localeClass);
+            set.setAccessible(true);
+            set.invoke(null, locale); // I18n.setLocale
+            // StatCollector (translateToLocal) reads StringTranslate, which 1.7.10 refilled from the same data.
+            java.lang.reflect.Field properties = localeClass.getDeclaredField("field_135032_a");
+            properties.setAccessible(true);
+            Method replace = Class.forName("net.minecraft.util.StringTranslate", true, game).getDeclaredMethod("func_135063_a", java.util.Map.class);
+            replace.setAccessible(true);
+            replace.invoke(null, properties.get(locale)); // StringTranslate.replaceWith
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Retrofit] Could not load legacy translations for GUIs: " + e);
         }
     }
 
