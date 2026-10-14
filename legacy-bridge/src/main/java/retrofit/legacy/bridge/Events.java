@@ -44,7 +44,9 @@ public final class Events {
         }
     }
 
-    public static void worldTick(Object world, boolean start) {
+    /** difficulty: the host level's (0 peaceful ... 3 hard), kept in World.difficultySetting where mods read it. */
+    public static void worldTick(Object world, boolean start, int difficulty) {
+        ((World) world).field_73013_u = net.minecraft.world.EnumDifficulty.func_151523_a(difficulty); // difficultySetting, getDifficultyEnum
         if (start) {
             FMLCommonHandler.instance().onPreWorldTick((World) world);
         } else {

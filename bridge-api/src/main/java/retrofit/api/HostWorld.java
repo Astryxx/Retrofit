@@ -138,6 +138,32 @@ public interface HostWorld {
         return false;
     }
 
+    /** A legacy mod entity legacy code spawned: the host makes its own entity for it. */
+    default boolean spawnLegacyEntity(Object legacyEntity) {
+        return false;
+    }
+
+    /**
+     * A vanilla 1.7.10 entity legacy code spawned (arrows, mobs, falling blocks...), as its
+     * 1.7.10 save data; the host makes the 1.20.1 equivalent. {@code ownerUuid} is the player who
+     * shot or threw it, or null.
+     */
+    default boolean spawnVanillaEntity(byte[] legacyNbt, String ownerUuid) {
+        return false;
+    }
+
+    /** World.setEntityState: an event for a legacy entity's client copies (hurt, death, taming...). */
+    default void entityEvent(Object legacyEntity, int event) {
+    }
+
+    /** World.newExplosion, done by the host (blocks, entities, effects). */
+    default void explode(Object legacyExploder, double x, double y, double z, float strength, boolean fire, boolean breakBlocks) {
+    }
+
+    /** World.addWeatherEffect with a lightning bolt. */
+    default void lightning(double x, double y, double z) {
+    }
+
     // ---- Collision ----
 
     /**

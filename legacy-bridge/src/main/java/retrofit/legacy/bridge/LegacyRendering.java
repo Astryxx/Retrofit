@@ -99,6 +99,19 @@ public final class LegacyRendering {
         return Capture.vertexCount();
     }
 
+    /** Runs an entity's legacy renderer (RenderManager) at the origin; returns the number of captured vertices. */
+    public static int renderEntity(Object entity, float yaw, float partialTicks) {
+        environment();
+        Capture.begin();
+        try {
+            RenderManager.field_78727_a.func_147939_a((net.minecraft.entity.Entity) entity, 0, 0, 0, yaw, partialTicks, false); // func_147939_a: renderEntityWithPosYaw, no hitbox
+        } catch (RuntimeException e) {
+            resetTessellator();
+            throw e;
+        }
+        return Capture.vertexCount();
+    }
+
     /** Whether a Forge item renderer handles this item for a render type (INVENTORY, ENTITY, EQUIPPED, EQUIPPED_FIRST_PERSON). */
     public static boolean hasItemRenderer(Object item, int meta, String type) {
         ItemStack stack = new ItemStack((Item) item, 1, meta);

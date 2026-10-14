@@ -18,6 +18,9 @@ import net.minecraftforge.common.util.EnumHelper;
 /** Retrofit's 1.7.10 test mod: lifecycle, enum extension, and a block with a ticking tile entity. */
 @Mod(modid = "hello1710", name = "Hello 1.7.10", version = "1.0")
 public class Hello1710 {
+    @cpw.mods.fml.common.SidedProxy(clientSide = "retrofit.testmods.hello.ClientProxy", serverSide = "retrofit.testmods.hello.CommonProxy")
+    public static CommonProxy proxy;
+
     @Mod.Instance("hello1710")
     public static Hello1710 instance;
     static TestGem gem;
@@ -60,6 +63,13 @@ public class Hello1710 {
     public void init(FMLInitializationEvent event) {
         System.out.println("[hello1710] init");
         NetworkRegistry.INSTANCE.registerGuiHandler(instance, new CrateBlock.Guis());
+        // Both registrations, as many mods did: a mod entity (tracking) and a global id (spawn egg).
+        cpw.mods.fml.common.registry.EntityRegistry.registerGlobalEntityID(RubyGolem.class, "RubyGolem",
+                cpw.mods.fml.common.registry.EntityRegistry.findGlobalUniqueEntityId(), 0xB01030, 0x401010);
+        cpw.mods.fml.common.registry.EntityRegistry.registerModEntity(RubyGolem.class, "RubyGolem", 0, instance, 64, 3, true);
+        cpw.mods.fml.common.registry.EntityRegistry.addSpawn(RubyGolem.class, 40, 1, 2, net.minecraft.entity.EnumCreatureType.monster,
+                net.minecraft.world.biome.BiomeGenBase.field_76772_c); // plains
+        proxy.registerRenderers();
         HelloEvents events = new HelloEvents();
         FMLCommonHandler.instance().bus().register(events);
         MinecraftForge.EVENT_BUS.register(events);

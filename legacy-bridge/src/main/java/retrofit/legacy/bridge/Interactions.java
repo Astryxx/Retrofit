@@ -339,22 +339,30 @@ public final class Interactions {
         Class<?> type = legacyItem.getClass();
         Integer known = TICK_FLAGS.get(type);
         if (known == null) {
+            // Method handles resolve just the one method: Class.getMethod would resolve every signature of
+            // the class, and mods' client-only methods name classes dedicated servers don't have.
             int flags = 0;
-            try {
-                if (type.getMethod("func_77663_a", ItemStack.class, World.class, net.minecraft.entity.Entity.class, int.class, boolean.class)
-                        .getDeclaringClass() != Item.class) {
-                    flags |= 1;
-                }
-                if (type.getMethod("onArmorTick", World.class, EntityPlayer.class, ItemStack.class).getDeclaringClass() != Item.class) {
-                    flags |= 2;
-                }
-            } catch (NoSuchMethodException e) {
-                flags = 0;
+            if (declarer(type, "func_77663_a", java.lang.invoke.MethodType.methodType(void.class, ItemStack.class, World.class,
+                    net.minecraft.entity.Entity.class, int.class, boolean.class)) != Item.class) {
+                flags |= 1;
+            }
+            if (declarer(type, "onArmorTick", java.lang.invoke.MethodType.methodType(void.class, World.class, EntityPlayer.class,
+                    ItemStack.class)) != Item.class) {
+                flags |= 2;
             }
             known = flags;
             TICK_FLAGS.put(type, known);
         }
         return known;
+    }
+
+    private static Class<?> declarer(Class<?> type, String name, java.lang.invoke.MethodType signature) {
+        try {
+            java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.publicLookup();
+            return lookup.revealDirect(lookup.findVirtual(type, name, signature)).getDeclaringClass();
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return Item.class;
+        }
     }
 
     /** What InventoryPlayer and EntityPlayer did each tick: onUpdate for carried items, onArmorTick for worn ones. */

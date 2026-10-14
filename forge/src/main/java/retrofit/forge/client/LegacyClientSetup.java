@@ -51,8 +51,17 @@ public final class LegacyClientSetup {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static <T extends net.minecraft.world.entity.Entity> void registerEntity(EntityRenderersEvent.RegisterRenderers event,
+                                                                                     net.minecraft.world.entity.EntityType<?> type) {
+        event.registerEntityRenderer((net.minecraft.world.entity.EntityType<T>) type, LegacyEntityRenderer::new);
+    }
+
     @SubscribeEvent
     public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        for (net.minecraft.world.entity.EntityType<?> type : retrofit.forge.world.LegacyEntityTypes.all().values()) {
+            registerEntity(event, type);
+        }
         if (LegacyContent.blockEntityType() != null) {
             event.registerBlockEntityRenderer(LegacyContent.blockEntityType(), LegacyBlockEntityRenderer::new);
         }

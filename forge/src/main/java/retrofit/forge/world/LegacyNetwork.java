@@ -46,6 +46,10 @@ public final class LegacyNetwork {
                 .consumerMainThread(LegacyNetwork::handle).add();
         channel.messageBuilder(WindowProperty.class, 1, NetworkDirection.PLAY_TO_CLIENT).encoder(WindowProperty::write)
                 .decoder(WindowProperty::read).consumerMainThread(LegacyNetwork::handle).add();
+        channel.messageBuilder(EntityData.class, 2, NetworkDirection.PLAY_TO_CLIENT).encoder(EntityData::write)
+                .decoder(EntityData::read).consumerMainThread(LegacyNetwork::handle).add();
+        channel.messageBuilder(EntityEvent.class, 3, NetworkDirection.PLAY_TO_CLIENT).encoder(EntityEvent::write)
+                .decoder(EntityEvent::read).consumerMainThread(LegacyNetwork::handle).add();
         LegacyBridge.call("setHost", new Host());
     }
 
@@ -83,6 +87,46 @@ public final class LegacyNetwork {
         static WindowProperty read(FriendlyByteBuf buffer) {
             return new WindowProperty(buffer.readVarInt(), buffer.readVarInt(), buffer.readVarInt());
         }
+    }
+
+    /** A legacy entity's DataWatcher changes, for its client copies. */
+    public record EntityData(int entityId, byte[] data) {
+        void write(FriendlyByteBuf buffer) {
+            buffer.writeVarInt(entityId);
+            buffer.writeByteArray(data);
+        }
+
+        static EntityData read(FriendlyByteBuf buffer) {
+            return new EntityData(buffer.readVarInt(), buffer.readByteArray());
+        }
+    }
+
+    /** World.setEntityState for a legacy entity. */
+    public record EntityEvent(int entityId, int event) {
+        void write(FriendlyByteBuf buffer) {
+            buffer.writeVarInt(entityId);
+            buffer.writeByte(event);
+        }
+
+        static EntityEvent read(FriendlyByteBuf buffer) {
+            return new EntityEvent(buffer.readVarInt(), buffer.readByte());
+        }
+    }
+
+    private static void handle(EntityData message, Supplier<NetworkEvent.Context> context) {
+        retrofit.forge.client.ClientHooks.entityData(message.entityId(), message.data());
+    }
+
+    private static void handle(EntityEvent message, Supplier<NetworkEvent.Context> context) {
+        retrofit.forge.client.ClientHooks.entityEvent(message.entityId(), message.event());
+    }
+
+    static void sendEntityData(net.minecraft.world.entity.Entity entity, byte[] data) {
+        channel.send(PacketDistributor.TRACKING_ENTITY.with(() -> entity), new EntityData(entity.getId(), data));
+    }
+
+    static void sendEntityEvent(net.minecraft.world.entity.Entity entity, int event) {
+        channel.send(PacketDistributor.TRACKING_ENTITY.with(() -> entity), new EntityEvent(entity.getId(), event));
     }
 
     private static void handle(Payload payload, Supplier<NetworkEvent.Context> context) {

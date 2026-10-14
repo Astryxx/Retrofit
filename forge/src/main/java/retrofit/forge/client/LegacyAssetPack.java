@@ -148,6 +148,12 @@ final class LegacyAssetPack implements PackResources {
         putJson("minecraft", "atlases/blocks.json", atlas);
 
         int translations = addTranslations(modJars);
+        for (net.minecraft.world.item.Item egg : retrofit.forge.world.LegacyEntityTypes.eggs()) {
+            ResourceLocation key = ForgeRegistries.ITEMS.getKey(egg);
+            JsonObject model = new JsonObject();
+            model.addProperty("parent", "minecraft:item/template_spawn_egg");
+            putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", model);
+        }
         int passedThrough = addModFiles(modJars);
 
         LOGGER.info("Legacy asset pack: {} blocks, {} items, {}/{} textures found in {} jars, {} translations, {} sound and texture files{}",
@@ -401,6 +407,20 @@ final class LegacyAssetPack implements PackResources {
         for (String[] translation : LegacyBridge.codeTranslations()) {
             languages.computeIfAbsent(translation[0].toLowerCase(Locale.ROOT), code -> new TreeMap<>())
                     .putIfAbsent(translation[1], translation[2]);
+        }
+        // Legacy entities: 1.20.1 names entity types "entity.<ns>.<path>" and spawn eggs by item id.
+        for (String legacyName : retrofit.forge.world.LegacyEntityTypes.all().keySet()) {
+            ResourceLocation key = ForgeRegistries.ENTITY_TYPES.getKey(retrofit.forge.world.LegacyEntityTypes.all().get(legacyName));
+            if (key == null) {
+                continue;
+            }
+            for (Map<String, String> language : languages.values()) {
+                String name = language.get("entity." + legacyName + ".name");
+                if (name != null) {
+                    language.putIfAbsent("entity." + key.getNamespace() + "." + key.getPath(), name);
+                    language.putIfAbsent("item." + key.getNamespace() + "." + key.getPath() + "_spawn_egg", name + " Spawn Egg");
+                }
+            }
         }
         int count = 0;
         for (Map.Entry<String, Map<String, String>> language : languages.entrySet()) {

@@ -124,6 +124,11 @@ public final class Bridge {
         LegacyIcons.setIconUV(kind, name, minU, maxU, minV, maxV, width, height);
     }
 
+    /** Client only; see {@link LegacyRendering#renderEntity}. */
+    public static int renderEntity(Object entity, float yaw, float partialTicks) {
+        return LegacyRendering.renderEntity(entity, yaw, partialTicks);
+    }
+
     /** Client only; see {@link LegacyIcons#faceTextures}. */
     public static String[] faceTextures(Object legacyBlock, int meta) {
         return LegacyIcons.faceTextures(legacyBlock, meta);

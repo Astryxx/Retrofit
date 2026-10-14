@@ -12,6 +12,7 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
@@ -29,6 +30,7 @@ import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyItem;
 import retrofit.forge.world.LegacyMenu;
 import retrofit.forge.world.LegacyBridge;
+import retrofit.forge.world.LegacyPlayers;
 import net.minecraft.world.inventory.ClickType;
 
 import java.util.List;
@@ -157,6 +159,10 @@ final class InteractionTest {
                 ? ((net.minecraft.world.item.ArmorItem) helmet).getArmorTexture(new ItemStack(helmet), player, net.minecraft.world.entity.EquipmentSlot.HEAD, null) : null;
         passed += check(helmet instanceof retrofit.forge.world.LegacyArmorItem && "hello1710:textures/models/armor/ruby_layer_1.png".equals(texture),
                 "armor", helmet + ", armor attribute now " + armor + ", texture " + texture);
+
+        // 11. A legacy mob: its own AI runs, players hurt it, it dies with its own death and drops.
+        total++;
+        passed += entity(player, level, target);
 
         if (passed == total) {
             LOGGER.info("[WorldTest] Interaction PASSED: {}/{}", passed, total);
@@ -289,6 +295,64 @@ final class InteractionTest {
                 new BlockHitResult(Vec3.atCenterOf(at).add(0, 0.25, 0.5), Direction.SOUTH, at, false));
         check(player.containerMenu instanceof LegacyMenu, "BiblioCraft GUI", "menu " + player.containerMenu.getClass().getSimpleName()
                 + " with " + player.containerMenu.slots.size() + " slots");
+    }
+
+    private static int entity(ServerPlayer player, ServerLevel level, BlockPos at) {
+        var type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("hello1710", "rubygolem"));
+        net.minecraft.world.entity.Entity golem = type == null ? null : type.create(level);
+        if (!(golem instanceof retrofit.forge.world.LegacyMob mob)) {
+            return check(false, "entity", "hello1710:rubygolem is " + golem);
+        }
+        // 1.7.10 code assumes y >= 0 (pathfinding included); the test world is superflat at the 1.20.1 floor,
+        // so this runs on a platform at y 70, where 1.7.10 worlds had their ground.
+        BlockPos platform = new BlockPos(at.getX() + 20, 70, at.getZ()); // away from the rest of the test, in the always-loaded spawn chunks
+        for (int dx = -8; dx <= 8; dx++) {
+            for (int dz = -8; dz <= 8; dz++) {
+                level.setBlock(platform.offset(dx, 0, dz), Blocks.STONE.defaultBlockState(), 2);
+                for (int dy = 1; dy <= 3; dy++) {
+                    level.setBlock(platform.offset(dx, dy, dz), Blocks.AIR.defaultBlockState(), 2);
+                }
+            }
+        }
+        at = platform.above();
+        mob.moveTo(at.getX() + 0.5, at.getY(), at.getZ() + 3.5, 0, 0);
+        level.addFreshEntity(mob);
+        net.minecraft.world.phys.Vec3 start = mob.position();
+        player.setGameMode(GameType.SURVIVAL);
+        player.teleportTo(at.getX() + 0.5, at.getY(), at.getZ() - 4.5);
+        LegacyPlayers.mirror(player, true);
+        double startDistance = mob.distanceTo(player);
+        for (int i = 0; i < 200; i++) {
+            mob.tick(); // the legacy update: AI tasks (chase the player), movement
+        }
+        boolean moved = mob.position().distanceTo(start) > 0.5;
+        LOGGER.info("[WorldTest] Golem: moved from {} to {}, distance to the player {} -> {}", start, mob.position(), startDistance, mob.distanceTo(player));
+        float before = mob.getHealth();
+        player.setGameMode(GameType.SURVIVAL);
+        boolean hit = mob.hurt(level.damageSources().playerAttack(player), 5);
+        mob.tick();
+        float after = mob.getHealth();
+        level.getEntitiesOfClass(ItemEntity.class, mob.getBoundingBox().inflate(4)).forEach(ItemEntity::discard);
+        mob.hurt(level.damageSources().playerAttack(player), 1000);
+        for (int i = 0; i < 30 && !mob.isRemoved(); i++) {
+            mob.tick(); // 1.7.10's death animation, then setDead
+        }
+        Item gem = ForgeRegistries.ITEMS.getValue(new ResourceLocation("hello1710", "test_gem"));
+        List<ItemEntity> drops = level.getEntitiesOfClass(ItemEntity.class, new AABB(at).inflate(8));
+        boolean dropped = drops.stream().anyMatch(item -> item.getItem().is(gem));
+        LOGGER.info("[WorldTest] Golem drops: {}", drops.stream().map(item -> item.getItem() + " at " + item.blockPosition()).toList());
+        return check(moved && hit && after < before && mob.isRemoved() && dropped, "entity",
+                "moved " + moved + ", health " + before + " -> " + after + ", removed after death " + mob.isRemoved() + ", dropped a ruby " + dropped);
+    }
+
+    /** A golem to be seen in the screenshot. */
+    static void spawnGolem(ServerLevel level, BlockPos near) {
+        var type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("hello1710", "rubygolem"));
+        net.minecraft.world.entity.Entity golem = type == null ? null : type.create(level);
+        if (golem != null) {
+            golem.moveTo(near.getX() - 1.5, near.getY(), near.getZ() + 1.5, 160, 0);
+            level.addFreshEntity(golem);
+        }
     }
 
     private static int check(boolean ok, String step, String detail) {

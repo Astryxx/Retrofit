@@ -37,6 +37,20 @@ public final class ClientHooks {
         }
     }
 
+    public static void entityData(int entityId, byte[] data) {
+        if (Minecraft.getInstance().level != null
+                && Minecraft.getInstance().level.getEntity(entityId) instanceof retrofit.forge.world.LegacyEntityCarrier carrier) {
+            carrier.core().watcher(data);
+        }
+    }
+
+    public static void entityEvent(int entityId, int event) {
+        if (Minecraft.getInstance().level != null
+                && Minecraft.getInstance().level.getEntity(entityId) instanceof retrofit.forge.world.LegacyEntityCarrier carrier) {
+            carrier.core().entityEvent(event);
+        }
+    }
+
     /** A legacy container property (progress bar) from the server. */
     public static void windowProperty(int windowId, int property, int value) {
         LocalPlayer player = Minecraft.getInstance().player;

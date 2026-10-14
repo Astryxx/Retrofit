@@ -59,6 +59,12 @@ final class BridgePlayerMP extends EntityPlayerMP {
         return "tell".equals(command) || "help".equals(command) || "me".equals(command) || host.permissionLevel() >= level;
     }
 
+    /** attackEntityFrom: legacy mobs, projectiles and effects hurt the real player. */
+    @Override
+    public boolean func_70097_a(net.minecraft.util.DamageSource source, float amount) {
+        return host.hurt(source.field_76373_n, source.func_76346_g(), amount); // damageType, getEntity
+    }
+
     /** addChatMessage */
     @Override
     public void func_145747_a(IChatComponent component) {

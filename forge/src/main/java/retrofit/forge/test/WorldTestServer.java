@@ -79,6 +79,8 @@ public final class WorldTestServer {
             if (sinceJoin == 10) {
                 InteractionTest.run(player, pos);
                 prepare(player);
+                retrofit.forge.world.LegacyPlayers.mirror(player, false); // where prepare() just moved the player
+                InteractionTest.spawnGolem(player.serverLevel(), pos);
             } else if (sinceJoin == 220) {
                 InteractionTest.openGui(player, pos);
             } else if (sinceJoin == 320) {
@@ -116,6 +118,17 @@ public final class WorldTestServer {
         BlockPos spawn = level.getSharedSpawnPos();
         int x = spawn.getX() + 2;
         int z = spawn.getZ() + 2;
+        // An earlier version of the entity test built its platform here; keep the test area as it was.
+        for (int dx = -12; dx <= 12; dx++) {
+            for (int dz = -12; dz <= 12; dz++) {
+                for (int y = 70; y <= 74; y++) {
+                    BlockPos stray = new BlockPos(x + dx, y, z + dz);
+                    if (!level.getBlockState(stray).isAir()) {
+                        level.setBlock(stray, Blocks.AIR.defaultBlockState(), 2);
+                    }
+                }
+            }
+        }
         int top = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
         BlockPos below = new BlockPos(x, top - 1, z);
         if (level.getBlockState(below).getBlock() instanceof LegacyBlock) {

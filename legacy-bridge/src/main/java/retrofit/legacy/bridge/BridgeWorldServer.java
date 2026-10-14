@@ -28,6 +28,7 @@ public class BridgeWorldServer extends WorldServer {
     public BridgeWorldServer(HostWorld host, int dimension) {
         super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
+        this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
     }
 
     /**
@@ -304,6 +305,35 @@ public class BridgeWorldServer extends WorldServer {
     @Override
     public List func_82733_a(Class type, AxisAlignedBB box, IEntitySelector selector) {
         return WorldGlue.selectEntities(this, type, box, selector);
+    }
+
+    /** setEntityState */
+    @Override
+    public void func_72960_a(Entity entity, byte event) {
+        if (host != null && entity != null) {
+            host.entityEvent(entity, event);
+        }
+    }
+
+    /** newExplosion */
+    @Override
+    public net.minecraft.world.Explosion func_72885_a(Entity exploder, double x, double y, double z, float strength, boolean fire, boolean smoke) {
+        if (host != null) {
+            host.explode(exploder, x, y, z, strength, fire, smoke);
+        }
+        net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(this, exploder, x, y, z, strength);
+        explosion.field_77286_a = fire;
+        explosion.field_82755_b = smoke;
+        return explosion;
+    }
+
+    /** addWeatherEffect */
+    @Override
+    public boolean func_72942_c(Entity entity) {
+        if (host != null && entity != null) {
+            host.lightning(entity.field_70165_t, entity.field_70163_u, entity.field_70161_v);
+        }
+        return true;
     }
 
     /** getBiomeGenForCoords */

@@ -97,7 +97,15 @@ final class WorldGlue {
             EntityXPOrb orb = (EntityXPOrb) entity;
             return host.spawnExperience(orb.field_70165_t, orb.field_70163_u, orb.field_70161_v, orb.func_70526_d()); // getXpValue
         }
-        return LegacyEntities.spawn(host, entity);
+        if (Entities.entityName(entity) != null) {
+            return host.spawnLegacyEntity(entity);
+        }
+        try {
+            byte[] data = Entities.vanillaData(entity);
+            return data != null && host.spawnVanillaEntity(data, Entities.ownerUuid(entity));
+        } catch (java.io.IOException e) {
+            return false;
+        }
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -144,7 +152,12 @@ final class WorldGlue {
     }
 
     static BiomeGenBase biome(HostWorld host, int x, int z) {
-        String id = host == null ? "minecraft:plains" : host.getBiome(x, z);
+        BiomeGenBase biome = biomeFor(host == null ? "minecraft:plains" : host.getBiome(x, z));
+        return biome != null ? biome : BiomeGenBase.field_76772_c; // plains
+    }
+
+    /** The 1.7.10 biome closest to a 1.20.1 biome id (by name, with the renames between them), or null. */
+    static BiomeGenBase biomeFor(String id) {
         if (biomesByName == null) {
             Map<String, BiomeGenBase> byName = new HashMap<String, BiomeGenBase>();
             for (BiomeGenBase biome : BiomeGenBase.func_150565_n()) { // getBiomeGenArray
@@ -156,8 +169,7 @@ final class WorldGlue {
         }
         String path = id.substring(id.indexOf(':') + 1);
         String alias = BIOME_ALIASES.get(path);
-        BiomeGenBase biome = biomesByName.get(normalize(alias != null ? alias : path));
-        return biome != null ? biome : BiomeGenBase.field_76772_c; // plains
+        return biomesByName.get(normalize(alias != null ? alias : path)); // null: 1.7.10 had nothing like it
     }
 
     private static String normalize(String name) {

@@ -265,7 +265,11 @@ final class LevelHostWorld implements HostWorld {
         }
         ItemEntity item = new ItemEntity(level, x, y, z, stack, motionX, motionY, motionZ);
         item.setPickUpDelay(pickupDelay);
-        return level.addFreshEntity(item);
+        boolean added = level.addFreshEntity(item);
+        if (Boolean.getBoolean("retrofit.debugEntities")) {
+            com.mojang.logging.LogUtils.getLogger().info("Legacy code dropped {} at {},{},{}: {}", stack, x, y, z, added ? "added" : "refused");
+        }
+        return added;
     }
 
     @Override
@@ -274,6 +278,80 @@ final class LevelHostWorld implements HostWorld {
             return false;
         }
         return level.addFreshEntity(new ExperienceOrb(level, x, y, z, amount));
+    }
+
+    @Override
+    public boolean spawnLegacyEntity(Object legacyEntity) {
+        if (level.isClientSide) {
+            return false; // client-only legacy entities would be ghosts; the server's reach clients
+        }
+        try {
+            String name = LegacyBridge.call("entityName", legacyEntity);
+            net.minecraft.world.entity.EntityType<?> type = name == null ? null : LegacyEntityTypes.byName(name);
+            net.minecraft.world.entity.Entity entity = type == null ? null : type.create(level);
+            if (!(entity instanceof LegacyEntityCarrier carrier)) {
+                return false;
+            }
+            carrier.core().adopt(legacyEntity);
+            return level.addFreshEntity(entity);
+        } catch (RuntimeException e) {
+            LegacyErrors.report("entity spawn", "adding a legacy entity", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean spawnVanillaEntity(byte[] legacyNbt, String ownerUuid) {
+        if (level.isClientSide) {
+            return false;
+        }
+        try {
+            net.minecraft.nbt.CompoundTag legacy = LegacyStacks.fromBytes(legacyNbt);
+            legacy.remove("UUIDMost");
+            legacy.remove("UUIDLeast");
+            com.mojang.serialization.Dynamic<net.minecraft.nbt.Tag> fixed = net.minecraft.util.datafix.DataFixers.getDataFixer().update(
+                    net.minecraft.util.datafix.fixes.References.ENTITY, new com.mojang.serialization.Dynamic<>(net.minecraft.nbt.NbtOps.INSTANCE, legacy),
+                    99, net.minecraft.SharedConstants.getCurrentVersion().getDataVersion().getVersion());
+            net.minecraft.world.entity.Entity entity = net.minecraft.world.entity.EntityType.create((net.minecraft.nbt.CompoundTag) fixed.getValue(), level).orElse(null);
+            if (entity == null) {
+                return false;
+            }
+            if (ownerUuid != null && entity instanceof net.minecraft.world.entity.projectile.Projectile projectile) {
+                projectile.setOwner(level.getPlayerByUUID(java.util.UUID.fromString(ownerUuid)));
+            }
+            return level.addFreshEntity(entity);
+        } catch (RuntimeException e) {
+            LegacyErrors.report("entity spawn", "converting a vanilla 1.7.10 entity", e);
+            return false;
+        }
+    }
+
+    @Override
+    public void entityEvent(Object legacyEntity, int event) {
+        net.minecraft.world.entity.Entity entity = LegacyEntityCore.hostOf(legacyEntity);
+        if (entity != null && !level.isClientSide) {
+            LegacyNetwork.sendEntityEvent(entity, event);
+        }
+    }
+
+    @Override
+    public void explode(Object legacyExploder, double x, double y, double z, float strength, boolean fire, boolean breakBlocks) {
+        if (level.isClientSide) {
+            return;
+        }
+        net.minecraft.world.entity.Entity exploder = LegacyEntityCore.hostOf(legacyExploder);
+        Level.ExplosionInteraction interaction = !breakBlocks ? Level.ExplosionInteraction.NONE
+                : exploder instanceof net.minecraft.world.entity.Mob ? Level.ExplosionInteraction.MOB : Level.ExplosionInteraction.TNT;
+        level.explode(exploder, x, y, z, strength, fire, interaction);
+    }
+
+    @Override
+    public void lightning(double x, double y, double z) {
+        net.minecraft.world.entity.LightningBolt bolt = net.minecraft.world.entity.EntityType.LIGHTNING_BOLT.create(level);
+        if (bolt != null && !level.isClientSide) {
+            bolt.moveTo(x, y, z);
+            level.addFreshEntity(bolt);
+        }
     }
 
     // ---- Collision ----

@@ -165,6 +165,21 @@ public final class WorldTestClient {
         LOGGER.info("[WorldTest] Client sound bibliocraft:copen: {}", sound == null ? "not registered (BiblioCraft missing?)"
                 : "OK, " + sound.getSound(net.minecraft.util.RandomSource.create()).getLocation());
 
+        // Legacy entities: the golem the server spawned in view, its client copy and what its renderer draws.
+        for (net.minecraft.world.entity.Entity entity : minecraft.level.entitiesForRendering()) {
+            if (entity instanceof retrofit.forge.world.LegacyEntityCarrier carrier) {
+                Object legacy = carrier.clientLegacy();
+                int vertices = -1;
+                if (legacy != null) {
+                    synchronized (LegacyBridge.renderLock()) {
+                        vertices = LegacyBridge.call("renderEntity", legacy, entity.getYRot(), 0f);
+                    }
+                }
+                LOGGER.info("[WorldTest] Client entity {} at {}: legacy copy {}, renderer drew {} vertices", entity.getType(),
+                        entity.blockPosition(), legacy == null ? "missing" : LegacyBridge.describe(legacy), vertices);
+            }
+        }
+
         if (syncOk && planks && namesOk) {
             LOGGER.info("[WorldTest] Client PASSED");
         } else {

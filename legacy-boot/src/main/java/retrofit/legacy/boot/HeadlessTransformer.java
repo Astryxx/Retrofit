@@ -74,6 +74,21 @@ public class HeadlessTransformer implements IClassTransformer {
         // blocks or items; there is neither here: it is logged and answered "continue".
         redirect("cpw.mods.fml.common.StartupQuery", "confirm(Ljava/lang/String;)Z", "retrofit/legacy/boot/Hooks.startupConfirm");
         redirect("cpw.mods.fml.common.StartupQuery", "notify(Ljava/lang/String;)V", "retrofit/legacy/boot/Hooks.startupNotify");
+        // ChunkCache (pathfinding's block snapshot) reads its world: bridged worlds have no legacy chunks.
+        String cache = "net.minecraft.world.ChunkCache";
+        String glue = "retrofit/legacy/bridge/ChunkCacheGlue.";
+        redirect(cache, "func_72806_N()Z", glue + "extendedLevels");
+        redirect(cache, "func_147439_a(III)Lnet/minecraft/block/Block;", glue + "getBlock");
+        redirect(cache, "func_147438_o(III)Lnet/minecraft/tileentity/TileEntity;", glue + "getTileEntity");
+        redirect(cache, "func_72802_i(IIII)I", glue + "getLightBrightnessForSkyBlocks");
+        redirect(cache, "func_72805_g(III)I", glue + "getBlockMetadata");
+        redirect(cache, "func_72879_k(IIII)I", glue + "isBlockProvidingPowerTo");
+        redirect(cache, "func_72807_a(II)Lnet/minecraft/world/biome/BiomeGenBase;", glue + "getBiomeGenForCoords");
+        redirect(cache, "func_147437_c(III)Z", glue + "isAirBlock");
+        redirect(cache, "func_72810_a(Lnet/minecraft/world/EnumSkyBlock;III)I", glue + "getSkyBlockTypeBrightness");
+        redirect(cache, "func_72812_b(Lnet/minecraft/world/EnumSkyBlock;III)I", glue + "getSpecialBlockBrightness");
+        redirect(cache, "func_72800_K()I", glue + "getHeight");
+        redirect(cache, "isSideSolid(IIILnet/minecraftforge/common/util/ForgeDirection;Z)Z", glue + "isSideSolid");
         // Mod packets: FML's outbound handler hands each packet to the host's channel.
         redirect("cpw.mods.fml.common.network.FMLOutboundHandler",
                 "write(Lio/netty/channel/ChannelHandlerContext;Ljava/lang/Object;Lio/netty/channel/ChannelPromise;)V", NETWORK + "outbound");

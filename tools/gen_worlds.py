@@ -76,6 +76,12 @@ METHODS = [
      "return WorldGlue.selectEntities(this, type, box, null);"),
     ("selectEntitiesWithinAABB", "public List func_82733_a(Class type, AxisAlignedBB box, IEntitySelector selector)",
      "return WorldGlue.selectEntities(this, type, box, selector);"),
+    ("setEntityState", "public void func_72960_a(Entity entity, byte event)",
+     "if (host != null && entity != null) {\n            host.entityEvent(entity, event);\n        }"),
+    ("newExplosion", "public net.minecraft.world.Explosion func_72885_a(Entity exploder, double x, double y, double z, float strength, boolean fire, boolean smoke)",
+     "if (host != null) {\n            host.explode(exploder, x, y, z, strength, fire, smoke);\n        }\n        net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(this, exploder, x, y, z, strength);\n        explosion.field_77286_a = fire;\n        explosion.field_82755_b = smoke;\n        return explosion;"),
+    ("addWeatherEffect", "public boolean func_72942_c(Entity entity)",
+     "if (host != null && entity != null) {\n            host.lightning(entity.field_70165_t, entity.field_70163_u, entity.field_70161_v);\n        }\n        return true;"),
     ("getBiomeGenForCoords", "public BiomeGenBase func_72807_a(int x, int z)", "return WorldGlue.biome(host, x, z);"),
     ("getSeed", "public long func_72905_C()", "return host == null ? 0 : host.getSeed();"),
     ("getWorldTime", "public long func_72820_D()", "return host == null ? 0 : host.getDayTime();"),
@@ -114,6 +120,7 @@ public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld
                 WorldProvider.func_76570_a(dimension), new Profiler()); // getProviderForDimension
         this.host = host;
         this.field_72995_K = host.isClientSide(); // isRemote
+        this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
     }
 
     /** getEntityByID */
@@ -132,6 +139,7 @@ public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld
 public class BridgeWorldServer extends WorldServer {""", """    public BridgeWorldServer(HostWorld host, int dimension) {
         super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
+        this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
     }
 
     /**

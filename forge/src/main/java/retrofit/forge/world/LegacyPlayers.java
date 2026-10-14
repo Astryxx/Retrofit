@@ -171,6 +171,37 @@ public final class LegacyPlayers {
         }
 
         @Override
+        public boolean hurt(String kind, Object legacyAttacker, float amount) {
+            Player target = player;
+            if (target == null || target.level().isClientSide) {
+                return false;
+            }
+            net.minecraft.world.damagesource.DamageSources sources = target.damageSources();
+            net.minecraft.world.entity.Entity attacker = LegacyEntityCore.hostOf(legacyAttacker);
+            net.minecraft.world.damagesource.DamageSource source;
+            if (attacker instanceof net.minecraft.world.entity.LivingEntity living) {
+                source = sources.mobAttack(living);
+            } else {
+                source = switch (kind == null ? "generic" : kind) {
+                    case "fall" -> sources.fall();
+                    case "inFire" -> sources.inFire();
+                    case "onFire" -> sources.onFire();
+                    case "lava" -> sources.lava();
+                    case "drown" -> sources.drown();
+                    case "cactus" -> sources.cactus();
+                    case "magic" -> sources.magic();
+                    case "wither" -> sources.wither();
+                    case "outOfWorld" -> sources.fellOutOfWorld();
+                    case "inWall" -> sources.inWall();
+                    case "starve" -> sources.starve();
+                    case "explosion", "explosion.player" -> sources.explosion(null, null);
+                    default -> attacker != null ? sources.mobProjectile(attacker, null) : sources.generic();
+                };
+            }
+            return target.hurt(source, amount);
+        }
+
+        @Override
         public int permissionLevel() {
             Player target = player;
             if (target instanceof ServerPlayer server) {

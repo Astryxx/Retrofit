@@ -155,7 +155,8 @@ public final class LegacyEvents {
         if (active() && !event.level.isClientSide && LegacyContent.hasLegacyWorld(event.level)) {
             boolean start = event.phase == TickEvent.Phase.START;
             Object world = LegacyContent.legacyWorld(event.level);
-            fire("world tick", () -> LegacyBridge.call("worldTick", world, start));
+            int difficulty = event.level.getDifficulty().getId();
+            fire("world tick", () -> LegacyBridge.call("worldTick", world, start, difficulty));
         }
     }
 

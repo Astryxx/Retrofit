@@ -14,6 +14,12 @@ public interface HostPlayer {
 
     // ---- Server side ----
 
+    /**
+     * Legacy code hurt the player (attackEntityFrom on its mirror): kind is the 1.7.10 damage type,
+     * attacker the legacy entity responsible (or null).
+     */
+    boolean hurt(String kind, Object legacyAttacker, float amount);
+
     /** The player's permission level (0 to 4; operators usually 4), for legacy command checks. */
     int permissionLevel();
 

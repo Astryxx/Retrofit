@@ -91,6 +91,7 @@ public final class LegacyDataPack implements PackResources {
         });
         LegacyRecipes.addTo(this);
         LegacyWorldGen.addTo(this);
+        LegacyEntityTypes.addTo(this);
     }
 
     void put(String namespace, String path, String contents) {

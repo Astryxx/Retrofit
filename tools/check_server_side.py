@@ -28,6 +28,12 @@ ALLOWED = {
     'net/minecraft/block/Block.func_149694_d',          # getItem (pick block): caught (Interactions.pickStack)
     'net/minecraft/inventory/Container.func_75137_b',   # updateProgressBar: only client menus call it
     'net/minecraft/item/EnumAction.ordinal',            # java.lang.Enum
+    'net/minecraft/entity/EnumCreatureType.ordinal',    # java.lang.Enum
+    'net/minecraft/world/World.func_72802_i',           # light for ChunkCache.func_72802_i, itself client-only
+    'net/minecraft/entity/DataWatcher.func_75687_a',    # updateWatchedObjectsFromList: Entities.entityApplyWatcher, clients only
+    'net/minecraft/entity/Entity.func_70034_d',         # setRotationYawHead: Entities.entityClientTick, clients only
+    'net/minecraft/entity/Entity.func_70056_a',         # setPositionAndRotation2: Entities.entityClientTick, clients only
+    'net/minecraft/entity/Entity.func_70103_a',         # handleHealthUpdate: Entities.entityEvent, clients only
     'class net/minecraft/launchwrapper/Launch',         # LaunchWrapper, not part of the game jar
     'class net/minecraft/client/network/NetHandlerPlayClient',  # LegacyWorlds.clientNetHandler: clients only
     'cpw/mods/fml/common/network/FMLEmbeddedChannel.attr',          # netty EmbeddedChannel
