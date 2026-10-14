@@ -401,4 +401,27 @@ public final class Interactions {
         }
         return total;
     }
+
+    /**
+     * An entity touching a block: 0 inside it (onEntityCollidedWithBlock: portals, webs, traps, goo),
+     * 1 walking on it (onEntityWalking), 2 landing on it (onFallenUpon). The entity's motion is given
+     * first; returns its motion afterwards (mods slow or push entities).
+     */
+    public static double[] entityTouch(Object world, Object block, int x, int y, int z, Object legacyEntity, int kind,
+                                       double motionX, double motionY, double motionZ, float fallDistance) {
+        net.minecraft.entity.Entity entity = (net.minecraft.entity.Entity) legacyEntity;
+        entity.field_70159_w = motionX; // motionX
+        entity.field_70181_x = motionY;
+        entity.field_70179_y = motionZ;
+        net.minecraft.world.World legacyWorld = (net.minecraft.world.World) world;
+        net.minecraft.block.Block legacyBlock = (net.minecraft.block.Block) block;
+        if (kind == 0) {
+            legacyBlock.func_149670_a(legacyWorld, x, y, z, entity); // onEntityCollidedWithBlock
+        } else if (kind == 1) {
+            legacyBlock.func_149724_b(legacyWorld, x, y, z, entity); // onEntityWalking
+        } else {
+            legacyBlock.func_149746_a(legacyWorld, x, y, z, entity, fallDistance); // onFallenUpon
+        }
+        return new double[]{entity.field_70159_w, entity.field_70181_x, entity.field_70179_y};
+    }
 }

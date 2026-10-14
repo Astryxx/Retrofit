@@ -254,7 +254,7 @@ public final class Events {
     }
 
     /** Whether any legacy mod listens to an event class (FML keeps its listeners in a static LISTENER_LIST). */
-    private static boolean listened(Class<?> eventClass) {
+    static boolean listenedTo(Class<?> eventClass) {
         try {
             if (busId < 0) {
                 Field bus = cpw.mods.fml.common.eventhandler.EventBus.class.getDeclaredField("busID");
@@ -272,8 +272,8 @@ public final class Events {
 
     /** Whether any legacy mod listens to chunk load, unload or data events (the host skips them otherwise). */
     public static boolean chunkEventsWanted() {
-        return listened(net.minecraftforge.event.world.ChunkEvent.Load.class) || listened(net.minecraftforge.event.world.ChunkEvent.Unload.class)
-                || listened(net.minecraftforge.event.world.ChunkDataEvent.Load.class) || listened(net.minecraftforge.event.world.ChunkDataEvent.Save.class);
+        return listenedTo(net.minecraftforge.event.world.ChunkEvent.Load.class) || listenedTo(net.minecraftforge.event.world.ChunkEvent.Unload.class)
+                || listenedTo(net.minecraftforge.event.world.ChunkDataEvent.Load.class) || listenedTo(net.minecraftforge.event.world.ChunkDataEvent.Save.class);
     }
 
     /** A host chunk was loaded: ChunkDataEvent.Load with what mods saved in it (if anything), then ChunkEvent.Load. */

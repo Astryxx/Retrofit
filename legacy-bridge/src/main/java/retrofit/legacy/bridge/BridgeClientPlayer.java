@@ -19,6 +19,7 @@ final class BridgeClientPlayer extends EntityClientPlayerMP {
     BridgeClientPlayer(Minecraft minecraft, World world, Session session, HostPlayer host) {
         super(minecraft, world, session, LegacyWorlds.clientNetHandler(), new StatFileWriter());
         this.host = host;
+        this.field_71158_b = new net.minecraft.util.MovementInput(); // movementInput: set from the host's (see LegacyPlayers.sync)
     }
 
     /** closeScreen: the host closes its screen (and tells the server, as 1.20.1 does). */

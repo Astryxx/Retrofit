@@ -45,6 +45,14 @@ public interface HostPlayer {
     /** Client: a legacy screen should be shown (Minecraft.displayGuiScreen), or the current one closed (null). */
     void displayScreen(Object legacyScreen);
 
+    /**
+     * Legacy code sent the player to another dimension (legacy id). {@code legacyTeleporter} is the
+     * mod's Teleporter (it places the player on arrival), or null for the host's own placement.
+     * Happens after the current tick's work, as 1.7.10 did it outside the code that asked.
+     */
+    default void changeDimension(int dimension, Object legacyTeleporter) {
+    }
+
     /** Client: the open legacy container GUI clicked a slot (GuiContainer.handleMouseClick; legacy click modes). */
     void clickSlot(int windowId, int slotId, int button, int mode);
 }

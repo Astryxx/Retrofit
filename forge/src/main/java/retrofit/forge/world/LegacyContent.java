@@ -78,12 +78,9 @@ public final class LegacyContent {
         return WORLDS.containsKey(level);
     }
 
-    /** The legacy dimension id of a level: -1 nether, 1 end, 0 everything else. */
+    /** The legacy dimension id of a level: the mods' own (see LegacyDimensions), -1 nether, 1 end, 0 everything else. */
     static int legacyDimension(Level level) {
-        if (level.dimension() == Level.NETHER) {
-            return -1;
-        }
-        return level.dimension() == Level.END ? 1 : 0;
+        return LegacyDimensions.legacyDimension(level);
     }
 
     @SubscribeEvent

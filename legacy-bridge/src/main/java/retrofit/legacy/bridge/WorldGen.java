@@ -18,7 +18,7 @@ import java.util.Set;
  * generation is serialized, since 1.7.10 mods generated on one thread and many keep state.
  */
 public final class WorldGen {
-    private static final Object LOCK = new Object();
+    static final Object LOCK = new Object();
     private static final Map<Integer, BridgeWorldServer> WORLDS = new HashMap<Integer, BridgeWorldServer>();
 
     private WorldGen() {

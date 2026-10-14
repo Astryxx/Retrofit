@@ -59,7 +59,7 @@ public final class ModSweepServer {
     private static final int ACTIVATION_TICKS = 12;
     private static final int ITEM_BATCH_TICKS = 20;
 
-    public enum Phase { WAITING, BLOCKS, ACTIVATE, ENTITIES, ITEMS, WORLDGEN, DONE }
+    public enum Phase { WAITING, BLOCKS, ACTIVATE, ENTITIES, ITEMS, WORLDGEN, DIMENSIONS, DONE }
 
     /** Read by the client half in singleplayer. */
     public static volatile Phase phase = Phase.WAITING;
@@ -78,6 +78,7 @@ public final class ModSweepServer {
     private static final List<Entity> SPAWNED = new ArrayList<>();
     private static final List<ItemStack> ITEMS = new ArrayList<>();
     private static int itemBatch;
+    private static List<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>> dimensions = List.of();
     private static int worldGenReadyTick = -1;
 
     private record Placed(BlockPos pos, LegacyBlock block, int meta, String mod) {
@@ -171,8 +172,42 @@ public final class ModSweepServer {
                         requestScreenshot("sweep-worldgen");
                     } else if (worldGenReadyTick >= 0 && inPhase == worldGenReadyTick + 60) {
                         reportWorldGen(player, level);
-                        LOGGER.info("[ModSweep] DONE after {} ticks", ticks);
-                        enter(Phase.DONE);
+                        dimensions = server.levelKeys().stream()
+                                .filter(key -> key.location().getNamespace().equals("retrofit") && key.location().getPath().startsWith("legacy_dim_"))
+                                .toList();
+                        LOGGER.info("[ModSweep] Legacy dimensions: {}", dimensions.stream().map(key -> key.location().toString()).toList());
+                        enter(Phase.DIMENSIONS);
+                    }
+                }
+                case DIMENSIONS -> {
+                    // Each legacy dimension: travel there the way mods send players, look around, come back.
+                    int step = inPhase % 300;
+                    int index = inPhase / 300;
+                    if (index >= dimensions.size()) {
+                        if (step == 0) {
+                            player.teleportTo(server.overworld(), origin.getX() + 0.5, origin.getY() + 3, origin.getZ() - 4, 0f, 30f);
+                        } else if (step == 40) {
+                            LOGGER.info("[ModSweep] DONE after {} ticks", ticks);
+                            enter(Phase.DONE);
+                        }
+                    } else {
+                        var key = dimensions.get(index);
+                        int legacyId = Integer.parseInt(key.location().getPath().substring("legacy_dim_".length()));
+                        if (step == 0) {
+                            player.getAbilities().invulnerable = true;
+                            player.onUpdateAbilities();
+                            if (player.isDeadOrDying()) {
+                                LOGGER.info("[ModSweep] The player died (in {}); respawning", player.level().dimension().location());
+                                server.getPlayerList().respawn(player, false);
+                            }
+                        } else if (step == 1) {
+                            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
+                            LegacyBridge.call("testTravel", mirror, legacyId);
+                        } else if (step == 200) {
+                            requestScreenshot("sweep-dim" + legacyId);
+                        } else if (step == 260) {
+                            reportDimension(player, key, legacyId);
+                        }
                     }
                 }
                 case DONE -> {
@@ -447,6 +482,41 @@ public final class ModSweepServer {
     private static void generateChunks(ServerPlayer player, ServerLevel level) {
         BlockPos far = level.getSharedSpawnPos().offset(4000, 0, 0);
         player.teleportTo(level, far.getX() + 0.5, 140, far.getZ() + 0.5, 0f, 40f);
+    }
+
+    /** Where the player ended up, and what the dimension's generator built around it. */
+    private static void reportDimension(ServerPlayer player, net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> key, int legacyId) {
+        ServerLevel level = player.serverLevel();
+        boolean arrived = level.dimension() == key;
+        int chunks = 0;
+        long solid = 0;
+        Map<String, Integer> blocks = new TreeMap<>();
+        BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+        for (int x = player.chunkPosition().x - 2; x <= player.chunkPosition().x + 2; x++) {
+            for (int z = player.chunkPosition().z - 2; z <= player.chunkPosition().z + 2; z++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
+                if (chunk == null) {
+                    continue;
+                }
+                chunks++;
+                for (int bx = 0; bx < 16; bx++) {
+                    for (int bz = 0; bz < 16; bz++) {
+                        for (int y = level.getMinBuildHeight(); y < level.getMaxBuildHeight(); y++) {
+                            BlockState state = chunk.getBlockState(at.set(bx, y, bz));
+                            if (!state.isAir()) {
+                                solid++;
+                                blocks.merge(String.valueOf(ForgeRegistries.BLOCKS.getKey(state.getBlock())), 1, Integer::sum);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        List<Map.Entry<String, Integer>> top = new ArrayList<>(blocks.entrySet());
+        top.sort((a, b) -> b.getValue() - a.getValue());
+        LOGGER.info("[ModSweep] Dimension {} ({}): {} at {}; {} chunks, {} blocks; most common {}", legacyId, key.location(),
+                arrived ? "arrived" : "NOT ARRIVED (in " + level.dimension().location() + ")", player.blockPosition(), chunks, solid,
+                top.subList(0, Math.min(6, top.size())));
     }
 
     private static int readyChunks(ServerPlayer player, ServerLevel level, int radius) {

@@ -250,6 +250,60 @@ public class LegacyBlock extends Block {
         return state.getValue(LegacyContent.META);
     }
 
+    // ---- Entities touching the block (portals, webs, traps, goo) ----
+
+    /** The legacy form of an entity touching a block: a player's mirror or a legacy creature; 1.20.1 creatures have none. */
+    private static Object touching(net.minecraft.world.entity.Entity entity) {
+        if (entity instanceof Player player) {
+            return LegacyPlayers.mirror(player, false);
+        }
+        if (entity instanceof LegacyEntityCarrier carrier) {
+            return entity.level().isClientSide ? carrier.clientLegacy() : carrier.core().legacy();
+        }
+        return null;
+    }
+
+    private void touch(Level level, BlockPos pos, net.minecraft.world.entity.Entity entity, int kind, float fallDistance) {
+        if (level.isClientSide && !(entity instanceof LegacyEntityCarrier) && entity != retrofit.forge.world.LegacyPlayers.localPlayerOrNull()) {
+            return; // on clients, only the local player (and legacy creatures) are moved by their own client
+        }
+        try {
+            Object legacy = touching(entity);
+            if (legacy == null) {
+                return;
+            }
+            Vec3 motion = entity.getDeltaMovement();
+            double[] after = LegacyBridge.call("entityTouch", LegacyContent.legacyWorld(level), legacyBlock, pos.getX(), pos.getY(), pos.getZ(),
+                    legacy, kind, motion.x, motion.y, motion.z, fallDistance);
+            if (after[0] != motion.x || after[1] != motion.y || after[2] != motion.z) {
+                if (!(entity instanceof Player) || level.isClientSide) { // players move on their client
+                    entity.setDeltaMovement(after[0], after[1], after[2]);
+                }
+            }
+            if (entity instanceof Player player && !level.isClientSide) {
+                LegacyPlayers.writeBack(player, legacy); // damage, effects, items
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report(this, "touched by an entity", e);
+        }
+    }
+
+    @Override
+    public void entityInside(BlockState state, Level level, BlockPos pos, net.minecraft.world.entity.Entity entity) {
+        touch(level, pos, entity, 0, 0);
+    }
+
+    @Override
+    public void stepOn(Level level, BlockPos pos, BlockState state, net.minecraft.world.entity.Entity entity) {
+        touch(level, pos, entity, 1, 0);
+    }
+
+    @Override
+    public void fallOn(Level level, BlockState state, BlockPos pos, net.minecraft.world.entity.Entity entity, float fallDistance) {
+        super.fallOn(level, state, pos, entity, fallDistance);
+        touch(level, pos, entity, 2, fallDistance);
+    }
+
     @Override
     public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
         if (hand != InteractionHand.MAIN_HAND) {

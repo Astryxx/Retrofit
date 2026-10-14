@@ -68,7 +68,7 @@ public final class LegacyEntityCore {
     }
 
     /** The legacy entity, created on first use (fresh, from saved NBT, or on clients from the spawn data). */
-    Object legacy() {
+    public Object legacy() {
         if (legacy != null || broken) {
             return legacy;
         }

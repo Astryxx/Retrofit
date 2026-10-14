@@ -68,6 +68,12 @@ final class BridgePlayerMP extends EntityPlayerMP {
         return host.hurt(source.field_76373_n, source.func_76346_g(), amount); // damageType, getEntity
     }
 
+    /** travelToDimension: the host moves the player (see BridgePlayerList for mods' teleporters). */
+    @Override
+    public void func_71027_c(int dimension) {
+        host.changeDimension(dimension, null);
+    }
+
     /** addChatMessage */
     @Override
     public void func_145747_a(IChatComponent component) {

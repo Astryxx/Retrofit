@@ -6,6 +6,9 @@ import cpw.mods.fml.common.eventhandler.EventBus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
+import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
@@ -84,6 +87,59 @@ public final class ClientEvents {
     /** FML's KeyInputEvent: mods check their key bindings' isPressed here. */
     public static void fireKeyInput() {
         FMLCommonHandler.instance().fireKeyInput();
+    }
+
+    // ---- Tooltips ----
+
+    private static Boolean tooltipListened;
+
+    /**
+     * Tooltip lines legacy mods add to a stack: the item's own addInformation (for mod items) and
+     * ItemTooltipEvent handlers (for every item; Thaumcraft adds lines to vanilla items too), after
+     * the name line the host already shows. Formatting codes are kept.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static String[] tooltipLines(Object legacyStack, Object legacyPlayer, boolean advanced, boolean modItem) {
+        ItemStack stack = (ItemStack) legacyStack;
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        if (tooltipListened == null) {
+            tooltipListened = Events.listenedTo(ItemTooltipEvent.class);
+        }
+        if (!modItem && !tooltipListened) {
+            return new String[0];
+        }
+        List lines = new ArrayList();
+        lines.add(stack.func_82833_r()); // getDisplayName
+        if (modItem) {
+            stack.func_77973_b().func_77624_a(stack, player, lines, advanced); // getItem().addInformation
+        }
+        if (tooltipListened) {
+            MinecraftForge.EVENT_BUS.post(new ItemTooltipEvent(stack, player, lines, advanced));
+        }
+        String[] result = new String[Math.max(0, lines.size() - 1)];
+        for (int i = 1; i < lines.size(); i++) {
+            result[i - 1] = String.valueOf(lines.get(i));
+        }
+        return result;
+    }
+
+    // ---- What the player looks at ----
+
+    /** Minecraft.objectMouseOver (and pointedEntity) from the host: 0 nothing, 1 a block, 2 an entity. */
+    public static void setMouseOver(int type, int x, int y, int z, int side, double hitX, double hitY, double hitZ, Object entity) {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        net.minecraft.util.Vec3 hit = net.minecraft.util.Vec3.func_72443_a(hitX, hitY, hitZ); // createVectorHelper
+        if (type == 1) {
+            minecraft.field_71476_x = new net.minecraft.util.MovingObjectPosition(x, y, z, side, hit); // objectMouseOver
+            minecraft.field_147125_j = null; // pointedEntity
+        } else if (type == 2) {
+            net.minecraft.util.MovingObjectPosition position = new net.minecraft.util.MovingObjectPosition((net.minecraft.entity.Entity) entity, hit);
+            minecraft.field_71476_x = position;
+            minecraft.field_147125_j = (net.minecraft.entity.Entity) entity;
+        } else {
+            minecraft.field_71476_x = null;
+            minecraft.field_147125_j = null;
+        }
     }
 
     // ---- Drawing ----

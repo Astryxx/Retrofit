@@ -25,6 +25,13 @@ final class ClientPlayers {
         return player;
     }
 
+    /** The mirror's movementInput.sneak (EntityPlayerSP.isSneaking reads it). */
+    static void setSneaking(EntityPlayer player, boolean sneaking) {
+        if (player instanceof BridgeClientPlayer && ((BridgeClientPlayer) player).field_71158_b != null) {
+            ((BridgeClientPlayer) player).field_71158_b.field_78899_d = sneaking;
+        }
+    }
+
     /** Minecraft.thePlayer and theWorld follow the local player's mirror. */
     static void makeCurrent(EntityPlayer player) {
         Minecraft minecraft = Minecraft.func_71410_x();

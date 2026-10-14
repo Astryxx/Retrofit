@@ -70,6 +70,115 @@ public final class LegacyPlayers {
         LegacyBridge.call("sync", mirror, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot(), flags,
                 player.getInventory().selected, player.getFoodData().getFoodLevel(), player.getFoodData().getSaturationLevel(),
                 player.getHealth());
+        LegacyBridge.call("setHostEffects", mirror, (Object) vanillaEffects(player));
+    }
+
+    /** The player's vanilla effects (ids 1-23, the same in 1.7.10) as {id, duration, amplifier, ambient} quadruples. */
+    private static int[] vanillaEffects(Player player) {
+        java.util.Collection<net.minecraft.world.effect.MobEffectInstance> active = player.getActiveEffects();
+        if (active.isEmpty()) {
+            return new int[0];
+        }
+        int[] effects = new int[active.size() * 4];
+        int n = 0;
+        for (net.minecraft.world.effect.MobEffectInstance effect : active) {
+            int id = net.minecraft.world.effect.MobEffect.getId(effect.getEffect());
+            if (id >= 1 && id <= 23) {
+                effects[n++] = id;
+                effects[n++] = effect.getDuration();
+                effects[n++] = effect.getAmplifier();
+                effects[n++] = effect.isAmbient() ? 1 : 0;
+            }
+        }
+        return java.util.Arrays.copyOf(effects, n);
+    }
+
+    /** Vanilla effects legacy code gave the mirror (food, brews, wands...) go to the player. */
+    private static void applyNewEffects(Player player, Object mirror) {
+        int[] effects = LegacyBridge.call("takeNewEffects", mirror);
+        for (int i = 0; i + 3 < effects.length; i += 4) {
+            net.minecraft.world.effect.MobEffect effect = net.minecraft.world.effect.MobEffect.byId(effects[i]);
+            if (effect != null) {
+                player.addEffect(new net.minecraft.world.effect.MobEffectInstance(effect, effects[i + 1], effects[i + 2], effects[i + 3] != 0, true));
+            }
+        }
+    }
+
+    /** Mod potion effects (on the mirror) last shown on each player, so a host-side removal (milk) reaches the mirror. */
+    private static final Map<UUID, java.util.Set<Integer>> SHOWN_MOD_EFFECTS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Every server tick: the mirror's mod potions tick and its LivingUpdateEvent runs; vanilla effects
+     * legacy code added go to the player; mod potions show on the player (as display-only effects).
+     */
+    public static void tickServer(ServerPlayer player) {
+        Object mirror = mirror(player, false);
+        LegacyBridge.call("tickServerPlayer", mirror);
+        applyNewEffects(player, mirror);
+        int[] modEffects = LegacyBridge.call("modEffects", mirror);
+        java.util.Set<Integer> shown = SHOWN_MOD_EFFECTS.computeIfAbsent(player.getUUID(), id -> new java.util.HashSet<>());
+        java.util.Set<Integer> now = new java.util.HashSet<>();
+        for (int i = 0; i + 2 < modEffects.length; i += 3) {
+            now.add(modEffects[i]);
+        }
+        for (Integer id : new java.util.ArrayList<>(shown)) {
+            net.minecraft.world.effect.MobEffect effect = LegacyMobEffects.byLegacyId(id);
+            if (now.contains(id) && effect != null && !player.hasEffect(effect)) {
+                LegacyBridge.call("removeModEffect", mirror, id); // removed on the host (milk, /effect clear)
+                now.remove(id);
+            }
+        }
+        for (int i = 0; i + 2 < modEffects.length; i += 3) {
+            net.minecraft.world.effect.MobEffect effect = LegacyMobEffects.byLegacyId(modEffects[i]);
+            if (effect == null || !now.contains(modEffects[i])) {
+                continue;
+            }
+            net.minecraft.world.effect.MobEffectInstance current = player.getEffect(effect);
+            if (current == null || current.getAmplifier() != modEffects[i + 2] || Math.abs(current.getDuration() - modEffects[i + 1]) > 20) {
+                player.forceAddEffect(new net.minecraft.world.effect.MobEffectInstance(effect, modEffects[i + 1], modEffects[i + 2], false, true, true), null);
+            }
+        }
+        for (Integer id : shown) {
+            net.minecraft.world.effect.MobEffect effect = LegacyMobEffects.byLegacyId(id);
+            if (!now.contains(id) && effect != null) {
+                player.removeEffect(effect); // ran out on the mirror
+            }
+        }
+        shown.clear();
+        shown.addAll(now);
+        float[] stats = LegacyBridge.call("changedStats", mirror);
+        if (stats != null) {
+            player.getFoodData().setFoodLevel((int) stats[0]);
+            player.getFoodData().setSaturation(stats[1]);
+            if (stats[2] != player.getHealth()) {
+                player.setHealth(stats[2]);
+            }
+        }
+    }
+
+    /** Client: the local player; null on servers. */
+    static Player localPlayerOrNull() {
+        return net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient() ? retrofit.forge.client.ClientHooks.localPlayer() : null;
+    }
+
+    // ---- The players' legacy state (Forge extended properties, entity data, mod potions) ----
+
+    private static final String STATE_KEY = "RetrofitLegacyPlayer";
+
+    /** Login: what was saved with the player becomes its mirrors' state. */
+    public static void loadState(ServerPlayer player) {
+        byte[] data = player.getPersistentData().getByteArray(STATE_KEY);
+        if (data.length > 0) {
+            LegacyBridge.call("loadPlayerData", player.getUUID().toString(), (Object) data);
+        }
+    }
+
+    /** Puts the mirror's state into the player's saved data (logout, server stop, and now and then). */
+    public static void saveState(ServerPlayer player) {
+        byte[] data = LegacyBridge.call("playerData", mirror(player, false));
+        if (data != null) {
+            player.getPersistentData().putByteArray(STATE_KEY, data);
+        }
     }
 
     /** Applies what legacy code changed in the mirror (server only; clients wait for the server). */
@@ -88,6 +197,9 @@ public final class LegacyPlayers {
     }
 
     private static void applyChanges(Player player, Object mirror, boolean container) {
+        if (!player.level().isClientSide) {
+            applyNewEffects(player, mirror);
+        }
         Object[] changes = LegacyBridge.call("inventoryChanges", mirror);
         if (changes != null) {
             int[] slots = (int[]) changes[0];
@@ -135,6 +247,7 @@ public final class LegacyPlayers {
     static void forget(Player player, boolean loggedOut) {
         if (loggedOut) {
             SERVER_HOSTS.remove(player.getUUID());
+            SHOWN_MOD_EFFECTS.remove(player.getUUID());
         }
         LegacyBridge.call("removePlayer", player.getUUID().toString(), null);
     }
@@ -167,6 +280,13 @@ public final class LegacyPlayers {
                 server.connection.teleport(x, y, z, yaw, pitch);
             } else if (target != null) {
                 target.moveTo(x, y, z, yaw, pitch);
+            }
+        }
+
+        @Override
+        public void changeDimension(int dimension, Object legacyTeleporter) {
+            if (player instanceof ServerPlayer server) {
+                LegacyDimensions.travel(server, dimension, legacyTeleporter);
             }
         }
 

@@ -22,6 +22,25 @@ final class BridgePlayerList extends ServerConfigurationManager {
         this.directory = directory;
     }
 
+    /** transferPlayerToDimension: the host moves the player; vanilla placement. */
+    @Override
+    public void func_72356_a(net.minecraft.entity.player.EntityPlayerMP player, int dimension) {
+        transferPlayerToDimension(player, dimension, null);
+    }
+
+    /**
+     * Forge's transferPlayerToDimension with the mod's Teleporter: the host moves the player, then the
+     * teleporter places it in the new dimension (see Dimensions.placeInPortal). The plain vanilla
+     * Teleporter is left to the host's own portal logic.
+     */
+    @Override
+    public void transferPlayerToDimension(net.minecraft.entity.player.EntityPlayerMP player, int dimension, net.minecraft.world.Teleporter teleporter) {
+        if (player instanceof BridgePlayerMP) {
+            boolean vanilla = teleporter == null || teleporter.getClass() == net.minecraft.world.Teleporter.class;
+            ((BridgePlayerMP) player).host.changeDimension(dimension, vanilla ? null : teleporter);
+        }
+    }
+
     /** func_152602_a: the statistics file of a player */
     @Override
     public StatisticsFile func_152602_a(EntityPlayer player) {

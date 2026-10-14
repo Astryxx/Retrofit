@@ -135,6 +135,8 @@ final class LegacyAssetPack implements PackResources {
             found += addTexture("items", texture.getKey(), texture.getValue(), textureSources) ? 1 : 0;
         }
 
+        addPotionIcons();
+
         JsonArray atlasSources = new JsonArray();
         for (String kind : new String[]{"blocks", "items"}) {
             JsonObject source = new JsonObject();
@@ -341,6 +343,31 @@ final class LegacyAssetPack implements PackResources {
     }
 
     // ---- Textures ----
+
+    /**
+     * Icons for mods' potion effects (retrofit:legacy_potion_N; see LegacyMobEffects): a disc in the
+     * potion's colour. Mods drew their own icons from their own sheets, which 1.20.1 can't call.
+     */
+    private void addPotionIcons() {
+        for (Map.Entry<Integer, Object[]> potion : retrofit.forge.world.LegacyMobEffects.info().entrySet()) {
+            int colour = (Integer) potion.getValue()[1];
+            byte[] png;
+            try (com.mojang.blaze3d.platform.NativeImage image = new com.mojang.blaze3d.platform.NativeImage(18, 18, true)) {
+                for (int y = 0; y < 18; y++) {
+                    for (int x = 0; x < 18; x++) {
+                        double d = Math.hypot(x - 8.5, y - 8.5);
+                        int rgb = d <= 6.5 ? colour : d <= 8 ? 0x202020 : -1;
+                        // NativeImage stores ABGR
+                        image.setPixelRGBA(x, y, rgb < 0 ? 0 : 0xFF000000 | (rgb & 0xFF) << 16 | (rgb & 0xFF00) | (rgb >> 16 & 0xFF));
+                    }
+                }
+                png = image.asByteArray();
+            } catch (IOException | RuntimeException e) {
+                continue;
+            }
+            put(retrofit.forge.RetrofitMod.MOD_ID, "textures/mob_effect/legacy_potion_" + potion.getKey() + ".png", () -> new ByteArrayInputStream(png));
+        }
+    }
 
     /** "ModId:Some/Name" -> "retrofit:blocks/legacy/modid/some/name" (1.7.10 used "minecraft" when no namespace). */
     static String spriteId(String kind, String iconName) {

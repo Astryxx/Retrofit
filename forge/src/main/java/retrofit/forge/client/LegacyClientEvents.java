@@ -28,8 +28,47 @@ public final class LegacyClientEvents {
         run(() -> {
             if (start && Minecraft.getInstance().player != null) {
                 LegacyPlayers.mirror(Minecraft.getInstance().player, false);
+                syncMouseOver(Minecraft.getInstance());
             }
             LegacyBridge.call("clientTick", start);
+        });
+    }
+
+    /** What the player looks at, as 1.7.10's Minecraft.objectMouseOver (Thaumcraft's goggles and thaumometer, HUDs). */
+    private static void syncMouseOver(Minecraft minecraft) {
+        net.minecraft.world.phys.HitResult hit = minecraft.hitResult;
+        if (hit instanceof net.minecraft.world.phys.BlockHitResult block && hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            var pos = block.getBlockPos();
+            LegacyBridge.call("setMouseOver", 1, pos.getX(), pos.getY(), pos.getZ(), block.getDirection().get3DDataValue(),
+                    hit.getLocation().x, hit.getLocation().y, hit.getLocation().z, null);
+        } else if (hit instanceof net.minecraft.world.phys.EntityHitResult entityHit) {
+            net.minecraft.world.entity.Entity entity = entityHit.getEntity();
+            Object legacy = entity instanceof retrofit.forge.world.LegacyEntityCarrier carrier ? carrier.clientLegacy()
+                    : entity instanceof net.minecraft.world.entity.player.Player player ? LegacyPlayers.mirror(player, false) : null;
+            LegacyBridge.call("setMouseOver", legacy == null ? 0 : 2, 0, 0, 0, 0,
+                    hit.getLocation().x, hit.getLocation().y, hit.getLocation().z, legacy);
+        } else {
+            LegacyBridge.call("setMouseOver", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, null);
+        }
+    }
+
+    /** Tooltip lines from legacy mods (addInformation, ItemTooltipEvent), for mod items and vanilla ones alike. */
+    @SubscribeEvent
+    public static void onTooltip(net.minecraftforge.event.entity.player.ItemTooltipEvent event) {
+        if (RetrofitMod.runtime() == null || event.getEntity() == null) {
+            return;
+        }
+        run(() -> {
+            Object legacy = retrofit.forge.world.LegacyStacks.toLegacy(event.getItemStack());
+            if (legacy == null) {
+                return;
+            }
+            boolean modItem = event.getItemStack().getItem() instanceof retrofit.forge.world.LegacyStackItem;
+            String[] lines = LegacyBridge.call("tooltipLines", legacy, LegacyPlayers.mirror(event.getEntity(), false),
+                    event.getFlags().isAdvanced(), modItem);
+            for (String line : lines) {
+                event.getToolTip().add(net.minecraft.network.chat.Component.literal(line));
+            }
         });
     }
 

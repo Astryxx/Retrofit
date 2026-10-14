@@ -133,6 +133,9 @@ public final class LegacyEvents {
     public static void onServerStopping(ServerStoppingEvent event) {
         if (active()) {
             fire("server stopping", () -> LegacyBridge.call("serverStopping"));
+            for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
+                fire("player state save", () -> LegacyPlayers.saveState(player)); // the players are saved after this
+            }
         }
     }
 
@@ -175,6 +178,16 @@ public final class LegacyEvents {
             Object mirror = LegacyPlayers.mirror(player, false);
             LegacyBridge.call("playerTick", mirror, start);
         });
+        if (!start) {
+            if (player instanceof ServerPlayer server) {
+                fire("player state", () -> LegacyPlayers.tickServer(server));
+                if (server.tickCount % 600 == 0) {
+                    fire("player state save", () -> LegacyPlayers.saveState(server)); // in case the server stops abruptly
+                }
+            } else {
+                fire("player update", () -> LegacyBridge.call("tickClientPlayer", LegacyPlayers.mirror(player, false)));
+            }
+        }
         if (!start && !player.level().isClientSide && hasTickingItems(player)) {
             fire("inventory tick", () -> {
                 Object mirror = LegacyPlayers.mirror(player, true);
@@ -219,6 +232,9 @@ public final class LegacyEvents {
             }
         }
         if (active()) {
+            if (event.getEntity() instanceof ServerPlayer player) {
+                fire("player state load", () -> LegacyPlayers.loadState(player));
+            }
             fire("player login", () -> LegacyBridge.call("playerLoggedIn", LegacyPlayers.mirror(event.getEntity(), true)));
         }
     }
@@ -227,7 +243,11 @@ public final class LegacyEvents {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (active()) {
             fire("player logout", () -> LegacyBridge.call("playerLoggedOut", LegacyPlayers.mirror(event.getEntity(), true)));
+            if (event.getEntity() instanceof ServerPlayer player) {
+                fire("player state save", () -> LegacyPlayers.saveState(player)); // before the player is saved
+            }
             LegacyPlayers.forget(event.getEntity(), true);
+            fire("player state", () -> LegacyBridge.call("forgetPlayer", event.getEntity().getUUID().toString()));
         }
     }
 

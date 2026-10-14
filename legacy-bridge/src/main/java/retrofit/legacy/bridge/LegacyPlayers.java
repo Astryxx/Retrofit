@@ -64,10 +64,23 @@ public final class LegacyPlayers {
                 GameProfile profile = new GameProfile(UUID.fromString(uuid), name);
                 player = new BridgePlayerMP(LegacyWorlds.server(), (WorldServer) world, profile, host);
                 LegacyWorlds.server().func_71203_ab().field_72404_b.add(player); // getConfigurationManager().playerEntityList
+                EntityPlayer other = serverMirror(uuid, world);
+                if (other != null) {
+                    PlayerState.load(player, PlayerState.save(other)); // the player's mod state follows it between worlds
+                } else {
+                    PlayerState.restore(uuid, player);
+                }
             }
+            player.field_71093_bK = world.field_73011_w.field_76574_g; // dimension = provider.dimensionId: mods check where players are
             world.field_73010_i.add(player); // playerEntities
             world.field_72996_f.add(player); // loadedEntityList
             players.put(uuid, player);
+            // As when a 1.7.10 player joined a world (login, dimension change): mods load and sync player data here.
+            try {
+                net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.EntityJoinWorldEvent(player, world));
+            } catch (Throwable t) {
+                System.out.println("[Retrofit] An EntityJoinWorldEvent handler failed for player " + name + ": " + t);
+            }
         }
         return player;
     }
@@ -79,6 +92,13 @@ public final class LegacyPlayers {
                 continue;
             }
             EntityPlayer player = entry.getValue().remove(uuid);
+            if (player != null && !entry.getKey().field_72995_K) {
+                PlayerState.keep(uuid, player);
+                EntityPlayer kept = keepWorld == null ? null : serverMirror(uuid, keepWorld);
+                if (kept != null) {
+                    PlayerState.load(kept, PlayerState.save(player));
+                }
+            }
             if (player != null) {
                 entry.getKey().field_73010_i.remove(player);
                 entry.getKey().field_72996_f.remove(player);
@@ -87,6 +107,27 @@ public final class LegacyPlayers {
                 }
             }
         }
+    }
+
+    /** A server mirror of a player in another world than {@code except}, or null. */
+    private static EntityPlayer serverMirror(String uuid, Object except) {
+        for (Map.Entry<World, Map<String, EntityPlayer>> entry : PLAYERS.entrySet()) {
+            if (entry.getKey() != except && !entry.getKey().field_72995_K && entry.getValue().containsKey(uuid)) {
+                return entry.getValue().get(uuid);
+            }
+        }
+        return null;
+    }
+
+    /** All server mirrors of a player. */
+    static synchronized List<EntityPlayer> serverMirrors(String uuid) {
+        List<EntityPlayer> mirrors = new ArrayList<EntityPlayer>();
+        for (Map.Entry<World, Map<String, EntityPlayer>> entry : PLAYERS.entrySet()) {
+            if (!entry.getKey().field_72995_K && entry.getValue().containsKey(uuid)) {
+                mirrors.add(entry.getValue().get(uuid));
+            }
+        }
+        return mirrors;
     }
 
     /** Copies the host player's position (feet), rotation, flags, held slot, food and health in. */
@@ -103,6 +144,9 @@ public final class LegacyPlayers {
         player.field_70127_C = pitch;
         player.field_70122_E = (flags & ON_GROUND) != 0; // onGround
         player.func_70095_a((flags & SNEAKING) != 0);   // setSneaking
+        if (player.field_70170_p.field_72995_K) { // client world: only then may the client-only class load
+            ClientPlayers.setSneaking(player, (flags & SNEAKING) != 0);
+        }
         player.func_70031_b((flags & SPRINTING) != 0);  // setSprinting
         PlayerCapabilities capabilities = player.field_71075_bZ;
         capabilities.field_75098_d = (flags & CREATIVE) != 0; // isCreativeMode

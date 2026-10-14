@@ -21,6 +21,7 @@ public final class LegacyBridge {
             "retrofit.legacy.bridge.Bridge", "retrofit.legacy.bridge.Interactions", "retrofit.legacy.bridge.LegacyPlayers",
             "retrofit.legacy.bridge.Recipes", "retrofit.legacy.bridge.Guis", "retrofit.legacy.bridge.Network",
             "retrofit.legacy.bridge.Events", "retrofit.legacy.bridge.WorldGen", "retrofit.legacy.bridge.Entities",
+            "retrofit.legacy.bridge.PlayerState", "retrofit.legacy.bridge.LivingEvents", "retrofit.legacy.bridge.Dimensions",
     };
     /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
     private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis", "retrofit.legacy.bridge.ClientEvents"};
