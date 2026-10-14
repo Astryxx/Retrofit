@@ -14,6 +14,12 @@ public final class ClientHooks {
     private ClientHooks() {
     }
 
+    /** The signed-in player's name and UUID (no dashes), for the legacy client's Session. */
+    public static String[] user() {
+        var user = Minecraft.getInstance().getUser();
+        return new String[]{user.getName(), user.getProfileId() == null ? "" : user.getProfileId().toString().replace("-", "")};
+    }
+
     public static void setBlocksDirty(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.levelRenderer != null) {
@@ -79,6 +85,19 @@ public final class ClientHooks {
             screen = new LegacyPlainScreen(legacyScreen);
         }
         minecraft.setScreen(screen);
+    }
+
+    /**
+     * The legacy GUI on screen in a client-only menu, handed over to the server menu the host just
+     * opened for the same container (see LegacyMenu.DIRECT); null if there is none.
+     */
+    public static Object takeClientOnlyScreen() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.screen instanceof LegacyScreen screen && screen.getMenu().containerId == LegacyMenu.CLIENT_ONLY) {
+            screen.handOver();
+            return screen.getMenu().legacyScreen();
+        }
+        return null;
     }
 
     /** Legacy code closed its screen (closeScreen, or displayGuiScreen(null)). */

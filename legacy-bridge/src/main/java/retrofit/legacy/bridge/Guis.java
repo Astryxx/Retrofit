@@ -56,7 +56,31 @@ public final class Guis {
         }
         menu.field_75152_c = windowId; // windowId
         player.field_71070_bA = menu; // openContainer
+        player.hostContainer = menu;
         menu.func_75132_a(player); // addCraftingToCrafters: initial progress bar values
+    }
+
+    /** guiId of a container a mod opened by itself; its client GUI comes from the mod's own packet. */
+    public static final int DIRECT = -2;
+
+    /**
+     * Mods that open containers without FML's openGui (IC2: player.openContainer = container, then
+     * its own packet makes the client show the GUI): after legacy code ran for a player, a container
+     * the host doesn't know yet gets a host menu. The mod's window id is kept (its packets carry it).
+     */
+    static void adoptOpenContainer(BridgePlayerMP player) {
+        Container open = player.field_71070_bA; // openContainer
+        if (open == null || open == player.field_71069_bz || open == player.hostContainer) { // inventoryContainer
+            return;
+        }
+        player.hostContainer = open;
+        int legacyWindowId = open.field_75152_c;
+        if (player.host.openMenu(open, "", DIRECT, 0, 0, 0) < 0) {
+            player.field_71070_bA = player.field_71069_bz;
+            return;
+        }
+        open.field_75152_c = legacyWindowId;
+        player.field_71070_bA = open; // the host's open message must not have replaced it
     }
 
     /** The client GUI for a container the server opened: from the mod's GUI handler (or a vanilla GUI, guiId < 0). */
@@ -135,6 +159,9 @@ public final class Guis {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
         Container container = (Container) legacyContainer;
         container.func_75134_a(player);
+        if (player instanceof BridgePlayerMP && ((BridgePlayerMP) player).hostContainer == container) {
+            ((BridgePlayerMP) player).hostContainer = null;
+        }
         if (player.field_71070_bA == container) { // openContainer
             player.field_71070_bA = player.field_71069_bz; // inventoryContainer
         }

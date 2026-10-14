@@ -33,10 +33,7 @@ tasks.named('run') {
             from project(':testmods:hello1710').tasks.jar.archiveFile
             into new File(legacyGameDir, 'mods')
         }
-        copy {
-            from rootProject.fileTree('corpus') { include '*.jar' } // real 1.7.10 mods under test (not in git)
-            into new File(legacyGameDir, 'mods')
-        }
+        rootProject.syncCorpus(new File(legacyGameDir, 'mods')) // real 1.7.10 mods under test (not in git)
     }
     args = [
         '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
@@ -78,10 +75,7 @@ tasks.register('runServerSide', JavaExec) {
             from project(':testmods:hello1710').tasks.jar.archiveFile
             into new File(serverGameDir, 'mods')
         }
-        copy {
-            from rootProject.fileTree('corpus') { include '*.jar' } // real 1.7.10 mods under test (not in git)
-            into new File(serverGameDir, 'mods')
-        }
+        rootProject.syncCorpus(new File(serverGameDir, 'mods')) // real 1.7.10 mods under test (not in git)
     }
     args = [
         '--server',

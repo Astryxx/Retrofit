@@ -10,48 +10,73 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 downloaded from Mojang and Forge on first start (checksum-verified), and players supply their own
 1.7.10 mods. Retrofit is free, with no paid tiers.
 
-**Status: 0.1.0-alpha.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.2.0-alpha.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.1.0-alpha.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.2.0-alpha.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory (created on first start).
 3. Start the game. The first start downloads Minecraft 1.7.10, Forge 10.13.4.1614 and their
    libraries (a few tens of MB) unless the launcher already has them; every start then spends about
    5-10 seconds booting 1.7.10 during mod loading.
 
 Servers: the same, on a Forge 1.20.1 server. Clients and the server need the same 1.7.10 mods;
-connecting with a different set is refused with a message. Java 17.
+connecting with a different set is refused with a message. Java 17 or newer (tested with 17, 21 and 26).
 
 ## Compatibility
 
-Tested with BiblioCraft 1.11.7 and the bundled test mod (`testmods/hello1710`, which exercises
-each feature below), in singleplayer and on a dedicated server, from a release jar on a
-production Forge install.
+### Tested mods
+
+Every mod below was run through the automated mod sweep (see [Building](#building)) in a new
+1.20.1 world. The sweep places every block variant, right-clicks every machine, spawns and kills
+every creature, carries every item and generates new chunks. All of them were also loaded
+together, in singleplayer and on a dedicated server with a client connected.
+
+| Mod (version tested) | Result |
+|---|---|
+| BiblioCraft 1.11.7 | Works: all 246 block variants with their models, 49 GUIs, sounds, paintings |
+| Iron Chests 6.0.62 | Works: all chests with their renderers and GUIs, upgrades |
+| Thaumcraft 4.2.3.5 (+ Baubles 1.0.1.10) | Mostly works: blocks and their models, 50 creatures, items, wands, ores and trees in world generation. The Outer Lands dimension (Eldritch portal) doesn't work: legacy dimensions aren't supported |
+| Witchery 0.24.1 | Mostly works: blocks, 55 creatures, brews, items, world generation |
+| OreSpawn 1.7.10-20.3 | Works: 134 creature types, items, ores and structures, natural spawning |
+| Mo' Creatures 6.3.1 (+ CustomMobSpawner 3.3.0) | Works: 61 creatures with their models, natural spawning |
+| RotaryCraft V33a (+ DragonAPI V33b) | Works: machines, renderers, GUIs, 993 items. On a dedicated server, add the JVM argument `-DragonAPI_silence_ASM_POTIONPACKETID1` (a DragonAPI patch that only works on clients) |
+| Ars Magica 2 1.4.0.009 (+ AnimationAPI 1.2.4) | Mostly works: blocks, 18 machine GUIs, 36 creatures, spells, world generation. Its power network logs "non-tracked chunk" warnings |
+| Tinkers' Construct 1.8.8 (+ Mantle 0.3.2b) | Works: tools and parts with their names and textures, smeltery blocks, 35 GUIs, ores |
+| Pam's HarvestCraft 1.7.10Lb | Works: crops, food, gardens, machines and their GUIs |
+| Carpenter's Blocks 3.3.8.2 | Works: blocks render in place in the world (slopes, stairs, doors...) |
+| Chisel 2.9.5.11 | Works: all 1,373 variants including connected textures, the chisel GUI, marble and limestone generation |
+| BuildCraft 7.1.27 | Mostly works: engines, machines, GUIs, oil and fuel. Robots need their dock |
+| IndustrialCraft 2 2.2.828 | Works: machines with their textures, 72 machine GUIs, cables, ores, crops |
+| Lycanite's Mobs 1.13.0.5 | Works: 110 creatures across all its sub-mods, natural spawning |
+| CodeChickenCore 1.4.22 + NotEnoughItems 2.8.160 (GTNH) | Loads and runs (coremods). NEI's item panel only appears on 1.7.10 screens; use JEI on 1.20.1 screens |
+
+1.7.10 mods' own config files are in `retrofit/config`. ID clashes between mods are the same as
+in a 1.7.10 pack. For example, Witchery and RotaryCraft both use potion ID 35 by default, and
+DragonAPI then refuses to start until one is changed there.
+
+### What works
 
 | Area | What works | Limits |
 |---|---|---|
-| Blocks | Mod blocks with metadata, shapes and collision, hardness, tools and tool tiers (as 1.20.1 tags), sounds, light, redstone and comparators, random and scheduled ticks, neighbour updates, right/left click, placing through the mod's own ItemBlock, breakBlock, drops (fortune, silk touch), experience | Shapes that depend on neighbours use their stand-alone form |
-| Rendering | Plain cubes as 1.20.1 JSON models with the mods' own 1.7.10 textures; custom render types baked once; tile entity renderers and Forge item renderers every frame through a GL 1.1 emulation | Only the GL subset models need; no custom shaders |
+| Blocks | Mod blocks with metadata, shapes and collision, hardness, tools and tool tiers (as 1.20.1 tags), sounds, light, redstone and comparators, random and scheduled ticks, neighbour updates, right/left click, placing through the mod's own ItemBlock, breakBlock, drops (fortune, silk touch), experience, fluid blocks | Shapes that depend on neighbours use their stand-alone form for collision |
+| Rendering | Plain cubes as 1.20.1 JSON models with the mods' own 1.7.10 textures (animated ones too, sprite sheets and mods' own sprite loaders); custom block renderers drawn in place in the world, with their neighbours and tile entity (connected textures, covers, pipes); tile entity renderers and Forge item renderers every frame through a GL 1.1 emulation | Only the GL subset models need; mods' shaders run as plain drawing |
 | Tile entities | Ticking on both sides, NBT saving, description packet sync, inventories as Forge item handlers (hoppers, pipes) | |
-| Items | Subtypes, durability, use on blocks and in the air, use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel | |
+| Items | Subtypes, the mods' own item names, durability, use on blocks and in the air, use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel | |
 | Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick | Dyeable and special armor models |
-| GUIs | Container GUIs (FML openGui) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
+| GUIs | Container GUIs (FML openGui, and containers mods open themselves, as IC2 does) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
 | Entities | Mod creatures and things with their own AI and pathfinding, damage both ways, death and drops, saving, the mod's own renderer, spawn eggs, natural spawning from the 1.7.10 biome lists; vanilla entities legacy code spawns (arrows, mobs) become 1.20.1 ones | Riding, leashes, legacy mobs seeing 1.20.1 mobs; 1.7.10 code assumes y >= 0 (pathfinding below 0 fails) |
-| Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, chat, teleports, damage from legacy mobs, permission levels | Player model and render events |
-| World | Mod world generators (ores, structures, generated chests), world saved data, per-world id maps (stable when mods change) | Generation is serialized |
+| Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, chat, teleports, damage from legacy mobs, permission levels; FakePlayers | Player model and render events |
+| World | Mod world generators (ores, structures, generated chests), world saved data, chunk load/unload/data events with per-chunk mod data, chunk access, per-world id maps (stable when mods change) | Legacy dimensions; generation is serialized |
 | Recipes | Every crafting recipe (through the legacy recipe list, mods' own recipe classes included), furnace recipes in the recipe book, fuel | Legacy crafting recipes don't show in the recipe book or JEI |
-| Events | FML ticks (server, world, player, client, render), login/logout/respawn/dimension, server lifecycle, PlayerInteractEvent, world load/save, key bindings and KeyInputEvent, HUD (RenderGameOverlayEvent.Post), RenderWorldLastEvent | Other Forge events (living, item tooltips, block highlight, render player...) |
+| Events | FML ticks (server, world, player, client, render), login/logout/respawn/dimension, server lifecycle, PlayerInteractEvent, world load/save, chunk events, texture stitching, key bindings and KeyInputEvent, HUD (RenderGameOverlayEvent.Post), RenderWorldLastEvent | Other Forge events (living, item tooltips, block highlight, render player...) |
 | Commands | Commands registered in FMLServerStartingEvent | No tab completion |
 | Sounds | Mod sounds.json and .ogg files; common 1.7.10 vanilla sound names mapped | |
 | Network | SimpleNetworkWrapper, FMLEventChannel and raw custom payloads, all targets | |
-
-Not yet tested: OreSpawn, Ars Magica 2, Mo' Creatures, Thaumcraft, Witchery, RotaryCraft,
-Carpenter's Blocks. Expect parts of them to work and parts not to (mostly the limits above).
-FML loads coremods as 1.7.10 did (not tested with a real one yet); a coremod's patches apply
-only to the legacy side.
+| Coremods | Loaded as 1.7.10 did, in FML's order (CodeChickenCore, DragonAPI, Ars Magica 2's, IC2's, Thaumcraft's); their patches apply to the legacy side | |
+| Java 17+ | 1.7.10 mods' Java 8 tricks work: opening JDK members (setAccessible), writing final fields (Field.modifiers, also on Java 18+), enlarging the potion and biome arrays, coremods defining classes; ASM 5.2 instead of 5.0.3; short network timeouts for dead update servers | |
 
 ## Known issues
 
@@ -59,7 +84,9 @@ only to the legacy side.
   (it never answers the server's first Forge login query). It also happens without Retrofit;
   cancel and connect again.
 - The first start without a 1.7.10 launcher install needs internet access to Mojang and Forge.
-- FML logs "missing any signature data". Cosmetic.
+- Legacy dimensions (Thaumcraft's Outer Lands, Twilight Forest, Mystcraft...) are not supported;
+  mods that need them disable that part.
+- FML logs "missing any signature data", and some mods log signature warnings. Cosmetic.
 
 ## How it works
 
@@ -102,19 +129,30 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.1.0-alpha.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.2.0-alpha.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...
 ./gradlew :forge:runClient -PtestServer=127.0.0.1:25565 -PworldTest   # ...and its client
+./gradlew :forge:runClient -PmodSweep -Pcorpus=thaumcraft,baubles   # mod sweep (below) for some corpus mods
 python -I tools/check_server_side.py   # after :harness:dumpServerSrgJar: no client-only 1.7.10 calls on servers
 ```
+
+Dev runs load the 1.7.10 mods in `corpus/` (not in git; `.jar` and `.zip`). `-Pcorpus=a,b` picks
+the ones whose file names contain one of the parts, `-Pcorpus=none` only the test mod.
+`-PextraJvmArg=...` passes a JVM argument to the game (for example DragonAPI's flag).
 
 The world test places, uses, eats and breaks legacy blocks and items, crafts and smelts, opens
 the test mod's and BiblioCraft's GUIs, clicks a legacy button that sends a packet, fights a legacy
 mob, runs a legacy command and world generator, presses a legacy key, and saves screenshots to
 `forge/run/screenshots`. The dev server (`forge/run-server`, offline mode, flat world) accepts
 Mojang's EULA for itself in its build step.
+
+The mod sweep (`-PmodSweep`) creates a new normal world and exercises every legacy block variant
+(placed and ticked), every machine (right-clicked, screenshot of each GUI), every creature
+(spawned, watched for 10 seconds, killed), every item (carried in the inventory) and fresh chunks
+(generated and scanned for mod blocks). It logs `[ModSweep]` results by mod and saves
+`sweep-*.png` screenshots.
 
 Legacy-side code compiles against `run/legacy-srg/*.jar`, which `:harness:dumpSrgJar` (and
 `dumpServerSrgJar`) build from your own install. They contain Mojang code: local only, never

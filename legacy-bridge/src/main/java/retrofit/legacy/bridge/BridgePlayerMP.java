@@ -17,6 +17,9 @@ import retrofit.api.HostPlayer;
  * is never ticked or saved itself.
  */
 final class BridgePlayerMP extends EntityPlayerMP {
+    /** The legacy container the host has a menu for (see Guis). */
+    Object hostContainer;
+
     final HostPlayer host;
 
     BridgePlayerMP(MinecraftServer server, WorldServer world, GameProfile profile, HostPlayer host) {

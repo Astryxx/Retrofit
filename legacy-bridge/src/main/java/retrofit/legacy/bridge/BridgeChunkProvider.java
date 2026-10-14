@@ -5,15 +5,14 @@ import net.minecraft.util.IProgressUpdate;
 import net.minecraft.world.ChunkPosition;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.EmptyChunk;
 import net.minecraft.world.chunk.IChunkProvider;
 
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Chunk provider for {@link BridgeWorld}. The host level owns all chunk data, so this only
- * hands out empty chunks to legacy code paths that reach for chunks directly.
+ * Chunk provider of the legacy worlds. The host level owns all chunk data; legacy code that reaches
+ * for chunks directly gets views of the world ({@link BridgeChunk}).
  */
 final class BridgeChunkProvider implements IChunkProvider {
     private final World world;
@@ -28,10 +27,24 @@ final class BridgeChunkProvider implements IChunkProvider {
         return true;
     }
 
-    /** provideChunk */
+    /** Recently used chunk views (they are cheap, but mods ask for the same few chunks over and over). */
+    private final java.util.Map<Long, Chunk> chunks = new java.util.LinkedHashMap<Long, Chunk>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(java.util.Map.Entry<Long, Chunk> eldest) {
+            return size() > 256;
+        }
+    };
+
+    /** provideChunk: a view of the world (see BridgeChunk) */
     @Override
-    public Chunk func_73154_d(int x, int z) {
-        return new EmptyChunk(world, x, z);
+    public synchronized Chunk func_73154_d(int x, int z) {
+        long key = (long) x << 32 | (z & 0xFFFFFFFFL);
+        Chunk chunk = chunks.get(key);
+        if (chunk == null) {
+            chunk = new BridgeChunk(world, x, z);
+            chunks.put(key, chunk);
+        }
+        return chunk;
     }
 
     /** loadChunk */

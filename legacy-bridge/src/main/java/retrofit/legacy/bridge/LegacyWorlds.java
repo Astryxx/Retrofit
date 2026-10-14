@@ -47,6 +47,36 @@ public final class LegacyWorlds {
     }
 
     /** The legacy server, created on first use unless the dedicated-server boot already made one. */
+    /**
+     * Replaces FMLCommonHandler.getMinecraftServerInstance (HeadlessTransformer). On clients FML asks
+     * for 1.7.10's integrated server, which never exists here; the legacy server is the one that
+     * runs the host's worlds (null on a client of a remote server, as in 1.7.10). Mods use it for
+     * FakePlayers, worlds by dimension and the player list.
+     */
+    public static MinecraftServer serverInstance(cpw.mods.fml.common.FMLCommonHandler handler) {
+        return MinecraftServer.func_71276_C(); // getServer
+    }
+
+    /** Threads doing the legacy server's work off the server thread (world generation on host worker threads). */
+    static final ThreadLocal<Boolean> SERVER_WORK = new ThreadLocal<Boolean>();
+
+    /**
+     * Replaces FMLCommonHandler.getEffectiveSide (HeadlessTransformer). FML went by thread: 1.7.10 ran
+     * all server work on the "Server thread", mod loading included on dedicated servers. Here a
+     * dedicated server is always the server side; on clients, server threads and legacy server work
+     * on other threads (world generation) are the server side, everything else the client side.
+     */
+    public static cpw.mods.fml.relauncher.Side effectiveSide(cpw.mods.fml.common.FMLCommonHandler handler) {
+        if (cpw.mods.fml.relauncher.FMLLaunchHandler.side() == cpw.mods.fml.relauncher.Side.SERVER) { // known from launch on
+            return cpw.mods.fml.relauncher.Side.SERVER;
+        }
+        Thread thread = Thread.currentThread();
+        if (thread.getName().equals("Server thread") || Boolean.TRUE.equals(SERVER_WORK.get())) {
+            return cpw.mods.fml.relauncher.Side.SERVER;
+        }
+        return cpw.mods.fml.relauncher.Side.CLIENT;
+    }
+
     public static synchronized BridgeServer server() {
         if (server == null) {
             MinecraftServer existing = MinecraftServer.func_71276_C(); // getServer

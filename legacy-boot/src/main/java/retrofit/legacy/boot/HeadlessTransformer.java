@@ -48,6 +48,16 @@ public class HeadlessTransformer implements IClassTransformer {
         stub("net.minecraftforge.common.ForgeVersion", "startVersionCheck()V", NO_HOOK); // calls a long-dead URL
         // bindTexture: the GL emulation tags captured quads with the texture; the host loads and binds it.
         stub("net.minecraft.client.renderer.texture.TextureManager", "func_110577_a(Lnet/minecraft/util/ResourceLocation;)V", "bindTexture");
+        // loadTexture: registered without a GL upload, under an id that binds the texture in the emulation.
+        redirect("net.minecraft.client.renderer.texture.TextureManager",
+                "func_110579_a(Lnet/minecraft/util/ResourceLocation;Lnet/minecraft/client/renderer/texture/ITextureObject;)Z",
+                "retrofit/legacy/bridge/ClientTextures.loadTexture");
+        // getEffectiveSide: by thread, as FML did, for this game's threads (see LegacyWorlds.effectiveSide).
+        redirect("cpw.mods.fml.common.FMLCommonHandler", "getEffectiveSide()Lcpw/mods/fml/relauncher/Side;",
+                "retrofit/legacy/bridge/LegacyWorlds.effectiveSide");
+        // getMinecraftServerInstance: the legacy server (see LegacyWorlds.serverInstance).
+        redirect("cpw.mods.fml.common.FMLCommonHandler", "getMinecraftServerInstance()Lnet/minecraft/server/MinecraftServer;",
+                "retrofit/legacy/bridge/LegacyWorlds.serverInstance");
         // loadProfileTextures: mods build fake players (armor stands); never fetch skins from the network for them.
         stub("net.minecraft.client.resources.SkinManager",
                 "func_152790_a(Lcom/mojang/authlib/GameProfile;Lnet/minecraft/client/resources/SkinManager$SkinAvailableCallback;Z)V", NO_HOOK);

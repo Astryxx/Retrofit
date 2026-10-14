@@ -20,7 +20,6 @@ public final class FinalFields {
     private static final Method STATIC_FIELD_BASE;
     private static final Method STATIC_FIELD_OFFSET;
     private static final Method OBJECT_FIELD_OFFSET;
-    private static final Method ENSURE_INITIALIZED;
     private static final Method PUT_OBJECT_VOLATILE;
     private static final Method PRIVATE_LOOKUP_IN;
 
@@ -33,7 +32,6 @@ public final class FinalFields {
             STATIC_FIELD_BASE = unsafeClass.getMethod("staticFieldBase", Field.class);
             STATIC_FIELD_OFFSET = unsafeClass.getMethod("staticFieldOffset", Field.class);
             OBJECT_FIELD_OFFSET = unsafeClass.getMethod("objectFieldOffset", Field.class);
-            ENSURE_INITIALIZED = unsafeClass.getMethod("ensureClassInitialized", Class.class);
             PUT_OBJECT_VOLATILE = unsafeClass.getMethod("putObjectVolatile", Object.class, long.class, Object.class);
             // Java 9+ API; looked up reflectively because this module compiles against Java 8.
             PRIVATE_LOOKUP_IN = MethodHandles.class.getMethod("privateLookupIn", Class.class, MethodHandles.Lookup.class);
@@ -50,7 +48,9 @@ public final class FinalFields {
         Object base;
         long offset;
         if (Modifier.isStatic(field.getModifiers())) {
-            ENSURE_INITIALIZED.invoke(UNSAFE, field.getDeclaringClass());
+            // Static fields live in the class's mirror once it is initialized (Unsafe.ensureClassInitialized is gone in Java 22+).
+            Class<?> owner = field.getDeclaringClass();
+            Class.forName(owner.getName(), true, owner.getClassLoader());
             base = STATIC_FIELD_BASE.invoke(UNSAFE, field);
             offset = (Long) STATIC_FIELD_OFFSET.invoke(UNSAFE, field);
         } else {

@@ -48,6 +48,47 @@ final class LegacyBakedModel implements BakedModel {
         this.base = base;
     }
 
+    /** Quads of one block as its renderer drew it in place (see getModelData). */
+    private static final net.minecraftforge.client.model.data.ModelProperty<List<BakedQuad>> IN_WORLD =
+            new net.minecraftforge.client.model.data.ModelProperty<>();
+
+    /**
+     * While a chunk mesh is built: runs the legacy renderer for this block in its place in the region,
+     * so it can draw from its neighbours and tile entity (connected textures, covers, pipes). Falls back
+     * to the static model if that fails.
+     */
+    @Override
+    public ModelData getModelData(net.minecraft.world.level.BlockAndTintGetter level, net.minecraft.core.BlockPos pos, BlockState state, ModelData data) {
+        if (failedInWorld || net.minecraft.client.Minecraft.getInstance().level == null) {
+            return data;
+        }
+        try {
+            List<BakedQuad> placed;
+            synchronized (LegacyBridge.renderLock()) {
+                retrofit.forge.world.RenderRegionHost host = new retrofit.forge.world.RenderRegionHost(level,
+                        net.minecraft.client.Minecraft.getInstance().level.getGameTime());
+                int vertices = LegacyBridge.call("renderBlockAt", host, pos.getX(), pos.getY(), pos.getZ());
+                placed = quads(vertices);
+            }
+            return data.derive().with(IN_WORLD, placed).build();
+        } catch (Throwable t) {
+            failedInWorld = true;
+            LOGGER.error("Legacy block {} meta {} could not be rendered in place; using its stand-alone model", block.getDescriptionId(), meta, t);
+            return data;
+        }
+    }
+
+    private volatile boolean failedInWorld;
+
+    @Override
+    public List<BakedQuad> getQuads(BlockState state, Direction side, RandomSource random, ModelData data, RenderType renderType) {
+        List<BakedQuad> placed = data.get(IN_WORLD);
+        if (placed != null) {
+            return side == null ? placed : List.of();
+        }
+        return getQuads(state, side, random);
+    }
+
     @Override
     public List<BakedQuad> getQuads(BlockState state, Direction side, RandomSource random) {
         if (side != null) {
@@ -62,11 +103,22 @@ final class LegacyBakedModel implements BakedModel {
     }
 
     private List<BakedQuad> build() {
-        List<BakedQuad> result = new ArrayList<>();
-        TextureAtlasSprite sprite = base.getParticleIcon();
         synchronized (LegacyBridge.renderLock()) {
             try {
-                int vertices = LegacyBridge.bakeBlock(block.legacyBlock(), meta);
+                return quads(LegacyBridge.bakeBlock(block.legacyBlock(), meta));
+            } catch (Throwable t) {
+                LOGGER.error("Legacy block {} meta {} could not be rendered; it will be invisible", block.getDescriptionId(), meta, t);
+                return List.of();
+            }
+        }
+    }
+
+    /** The captured vertices as baked quads. Hold the render lock. */
+    private List<BakedQuad> quads(int vertices) throws Throwable {
+        List<BakedQuad> result = new ArrayList<>();
+        TextureAtlasSprite sprite = base.getParticleIcon();
+        {
+            {
                 float[] d = LegacyCapture.data();
                 for (int v = 0; v + 3 < vertices; v += 4) {
                     int[] packed = new int[32];
@@ -86,8 +138,6 @@ final class LegacyBakedModel implements BakedModel {
                     Direction face = Direction.getNearest(d[o + 5], d[o + 6], d[o + 7]);
                     result.add(new BakedQuad(packed, -1, face, sprite, false));
                 }
-            } catch (Throwable t) {
-                LOGGER.error("Legacy block {} meta {} could not be rendered; it will be invisible", block.getDescriptionId(), meta, t);
             }
         }
         return List.copyOf(result);

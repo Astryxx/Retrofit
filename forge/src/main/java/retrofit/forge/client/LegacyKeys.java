@@ -85,7 +85,9 @@ public final class LegacyKeys {
             int glfw = key >= 0 && key < TO_GLFW.length ? TO_GLFW[key] : 0;
             return glfw != 0 && InputConstants.isKeyDown(minecraft.getWindow().getWindow(), glfw);
         };
-        IntPredicate buttons = button -> GLFW.glfwGetMouseButton(minecraft.getWindow().getWindow(), button) == GLFW.GLFW_PRESS;
+        // GLFW has buttons 0-7 only; legacy code asks about any number (Lycanites: a binding's code + 100).
+        IntPredicate buttons = button -> button >= 0 && button <= GLFW.GLFW_MOUSE_BUTTON_LAST
+                && GLFW.glfwGetMouseButton(minecraft.getWindow().getWindow(), button) == GLFW.GLFW_PRESS;
         IntSupplier x = () -> (int) minecraft.mouseHandler.xpos();
         IntSupplier y = () -> {
             Window window = minecraft.getWindow();

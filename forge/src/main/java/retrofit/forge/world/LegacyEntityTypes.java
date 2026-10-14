@@ -96,11 +96,28 @@ public final class LegacyEntityTypes {
         }
         for (Object[] entity : entities) {
             String name = (String) entity[0];
+            if (TYPES.containsKey(name)) {
+                // Registered twice under one name (1.7.10 kept the last); one type per name, or one would go unregistered.
+                LOGGER.info("Legacy entity {} is registered more than once; keeping the first", name);
+                continue;
+            }
             boolean living = (Integer) entity[1] != 0;
             int category = (Integer) entity[2];
             float width = (Float) entity[3];
             float height = (Float) entity[4];
             ResourceLocation id = makeId(name, (String) entity[7]);
+            if (id.getNamespace().equals("minecraft")) {
+                // Registered under a vanilla name (a mod replacing a vanilla entity); legacy code spawning it gets the vanilla one.
+                LOGGER.info("Legacy entity {} has a vanilla name; it is not added as a new entity type", name);
+                continue;
+            }
+            if (IDS.containsValue(id)) {
+                int n = 2;
+                while (IDS.containsValue(new ResourceLocation(id.getNamespace(), id.getPath() + "_" + n))) {
+                    n++;
+                }
+                id = new ResourceLocation(id.getNamespace(), id.getPath() + "_" + n); // two legacy names that clean up to the same id
+            }
             IDS.put(name, id);
             MobCategory mobCategory = switch (category) {
                 case 0 -> MobCategory.MONSTER;
@@ -168,6 +185,12 @@ public final class LegacyEntityTypes {
             SpawnPlacements.Type placement = type.getCategory() == MobCategory.WATER_CREATURE ? SpawnPlacements.Type.IN_WATER : SpawnPlacements.Type.ON_GROUND;
             event.register(type, placement, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, (t, level, reason, pos, random) -> {
                 try {
+                    if (level instanceof net.minecraft.world.level.WorldGenLevel region && !(level instanceof net.minecraft.server.level.ServerLevel)) {
+                        // Mobs placed while a chunk generates (off the server thread): check against that region.
+                        int dimension = LegacyContent.legacyDimension(region.getLevel());
+                        RegionHostWorld host = new RegionHostWorld(region, LegacyBridge.call("genWorld", dimension), new net.minecraft.world.level.ChunkPos(pos));
+                        return LegacyBridge.call("canSpawnInRegion", host, dimension, name, pos.getX() + 0.5, (double) pos.getY(), pos.getZ() + 0.5);
+                    }
                     return LegacyBridge.call("entityCanSpawnHere", name, LegacyContent.legacyWorld(level.getLevel()), pos.getX() + 0.5, (double) pos.getY(), pos.getZ() + 0.5);
                 } catch (RuntimeException e) {
                     LegacyErrors.report("entity " + name, "checking a spawn spot", e);

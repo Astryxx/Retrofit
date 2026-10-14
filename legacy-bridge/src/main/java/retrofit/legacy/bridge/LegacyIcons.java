@@ -1,7 +1,9 @@
 package retrofit.legacy.bridge;
 
 import net.minecraft.block.Block;
-import net.minecraft.client.renderer.texture.IIconRegister;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.renderer.texture.TextureMap;
+import net.minecraft.client.resources.IResourceManager;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.IIcon;
@@ -24,9 +26,25 @@ import java.util.Map;
  * Client only: IIcon and IIconRegister don't exist on a dedicated 1.7.10 server.
  */
 public final class LegacyIcons {
-    private static final Recorder BLOCKS = new Recorder();
-    private static final Recorder ITEMS = new Recorder();
+    private static final Recorder BLOCKS = Recorder.create(0);
+    private static final Recorder ITEMS = Recorder.create(1);
     private static boolean registered;
+
+    /**
+     * The two atlases as the legacy TextureManager knows them (TextureMap.locationBlocksTexture and
+     * locationItemsTexture), for mods that look sprites up there or bind them by id.
+     */
+    static void registerAtlases(net.minecraft.client.renderer.texture.TextureManager textures) {
+        textures.func_110579_a(TextureMap.field_110575_b, BLOCKS); // loadTexture(locationBlocksTexture)
+        textures.func_110579_a(TextureMap.field_110576_c, ITEMS);  // locationItemsTexture
+        try {
+            java.lang.reflect.Field blocks = net.minecraft.client.Minecraft.class.getDeclaredField("field_147128_au"); // textureMapBlocks
+            blocks.setAccessible(true);
+            retrofit.legacy.compat.FinalFields.set(blocks, net.minecraft.client.Minecraft.func_71410_x(), BLOCKS);
+        } catch (Exception e) {
+            System.out.println("[Retrofit] Could not set Minecraft.textureMapBlocks: " + e);
+        }
+    }
 
     private LegacyIcons() {
     }
@@ -41,6 +59,15 @@ public final class LegacyIcons {
         }
         registered = true;
         int failed = 0;
+        // Forge's TextureStitchEvent.Pre: mods register extra icons there (fluids above all).
+        for (Recorder atlas : new Recorder[]{BLOCKS, ITEMS}) {
+            try {
+                net.minecraftforge.client.ForgeHooksClient.onTextureStitchedPre(atlas); // TextureStitchEvent.Pre
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[Retrofit] A texture stitch handler failed: " + t);
+            }
+        }
         for (Object block : Block.field_149771_c) { // blockRegistry
             try {
                 ((Block) block).func_149651_a(BLOCKS); // registerBlockIcons
@@ -61,7 +88,51 @@ public final class LegacyIcons {
                 System.out.println("[Retrofit] Item " + item + " failed to register icons: " + t);
             }
         }
+        for (Recorder atlas : new Recorder[]{BLOCKS, ITEMS}) {
+            try {
+                net.minecraftforge.client.ForgeHooksClient.onTextureStitchedPost(atlas); // TextureStitchEvent.Post, and the water and lava fluid icons
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[Retrofit] A texture stitch handler failed: " + t);
+            }
+        }
         return failed;
+    }
+
+    /**
+     * The pixels of a sprite a mod loads itself (Forge's TextureAtlasSprite.hasCustomLoader/load, used
+     * for sprite sheets, e.g. IC2's machines): {width, height, ARGB of the first frame}, or null if the
+     * icon has no custom loader. The host uses them when there is no texture file of that name.
+     */
+    private static boolean customSpriteTraced;
+
+    public static Object[] customSprite(int kind, String name) {
+        TextureAtlasSprite sprite = (kind == 0 ? BLOCKS : ITEMS).custom.get(name);
+        if (sprite == null) {
+            return null;
+        }
+        net.minecraft.util.ResourceLocation base = new net.minecraft.util.ResourceLocation(name);
+        net.minecraft.util.ResourceLocation file = new net.minecraft.util.ResourceLocation(base.func_110624_b(), // getResourceDomain
+                "textures/" + (kind == 0 ? "blocks" : "items") + "/" + base.func_110623_a() + ".png"); // getResourcePath
+        IResourceManager manager = net.minecraft.client.Minecraft.func_71410_x().func_110442_L(); // getResourceManager
+        try {
+            // As Forge 1.7.10's TextureMap: load returning false means loaded (stitch it); true means skip it.
+            if (!sprite.hasCustomLoader(manager, file) || sprite.load(manager, file) || sprite.func_110970_k() == 0) { // getFrameCount
+                return null;
+            }
+            int[][] frame = sprite.func_147965_a(0); // getFrameTextureData
+            if (frame == null || frame.length == 0 || frame[0] == null) {
+                return null;
+            }
+            return new Object[]{sprite.func_94211_a(), sprite.func_94216_b(), frame[0]}; // getIconWidth, getIconHeight
+        } catch (Throwable t) {
+            System.out.println("[Retrofit] Custom sprite " + name + " could not be loaded: " + t);
+            if (!customSpriteTraced) {
+                customSpriteTraced = true;
+                t.printStackTrace(System.out);
+            }
+            return null;
+        }
     }
 
     /** Names of all recorded block (kind 0) or item (kind 1) icons. */
@@ -71,7 +142,8 @@ public final class LegacyIcons {
 
     /** Gives a recorded icon the coordinates of its sprite in the host's atlas. */
     public static void setIconUV(int kind, String name, float minU, float maxU, float minV, float maxV, int width, int height) {
-        RecordedIcon icon = (kind == 0 ? BLOCKS : ITEMS).icons.get(name);
+        Recorder atlas = kind == 0 ? BLOCKS : ITEMS;
+        RecordedIcon icon = atlas.icons.get(name);
         if (icon != null) {
             icon.minU = minU;
             icon.maxU = maxU;
@@ -79,6 +151,10 @@ public final class LegacyIcons {
             icon.maxV = maxV;
             icon.width = width;
             icon.height = height;
+        }
+        TextureAtlasSprite custom = atlas.custom.get(name);
+        if (custom != null) {
+            placeCustom(custom, minU, maxU, minV, maxV, width, height);
         }
     }
 
@@ -133,12 +209,61 @@ public final class LegacyIcons {
         return damages;
     }
 
-    private static final class Recorder implements IIconRegister {
-        private final Map<String, RecordedIcon> icons = new LinkedHashMap<String, RecordedIcon>();
+    /** Sprite classes of mods keep their UVs in TextureAtlasSprite's private fields; set them the way stitching did. */
+    private static void placeCustom(TextureAtlasSprite sprite, float minU, float maxU, float minV, float maxV, int width, int height) {
+        try {
+            setField(sprite, "field_110979_l", minU); // minU
+            setField(sprite, "field_110980_m", maxU); // maxU
+            setField(sprite, "field_110977_n", minV); // minV
+            setField(sprite, "field_110978_o", maxV); // maxV
+            java.lang.reflect.Field w = TextureAtlasSprite.class.getDeclaredField("field_130223_c"); // width
+            w.setAccessible(true);
+            w.setInt(sprite, width);
+            java.lang.reflect.Field h = TextureAtlasSprite.class.getDeclaredField("field_130224_d"); // height
+            h.setAccessible(true);
+            h.setInt(sprite, height);
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Retrofit] Could not place sprite " + sprite.func_94215_i() + ": " + e);
+        }
+    }
 
-        /** registerIcon */
-        @Override
-        public IIcon func_94245_a(String name) {
+    private static void setField(TextureAtlasSprite sprite, String name, float value) throws ReflectiveOperationException {
+        java.lang.reflect.Field field = TextureAtlasSprite.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.setFloat(sprite, value);
+    }
+
+    /**
+     * Records registered icons. A TextureMap, as 1.7.10's icon registers were (mods cast to it and
+     * call its sprite methods), created without its constructor (which would register every icon
+     * into a real atlas); every TextureMap method that would stitch or upload does nothing here.
+     */
+    static final class Recorder extends TextureMap {
+        private Map<String, RecordedIcon> icons;
+        /** Sprites mods made themselves (setTextureEntry), by name; their files are stitched like the rest. */
+        private Map<String, TextureAtlasSprite> custom;
+        private int type;
+
+        private Recorder() {
+            super(0, null); // never called; see create
+        }
+
+        static Recorder create(int type) {
+            try {
+                Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+                java.lang.reflect.Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
+                theUnsafe.setAccessible(true);
+                Recorder recorder = (Recorder) unsafeClass.getMethod("allocateInstance", Class.class).invoke(theUnsafe.get(null), Recorder.class);
+                recorder.icons = new LinkedHashMap<String, RecordedIcon>();
+                recorder.custom = new LinkedHashMap<String, TextureAtlasSprite>();
+                recorder.type = type;
+                return recorder;
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Retrofit: cannot create the legacy icon recorder", e);
+            }
+        }
+
+        private synchronized RecordedIcon record(String name) {
             RecordedIcon icon = icons.get(name);
             if (icon == null) {
                 icon = new RecordedIcon(name);
@@ -146,16 +271,86 @@ public final class LegacyIcons {
             }
             return icon;
         }
+
+        /** registerIcon */
+        @Override
+        public IIcon func_94245_a(String name) {
+            if (name == null) {
+                throw new IllegalArgumentException("Name cannot be null!"); // as 1.7.10
+            }
+            TextureAtlasSprite own = custom.get(name);
+            return own != null ? own : record(name);
+        }
+
+        /** getAtlasSprite */
+        @Override
+        public TextureAtlasSprite func_110572_b(String name) {
+            TextureAtlasSprite own = custom.get(name);
+            return own != null ? own : record(name);
+        }
+
+        @Override
+        public TextureAtlasSprite getTextureExtry(String name) {
+            TextureAtlasSprite own = custom.get(name);
+            return own != null ? own : icons.get(name);
+        }
+
+        @Override
+        public synchronized boolean setTextureEntry(String name, TextureAtlasSprite sprite) {
+            if (custom.containsKey(name) || icons.containsKey(name)) {
+                return false;
+            }
+            custom.put(name, sprite);
+            record(name); // the host stitches the file of that name
+            return true;
+        }
+
+        /** getTextureType */
+        @Override
+        public int func_130086_a() {
+            return type;
+        }
+
+        /** loadTexture */
+        @Override
+        public void func_110551_a(IResourceManager manager) {
+        }
+
+        /** loadTextureAtlas */
+        @Override
+        public void func_110571_b(IResourceManager manager) {
+        }
+
+        /** updateAnimations */
+        @Override
+        public void func_94248_c() {
+        }
+
+        /** tick */
+        @Override
+        public void func_110550_d() {
+        }
+
+        /** setMipmapLevels */
+        @Override
+        public void func_147633_a(int levels) {
+        }
+
+        /** setAnisotropicFiltering */
+        @Override
+        public void func_147632_b(int level) {
+        }
     }
 
     /** An icon that knows its name and, once the host's atlas exists, its place in it. */
-    private static final class RecordedIcon implements IIcon {
+    private static final class RecordedIcon extends TextureAtlasSprite {
         private final String name;
         private volatile float minU, minV;
         private volatile float maxU = 1, maxV = 1;
         private volatile int width = 16, height = 16;
 
         RecordedIcon(String name) {
+            super(name);
             this.name = name;
         }
 

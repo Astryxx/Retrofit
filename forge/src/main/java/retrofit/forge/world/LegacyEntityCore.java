@@ -138,6 +138,16 @@ public final class LegacyEntityCore {
 
     /** {x, y, z, yaw, pitch, head yaw, body yaw, motion x, y, z, health, max health, width, height, dead, on ground} */
     private void apply(double[] state, boolean exact) {
+        // Some mods leave NaN in rotations or motion (1.7.10 tolerated it; 1.20.1 discards such entities).
+        if (Double.isNaN(state[0]) || Double.isNaN(state[1]) || Double.isNaN(state[2])) {
+            return;
+        }
+        double[] fallback = {0, 0, 0, host.getYRot(), host.getXRot(), host.getYHeadRot(), host.getYRot(), 0, 0, 0};
+        for (int i = 3; i <= 9; i++) {
+            if (!Double.isFinite(state[i])) {
+                state[i] = fallback[i];
+            }
+        }
         if (exact) {
             host.moveTo(state[0], state[1], state[2], (float) state[3], (float) state[4]);
         } else {

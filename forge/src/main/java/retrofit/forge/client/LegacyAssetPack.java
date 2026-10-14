@@ -369,12 +369,132 @@ final class LegacyAssetPack implements PackResources {
             put("retrofit", target, () -> jar.getInputStream(png));
             ZipEntry animation = jar.getEntry(legacyPath + ".mcmeta");
             if (animation != null) {
-                put("retrofit", target + ".mcmeta", () -> jar.getInputStream(animation));
+                put("retrofit", target + ".mcmeta", () -> strictJson(jar.getInputStream(animation)));
             }
+            return true;
+        }
+        if (addSheetTile(kind, iconName, target, sources) || addCustomSprite(kind, iconName, target)) {
             return true;
         }
         LOGGER.debug("Legacy texture {} not found (looked for {})", iconName, legacyPath);
         return false;
+    }
+
+    /**
+     * "mod:sheet:N" with no file of that name: tile N of sheet.png, a row of square tiles as tall as
+     * the image (IC2's block textures: the six sides, then the six sides of the active state). The
+     * mod's own loader cuts these out at stitch time in 1.7.10.
+     */
+    private boolean addSheetTile(String kind, String iconName, String target, List<ZipFile> sources) {
+        int last = iconName.lastIndexOf(':');
+        int first = iconName.indexOf(':');
+        if (last <= first || first < 0) {
+            return false;
+        }
+        int index;
+        try {
+            index = Integer.parseInt(iconName.substring(last + 1));
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        String namespace = iconName.substring(0, first).toLowerCase(Locale.ROOT);
+        String sheetPath = "assets/" + namespace + "/textures/" + kind + "/" + iconName.substring(first + 1, last) + ".png";
+        for (ZipFile jar : sources) {
+            ZipEntry sheet = jar.getEntry(sheetPath);
+            if (sheet == null) {
+                continue;
+            }
+            try (InputStream in = jar.getInputStream(sheet);
+                 com.mojang.blaze3d.platform.NativeImage image = com.mojang.blaze3d.platform.NativeImage.read(in)) {
+                int size = image.getHeight();
+                if (size <= 0 || image.getWidth() % size != 0) {
+                    return false;
+                }
+                int tile = index % (image.getWidth() / size);
+                try (com.mojang.blaze3d.platform.NativeImage cut = new com.mojang.blaze3d.platform.NativeImage(size, size, false)) {
+                    image.copyRect(cut, tile * size, 0, 0, 0, size, size, false, false);
+                    byte[] png = cut.asByteArray();
+                    put("retrofit", target, () -> new ByteArrayInputStream(png));
+                }
+                return true;
+            } catch (java.io.IOException | RuntimeException e) {
+                LOGGER.debug("Legacy sprite sheet {} could not be cut", sheetPath, e);
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** A sprite the mod draws itself (no file of its name; see the legacy bridge's LegacyIcons.customSprite), as a PNG. */
+    private boolean addCustomSprite(String kind, String iconName, String target) {
+        Object[] sprite;
+        try {
+            sprite = LegacyBridge.call("customSprite", kind.equals("blocks") ? 0 : 1, iconName);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (sprite == null) {
+            return false;
+        }
+        int width = (Integer) sprite[0];
+        int height = (Integer) sprite[1];
+        int[] argb = (int[]) sprite[2];
+        if (width <= 0 || height <= 0 || argb.length < width * height) {
+            return false;
+        }
+        byte[] png;
+        try (com.mojang.blaze3d.platform.NativeImage image = new com.mojang.blaze3d.platform.NativeImage(width, height, false)) {
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int c = argb[y * width + x];
+                    // NativeImage stores ABGR
+                    image.setPixelRGBA(x, y, (c & 0xFF00FF00) | ((c >> 16) & 0xFF) | ((c & 0xFF) << 16));
+                }
+            }
+            png = image.asByteArray();
+        } catch (java.io.IOException | RuntimeException e) {
+            LOGGER.debug("Custom legacy sprite {} could not be encoded", iconName, e);
+            return false;
+        }
+        put("retrofit", target, () -> new ByteArrayInputStream(png));
+        return true;
+    }
+
+    /**
+     * 1.7.10 read texture metadata leniently (trailing commas, unquoted names); 1.20.1 does not.
+     * Re-written as strict JSON; passed through unchanged if it cannot be read at all.
+     */
+    private static java.io.InputStream strictJson(java.io.InputStream in) throws java.io.IOException {
+        byte[] bytes;
+        try (in) {
+            bytes = in.readAllBytes();
+        }
+        try {
+            com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
+                    new java.io.InputStreamReader(new java.io.ByteArrayInputStream(bytes), java.nio.charset.StandardCharsets.UTF_8));
+            reader.setLenient(true);
+            com.google.gson.JsonElement json = com.google.gson.internal.Streams.parse(reader);
+            stripNulls(json);
+            return new java.io.ByteArrayInputStream(json.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (RuntimeException e) {
+            return new java.io.ByteArrayInputStream(bytes);
+        }
+    }
+
+    /** Lenient parsing reads a trailing comma in an array as a null element; drop those. */
+    private static void stripNulls(com.google.gson.JsonElement json) {
+        if (json.isJsonArray()) {
+            var array = json.getAsJsonArray();
+            for (int i = array.size() - 1; i >= 0; i--) {
+                if (array.get(i).isJsonNull()) {
+                    array.remove(i);
+                } else {
+                    stripNulls(array.get(i));
+                }
+            }
+        } else if (json.isJsonObject()) {
+            json.getAsJsonObject().entrySet().forEach(entry -> stripNulls(entry.getValue()));
+        }
     }
 
     // ---- Translations ----

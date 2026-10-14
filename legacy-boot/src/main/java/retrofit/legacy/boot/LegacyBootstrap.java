@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -106,11 +107,14 @@ public final class LegacyBootstrap {
                 pending.add(tweaker);
                 System.out.println("[Retrofit] Loaded tweaker " + tweakName);
             }
-            for (ITweaker tweaker : new ArrayList<ITweaker>(pending)) {
-                pending.remove(tweaker);
+            // Iterates the live list as LaunchWrapper does: FMLInjectionAndSortingTweaker sorts it in place
+            // (List.set) while this runs, which is what puts FML's deobfuscation before late coremods.
+            for (Iterator<ITweaker> it = pending.iterator(); it.hasNext(); ) {
+                ITweaker tweaker = it.next();
                 tweaker.acceptOptions(new ArrayList<String>(), gameDir, assetsDir, "1.7.10-Forge");
                 tweaker.injectIntoClassLoader(classLoader);
                 allTweakers.add(tweaker);
+                it.remove();
             }
         } while (!tweakClassNames.isEmpty());
 

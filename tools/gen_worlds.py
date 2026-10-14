@@ -116,7 +116,7 @@ CLASSES = {
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld host, int dimension) {
         // The (saveHandler, name, settings, provider, profiler) constructor: the other one is client-only.
-        super(new BridgeSaveHandler(false), "Retrofit", LegacyWorlds.survivalSettings(),
+        super(BridgeSaveHandler.create(false), "Retrofit", LegacyWorlds.survivalSettings(),
                 WorldProvider.func_76570_a(dimension), new Profiler()); // getProviderForDimension
         this.host = host;
         this.field_72995_K = host.isClientSide(); // isRemote
@@ -137,7 +137,7 @@ public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld
  */
 @SuppressWarnings({"rawtypes"})
 public class BridgeWorldServer extends WorldServer {""", """    public BridgeWorldServer(HostWorld host, int dimension) {
-        super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
+        super(LegacyWorlds.server(), BridgeSaveHandler.create(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
     }

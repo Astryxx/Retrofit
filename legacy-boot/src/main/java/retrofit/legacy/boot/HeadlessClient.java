@@ -37,16 +37,69 @@ public final class HeadlessClient {
         Object resourceManager = Class.forName("net.minecraft.client.resources.SimpleReloadableResourceManager", true, lcl)
                 .getConstructors()[0].newInstance(serializer);
         setField(minecraftClass, minecraft, "field_110451_am", resourceManager); // mcResourceManager
+        setField(minecraftClass, minecraft, "field_110452_an", serializer); // metadataSerializer_
+        setField(minecraftClass, minecraft, "field_135017_as", languageManager(lcl, serializer)); // mcLanguageManager
+        // The signed-in player (mods read it during loading, e.g. DragonAPI); offline-style if unknown.
+        String name = System.getProperty("retrofit.username", "Player");
+        String uuid = System.getProperty("retrofit.uuid", "");
+        if (uuid.isEmpty()) {
+            uuid = java.util.UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString().replace("-", "");
+        }
+        setField(minecraftClass, minecraft, "field_71449_j", Class.forName("net.minecraft.util.Session", true, lcl) // session
+                .getConstructor(String.class, String.class, String.class, String.class).newInstance(name, uuid, "-", "legacy"));
+
+        // OpenGlHelper.initializeTextures ran before mods loaded; mods branch on shader support (see retrofit.legacy.gl.Shaders).
+        setField(Class.forName("net.minecraft.client.renderer.OpenGlHelper", true, lcl), null, "field_148824_g", true); // shadersSupported
 
         Class<?> clientHandlerClass = Class.forName("cpw.mods.fml.client.FMLClientHandler", true, lcl);
         Object clientHandler = clientHandlerClass.getMethod("instance").invoke(null);
 
         System.out.println("[Retrofit] Starting FML mod loading (construct + preInit)");
         method(clientHandlerClass, "beginMinecraftLoading").invoke(clientHandler, minecraft, new ArrayList<Object>(), resourceManager);
+        // 1.7.10 had its texture manager, font renderer and sound handler before init (mods measure text and
+        // bind textures while loading); the bridge's legacy client environment provides them.
+        // (Absent only when booting without the bridge, to dump the SRG jar.)
+        Class<?> clientGuis = null;
+        try {
+            clientGuis = Class.forName("retrofit.legacy.bridge.ClientGuis", true, lcl);
+        } catch (ClassNotFoundException noBridge) {
+            System.out.println("[Retrofit] No legacy bridge; skipping the client environment");
+        }
+        if (clientGuis != null) {
+            clientGuis.getMethod("prepareEnvironment").invoke(null);
+        }
         System.out.println("[Retrofit] Running init + postInit");
         method(clientHandlerClass, "finishMinecraftLoading").invoke(clientHandler);
 
         report(lcl, start);
+    }
+
+    /**
+     * 1.7.10 created its LanguageManager before mods loaded, and mods ask it for the current
+     * language during loading (Tinkers' manuals, Ars Magica 2). The current language (the player's,
+     * retrofit.language) is registered so getCurrentLanguage never returns null; translations
+     * themselves are loaded by Hooks.loadLanguage.
+     */
+    @SuppressWarnings("unchecked")
+    private static Object languageManager(ClassLoader lcl, Object serializer) throws Exception {
+        String code = System.getProperty("retrofit.language", "en_US");
+        Class<?> serializerClass = Class.forName("net.minecraft.client.resources.data.IMetadataSerializer", true, lcl);
+        Class<?> managerClass = Class.forName("net.minecraft.client.resources.LanguageManager", true, lcl);
+        Object manager = managerClass.getConstructor(serializerClass, String.class).newInstance(serializer, code);
+        Class<?> languageClass = Class.forName("net.minecraft.client.resources.Language", true, lcl);
+        java.lang.reflect.Constructor<?> language = languageClass.getConstructor(String.class, String.class, String.class, boolean.class);
+        for (Field field : managerClass.getDeclaredFields()) {
+            if (java.util.Map.class.isAssignableFrom(field.getType()) && !java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                field.setAccessible(true);
+                java.util.Map<String, Object> languages = (java.util.Map<String, Object>) field.get(manager);
+                languages.put("en_US", language.newInstance("en_US", "US", "English", false));
+                if (!code.equals("en_US")) {
+                    String region = code.indexOf('_') >= 0 ? code.substring(code.indexOf('_') + 1).toUpperCase() : "";
+                    languages.put(code, language.newInstance(code, region, code, false));
+                }
+            }
+        }
+        return manager;
     }
 
     static void report(ClassLoader lcl, long start) throws Exception {

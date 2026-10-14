@@ -22,6 +22,22 @@ public final class BridgeServer extends MinecraftServer {
         func_152361_a(new BridgePlayerList(this, directory)); // setConfigurationManager
     }
 
+    /**
+     * getFolderName and getActiveAnvilConverter: where 1.7.10 kept the world. Forge's
+     * DimensionManager.getCurrentSaveRootDirectory builds a save handler from them when no world is
+     * loaded yet (BuildCraft asks while the server starts): the host world's "retrofit" folder.
+     */
+    @Override
+    public String func_71270_I() {
+        return LegacyWorlds.saveDirectory().getName();
+    }
+
+    @Override
+    public net.minecraft.world.storage.ISaveFormat func_71254_M() {
+        File parent = LegacyWorlds.saveDirectory().getAbsoluteFile().getParentFile();
+        return new net.minecraft.world.chunk.storage.AnvilSaveConverter(parent);
+    }
+
     /** startServer: never started; the host runs the server. */
     @Override
     protected boolean func_71197_b() {

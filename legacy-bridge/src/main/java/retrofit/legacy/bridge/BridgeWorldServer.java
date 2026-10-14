@@ -26,7 +26,7 @@ public class BridgeWorldServer extends WorldServer {
     private HostWorld host;
 
     public BridgeWorldServer(HostWorld host, int dimension) {
-        super(LegacyWorlds.server(), new BridgeSaveHandler(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
+        super(LegacyWorlds.server(), BridgeSaveHandler.create(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
     }

@@ -150,6 +150,9 @@ public final class LegacyPlayers {
 
     /** {int[] slots, Object[] stacks} that legacy code changed since {@link #setInventory}, or null. */
     public static Object[] inventoryChanges(Object legacyPlayer) {
+        if (legacyPlayer instanceof BridgePlayerMP) {
+            Guis.adoptOpenContainer((BridgePlayerMP) legacyPlayer); // after legacy code ran for the player
+        }
         EntityPlayer player = (EntityPlayer) legacyPlayer;
         ItemStack[] given = GIVEN.get(player);
         if (given == null) {

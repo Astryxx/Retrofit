@@ -31,6 +31,8 @@ import net.minecraftforge.common.extensions.IForgeMenuType;
 public class LegacyMenu extends AbstractContainerMenu {
     /** Window id of client-only container GUIs (opened by client code): the server ignores their clicks. */
     public static final int CLIENT_ONLY = -3;
+    /** guiId of a container a mod opened without FML's openGui (the legacy bridge's Guis.DIRECT). */
+    static final int DIRECT = -2;
 
     private static MenuType<LegacyMenu> type;
 
@@ -79,6 +81,12 @@ public class LegacyMenu extends AbstractContainerMenu {
         Object container = null;
         try {
             Object mirror = LegacyPlayers.mirror(player, true);
+            if (guiId == DIRECT) {
+                // A container the mod opened itself: its own packet already put its GUI on screen (client-only so far).
+                screen = retrofit.forge.client.ClientHooks.takeClientOnlyScreen();
+                container = screen == null ? null : LegacyBridge.call("guiContainer", screen);
+                return new LegacyMenu(id, player, container, screen);
+            }
             screen = LegacyBridge.call("clientGui", mirror, modId, guiId, pos.getX(), pos.getY(), pos.getZ());
             container = screen == null ? null : LegacyBridge.call("guiContainer", screen);
             if (container != null) {

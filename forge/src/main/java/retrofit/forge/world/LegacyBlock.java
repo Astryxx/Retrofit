@@ -41,7 +41,7 @@ import java.util.List;
  * property. Its outline and collision shapes come from the legacy block's own bounds and
  * collision code, per metadata value (see {@link LegacyBridge#blockShape}).
  */
-public class LegacyBlock extends Block implements EntityBlock {
+public class LegacyBlock extends Block {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private final Object legacyBlock;
@@ -62,7 +62,7 @@ public class LegacyBlock extends Block implements EntityBlock {
      * @param renderInfo see {@link LegacyBridge#blockRenderInfo}
      * @param info       see the legacy bridge's Interactions.blockInfo
      */
-    public LegacyBlock(Object legacyBlock, boolean hasTileEntity, int[] renderInfo, Object[] info) {
+    private LegacyBlock(Object legacyBlock, boolean hasTileEntity, int[] renderInfo, Object[] info) {
         super(properties(renderInfo, info));
         this.legacyBlock = legacyBlock;
         this.harvestTool = info[3] != null ? (String) info[3] : (Integer) info[5] != 0 ? "pickaxe" : null;
@@ -188,6 +188,24 @@ public class LegacyBlock extends Block implements EntityBlock {
         return renderPass;
     }
 
+    /** The stand-in for a legacy block: {@link WithTile} if it has a tile entity for any metadata value. */
+    public static LegacyBlock create(Object legacyBlock, int[] renderInfo, Object[] info) {
+        boolean tile = false;
+        for (int meta = 0; meta < 16 && !tile; meta++) {
+            try {
+                tile = LegacyBridge.hasTileEntity(legacyBlock, meta);
+            } catch (RuntimeException e) {
+                // metadata the block does not use
+            }
+        }
+        return tile ? new WithTile(legacyBlock, renderInfo, info) : new LegacyBlock(legacyBlock, false, renderInfo, info);
+    }
+
+    /** Plain legacy block. */
+    public LegacyBlock(Object legacyBlock, int[] renderInfo, Object[] info) {
+        this(legacyBlock, false, renderInfo, info);
+    }
+
     public Object legacyBlock() {
         return legacyBlock;
     }
@@ -201,18 +219,29 @@ public class LegacyBlock extends Block implements EntityBlock {
         builder.add(LegacyContent.META);
     }
 
-    @Override
-    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
-        return hasTileEntity ? new LegacyBlockEntity(pos, state) : null;
-    }
-
-    @Override
-    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
-        if (!hasTileEntity || type != LegacyContent.blockEntityType()) {
-            return null;
+    /**
+     * A legacy block with a tile entity (for at least one metadata value). Only these are
+     * EntityBlocks: 1.20.1 gives every state of an EntityBlock a block entity slot (world
+     * generation records one for each placed block), which plain legacy blocks must not have.
+     */
+    public static final class WithTile extends LegacyBlock implements EntityBlock {
+        public WithTile(Object legacyBlock, int[] renderInfo, Object[] info) {
+            super(legacyBlock, true, renderInfo, info);
         }
-        // 1.7.10 ticked tile entities on both sides (clients use it for animation and effects).
-        return (tickLevel, pos, tickState, blockEntity) -> ((LegacyBlockEntity) blockEntity).tick();
+
+        @Override
+        public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+            return new LegacyBlockEntity(pos, state);
+        }
+
+        @Override
+        public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+            if (type != LegacyContent.blockEntityType()) {
+                return null;
+            }
+            // 1.7.10 ticked tile entities on both sides (clients use it for animation and effects).
+            return (tickLevel, pos, tickState, blockEntity) -> ((LegacyBlockEntity) blockEntity).tick();
+        }
     }
 
     // ---- Behaviour: each forwards to the legacy block, contained by LegacyErrors ----

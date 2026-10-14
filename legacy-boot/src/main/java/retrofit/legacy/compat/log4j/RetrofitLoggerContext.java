@@ -32,7 +32,9 @@ final class RetrofitLoggerContext implements LoggerContext {
         if (host == null) {
             throw new IllegalStateException("Retrofit: legacy logging used before the host connected it");
         }
-        loggers.putIfAbsent(name, messageFactory, new SLF4JLogger(name, messageFactory, host.apply(name)));
+        // Wrapped as log4j-core's Logger type for mods that cast to it (see org.apache.logging.log4j.core.Logger).
+        SLF4JLogger slf4j = new SLF4JLogger(name, messageFactory, host.apply(name));
+        loggers.putIfAbsent(name, messageFactory, new org.apache.logging.log4j.core.Logger(slf4j, name, slf4j.getMessageFactory()));
         return loggers.getLogger(name, messageFactory);
     }
 

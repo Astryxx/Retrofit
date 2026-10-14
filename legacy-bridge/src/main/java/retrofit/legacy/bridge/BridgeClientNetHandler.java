@@ -19,6 +19,21 @@ final class BridgeClientNetHandler extends NetHandlerPlayClient {
         super(null, null, null);
     }
 
+    private net.minecraft.network.NetworkManager manager;
+
+    /**
+     * getNetworkManager: FML builds client packet events from it (FMLNetworkEvent.ClientCustomPacketEvent
+     * asks it for this handler). A client-side manager with no channel, pointing back here.
+     */
+    @Override
+    public synchronized net.minecraft.network.NetworkManager func_147298_b() {
+        if (manager == null) {
+            manager = new net.minecraft.network.NetworkManager(true);
+            manager.func_150719_a(this); // setNetHandler
+        }
+        return manager;
+    }
+
     /** addToSendQueue */
     @Override
     public void func_147297_a(Packet packet) {

@@ -96,6 +96,37 @@ public final class GL11 {
                 scale};
     }
 
+    /** GL texture ids handed out to legacy code, and the texture each one names (if known). */
+    private static final Map<Integer, String> TEXTURE_NAMES = new java.util.concurrent.ConcurrentHashMap<Integer, String>();
+    private static final Map<String, Integer> NAMED_TEXTURES = new java.util.concurrent.ConcurrentHashMap<String, Integer>();
+    private static final java.util.concurrent.atomic.AtomicInteger NEXT_TEXTURE = new java.util.concurrent.atomic.AtomicInteger(1000);
+
+    /** A new texture id (TextureUtil.glGenTextures). */
+    public static int glGenTextures() {
+        return NEXT_TEXTURE.getAndIncrement();
+    }
+
+    /**
+     * The id of a texture the legacy TextureManager loaded (see ClientTextures), so legacy code that
+     * binds it by id (getGlTextureId, glBindTexture) draws with it.
+     */
+    public static int textureId(String location) {
+        Integer id = NAMED_TEXTURES.get(location);
+        if (id == null) {
+            id = glGenTextures();
+            NAMED_TEXTURES.put(location, id);
+            TEXTURE_NAMES.put(id, location);
+        }
+        return id;
+    }
+
+    public static void glBindTexture(int target, int texture) {
+        String location = target == GL_TEXTURE_2D ? TEXTURE_NAMES.get(texture) : null;
+        if (location != null) {
+            bindLegacyTexture(location);
+        }
+    }
+
     /** Called when the legacy TextureManager binds a texture (see Hooks). */
     public static void bindLegacyTexture(String location) {
         final int index = Capture.textureIndex(location);

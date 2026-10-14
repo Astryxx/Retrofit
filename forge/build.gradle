@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.1.0-alpha'
+version = '0.2.0-alpha'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -26,6 +26,9 @@ minecraft {
             property 'forge.logging.console.level', 'info'
             if (project.hasProperty('retrofitDisabled')) {
                 property 'retrofit.disabled', 'true' // compare against Forge without the legacy layer
+            }
+            if (project.hasProperty('extraJvmArg')) {
+                jvmArg project.property('extraJvmArg') // e.g. a flag a legacy mod reads from the JVM arguments
             }
             if (project.hasProperty('netDebug')) {
                 property 'forge.logging.markers', 'NETWORK' // log every packet (debug.log)
@@ -61,6 +64,10 @@ minecraft {
                 property 'retrofit.worldTest', 'true'
                 property 'retrofit.debugGui', 'true'
                 property 'retrofit.debugEntities', 'true'
+            }
+            if (project.hasProperty('modSweep')) {
+                property 'retrofit.modSweep', 'true' // retrofit.forge.test.ModSweepServer: every block, GUI, entity and item of the mods
+                property 'retrofit.debugEntities', 'true' // logs why legacy entities die
             }
             if (project.hasProperty('renderTest')) {
                 property 'retrofit.renderTest', 'true'
@@ -107,10 +114,7 @@ tasks.matching { it.name == 'runClient' }.configureEach {
             from project(':testmods:hello1710').tasks.jar.archiveFile
             into file('run/retrofit/mods')
         }
-        copy {
-            from rootProject.fileTree('corpus') { include '*.jar' } // real 1.7.10 mods under test (not in git)
-            into file('run/retrofit/mods')
-        }
+        rootProject.syncCorpus(file('run/retrofit/mods')) // real 1.7.10 mods under test (not in git)
     }
 }
 
@@ -123,10 +127,7 @@ tasks.matching { it.name == 'runServer' }.configureEach {
             from project(':testmods:hello1710').tasks.jar.archiveFile
             into new File(serverDir, 'retrofit/mods')
         }
-        copy {
-            from rootProject.fileTree('corpus') { include '*.jar' } // real 1.7.10 mods under test (not in git)
-            into new File(serverDir, 'retrofit/mods')
-        }
+        rootProject.syncCorpus(new File(serverDir, 'retrofit/mods')) // real 1.7.10 mods under test (not in git)
         // Local development server only: accepts Mojang's EULA (https://aka.ms/MinecraftEULA) for it.
         def eula = new File(serverDir, 'eula.txt')
         if (!eula.exists()) {

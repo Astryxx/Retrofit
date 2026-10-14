@@ -41,6 +41,12 @@ final class CompatReport {
         System.out.printf("[Retrofit] Compat: icons registered (%d block, %d item textures), %d failures%n",
                 ((String[]) call("iconNames", 0)).length, ((String[]) call("iconNames", 1)).length, iconFailures);
 
+        int custom = 0;
+        for (String icon : (String[]) call("iconNames", 0)) {
+            custom += call("customSprite", 0, icon) != null ? 1 : 0;
+        }
+        System.out.printf("[Retrofit] Compat: %d block sprites drawn by the mods' own loaders%n", custom);
+
         Map<Long, Object> blocks = new HashMap<>();
         HostWorld host = new HostWorld() {
             public Object getLegacyBlock(int x, int y, int z) {
@@ -73,20 +79,37 @@ final class CompatReport {
             int renderType = ((int[]) call("blockRenderInfo", block))[0];
             for (int m = 0; m < 16; m++) {
                 int meta = m;
-                if (meta > 0 && call("faceTextures", block, meta) == null) {
+                Object faces;
+                try {
+                    faces = meta == 0 ? Boolean.TRUE : call("faceTextures", block, meta);
+                } catch (Exception e) {
+                    faces = null;
+                }
+                if (faces == null) {
                     continue; // metadata the block doesn't use
                 }
                 check("shape", name, () -> call("blockShape", block, meta));
                 if (renderType != 0 && renderType != -1) {
                     check("static model (render type " + renderType + ")", name, () -> {
                         synchronized (call("lock")) {
-                            return call("bakeBlock", block, meta);
+                            int vertices = (int) call("bakeBlock", block, meta);
+                            if (vertices == 0) {
+                                throw new IllegalStateException("the renderer drew nothing");
+                            }
+                            return vertices;
                         }
                     });
                 }
-                if ((boolean) call("hasTileEntity", block, meta)) {
-                    blocks.put(0L, block);
-                    Object tile = call("createTileEntity", world, block, meta, 0, 0, 0);
+                Object[] created = new Object[1];
+                check("tile entity", name, () -> {
+                    if ((boolean) call("hasTileEntity", block, meta)) {
+                        blocks.put(0L, block);
+                        created[0] = call("createTileEntity", world, block, meta, 0, 0, 0);
+                    }
+                    return null;
+                });
+                Object tile = created[0];
+                {
                     if (tile != null && (boolean) call("hasSpecialRenderer", tile)) {
                         check("tile entity renderer", name, () -> {
                             synchronized (call("lock")) {

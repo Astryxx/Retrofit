@@ -37,12 +37,23 @@ server's `retrofit/mods`. Players need the same 1.7.10 mods.
 - **Commands, key bindings, HUD overlays, sounds, mod packets**
 - **Multiplayer**: dedicated servers (LAN not tested yet)
 
-Tested with BiblioCraft and Retrofit's own test mod. Big mods like Thaumcraft, Witchery, Ars
-Magica 2, Mo' Creatures, OreSpawn, RotaryCraft and Carpenter's Blocks have **not been tested
-yet**; reports are very welcome.
+## Tested mods
+
+Each of these was tested in a new world (every block, machine, creature and item, plus world
+generation), and all of them together in singleplayer and on a dedicated server:
+
+- **Works:** BiblioCraft, Iron Chests, OreSpawn, Mo' Creatures, RotaryCraft (with DragonAPI),
+  Tinkers' Construct, Pam's HarvestCraft, Carpenter's Blocks, Chisel, IndustrialCraft 2,
+  Lycanite's Mobs
+- **Mostly works:** Thaumcraft (no Outer Lands dimension), Witchery, Ars Magica 2, BuildCraft
+- **Loads:** CodeChickenCore and NEI (NEI's panel only on 1.7.10 screens; use JEI)
+
+Libraries they need (Baubles, DragonAPI, AnimationAPI, Mantle, CustomMobSpawner) go in
+`retrofit/mods` too. Other mods are untested; reports are very welcome.
 
 ## Not yet
 
+- Legacy dimensions (Thaumcraft's Outer Lands, Twilight Forest...)
 - Riding legacy creatures, leashes
 - Some Forge events (living entity events, tooltips, player rendering)
 - Legacy crafting recipes in the recipe book and JEI (they still craft)
@@ -52,10 +63,14 @@ yet**; reports are very welcome.
 
 - Connecting to a server right after the game starts can occasionally hang at "Logging in...".
   Cancel and connect again.
+- RotaryCraft/DragonAPI on a dedicated server: add the JVM argument
+  `-DragonAPI_silence_ASM_POTIONPACKETID1`.
+- 1.7.10 configs are in `retrofit/config`; ID clashes between mods (e.g. Witchery and RotaryCraft
+  potion IDs) are fixed there, as in a 1.7.10 pack.
 
 ## Requirements
 
-Forge 1.20.1 (47.x), Java 17. Internet on first start, unless the Minecraft launcher already has
+Forge 1.20.1 (47.x), Java 17 or newer (tested with 17, 21 and 26). Internet on first start, unless the Minecraft launcher already has
 1.7.10 and Forge 10.13.4.1614 installed.
 
 ## Credits

@@ -190,6 +190,10 @@ public final class Bridge {
         return LegacyRendering.bakeBlock(legacyBlock, meta);
     }
 
+    public static int renderBlockAt(retrofit.api.HostWorld region, int x, int y, int z) {
+        return LegacyRendering.renderBlockAt(region, x, y, z);
+    }
+
     public static boolean hasSpecialRenderer(Object tileEntity) {
         return LegacyRendering.hasSpecialRenderer(tileEntity);
     }
@@ -260,6 +264,20 @@ public final class Bridge {
     /** The legacy translation key for an item with a damage value, e.g. "item.gem.ruby.name". */
     public static String itemTranslationKey(Object legacyItem, int meta) {
         return ((Item) legacyItem).func_77667_c(new ItemStack((Item) legacyItem, 1, meta)) + ".name"; // getUnlocalizedName(stack)
+    }
+
+    /**
+     * The name the mod gives a stack (Item.getItemStackDisplayName): many compose it from the stack
+     * (Tinkers' tool parts: material and part), which a translation key can't express.
+     */
+    public static String itemDisplayName(Object legacyStack) {
+        ItemStack stack = (ItemStack) legacyStack;
+        return stack.func_77973_b().func_77653_i(stack); // getItem().getItemStackDisplayName(stack)
+    }
+
+    /** Client only; see {@link LegacyIcons#customSprite}. */
+    public static Object[] customSprite(int kind, String name) {
+        return LegacyIcons.customSprite(kind, name);
     }
 
     /** Client only; see {@link LegacyIcons#itemTexture}. */
@@ -425,13 +443,13 @@ public final class Bridge {
         return String.valueOf(legacyObject);
     }
 
-    private static byte[] toBytes(NBTTagCompound tag) throws IOException {
+    static byte[] toBytes(NBTTagCompound tag) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         CompressedStreamTools.func_74800_a(tag, new DataOutputStream(bytes)); // write
         return bytes.toByteArray();
     }
 
-    private static NBTTagCompound fromBytes(byte[] bytes) throws IOException {
+    static NBTTagCompound fromBytes(byte[] bytes) throws IOException {
         return CompressedStreamTools.func_74794_a(new DataInputStream(new ByteArrayInputStream(bytes))); // read
     }
 

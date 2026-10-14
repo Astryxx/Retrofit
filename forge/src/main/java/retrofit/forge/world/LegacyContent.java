@@ -100,8 +100,8 @@ public final class LegacyContent {
             }
             for (String name : LegacyBridge.modBlockNames()) {
                 Object legacyBlock = LegacyBridge.block(name);
-                LegacyBlock block = new LegacyBlock(legacyBlock, LegacyBridge.hasTileEntity(legacyBlock, 0),
-                        LegacyBridge.blockRenderInfo(legacyBlock), LegacyBridge.call("blockInfo", legacyBlock));
+                LegacyBlock block = LegacyBlock.create(legacyBlock, LegacyBridge.blockRenderInfo(legacyBlock),
+                        LegacyBridge.call("blockInfo", legacyBlock));
                 helper.register(toResourceLocation(name), block);
                 BLOCKS.add(block);
                 LEGACY_NAMES.put(block, name);

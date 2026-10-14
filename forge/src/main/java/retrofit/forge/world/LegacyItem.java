@@ -117,6 +117,36 @@ public class LegacyItem extends Item implements LegacyStackItem {
         return translationKeys.computeIfAbsent(meta, m -> LegacyBridge.itemTranslationKey(legacyItem, m));
     }
 
+    /** Recent display names, by subtype and tag (tooltips ask every frame). */
+    private final java.util.Map<Object, net.minecraft.network.chat.Component> names = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<Object, net.minecraft.network.chat.Component>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<Object, net.minecraft.network.chat.Component> eldest) {
+                    return size() > 512;
+                }
+            });
+
+    /** The mod's own name for the stack (see the legacy bridge's itemDisplayName); the translated key if that fails. */
+    @Override
+    public net.minecraft.network.chat.Component getName(ItemStack stack) {
+        Object key = java.util.Arrays.asList(stack.getTag() == null ? null : stack.getTag().toString(), stack.getDamageValue());
+        net.minecraft.network.chat.Component cached = names.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        net.minecraft.network.chat.Component name;
+        try {
+            Object legacy = LegacyStacks.toLegacy(stack);
+            String text = legacy == null ? null : LegacyBridge.call("itemDisplayName", legacy);
+            name = text == null || text.isEmpty() || text.equals(getDescriptionId(stack))
+                    ? super.getName(stack) : net.minecraft.network.chat.Component.literal(text);
+        } catch (RuntimeException e) {
+            name = super.getName(stack);
+        }
+        names.put(key, name);
+        return name;
+    }
+
     // ---- Behaviour (see LegacyItemUse) ----
 
     @Override

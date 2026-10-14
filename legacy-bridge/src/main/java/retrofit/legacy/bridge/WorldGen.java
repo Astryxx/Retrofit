@@ -54,9 +54,29 @@ public final class WorldGen {
         synchronized (LOCK) {
             BridgeWorldServer world = (BridgeWorldServer) genWorld(dimension);
             world.setHost(region);
+            LegacyWorlds.SERVER_WORK.set(Boolean.TRUE);
             try {
                 GameRegistry.generateWorld(chunkX, chunkZ, world, world.func_72863_F(), world.func_72863_F()); // getChunkProvider
             } finally {
+                LegacyWorlds.SERVER_WORK.remove();
+                world.setHost(null);
+            }
+        }
+    }
+
+    /**
+     * getCanSpawnHere for the mobs 1.20.1 places while generating a chunk: checked against the
+     * region being generated (the full world's view would wait for that very chunk).
+     */
+    public static boolean canSpawnInRegion(HostWorld region, int dimension, String name, double x, double y, double z) {
+        synchronized (LOCK) {
+            BridgeWorldServer world = (BridgeWorldServer) genWorld(dimension);
+            world.setHost(region);
+            LegacyWorlds.SERVER_WORK.set(Boolean.TRUE);
+            try {
+                return Entities.entityCanSpawnHere(name, world, x, y, z);
+            } finally {
+                LegacyWorlds.SERVER_WORK.remove();
                 world.setHost(null);
             }
         }

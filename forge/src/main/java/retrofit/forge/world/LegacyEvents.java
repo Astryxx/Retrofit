@@ -28,6 +28,9 @@ import net.minecraftforge.fml.common.Mod;
 import org.slf4j.Logger;
 import retrofit.forge.RetrofitMod;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Fires the legacy FML and Forge events at the matching 1.20.1 moments (see the legacy bridge's
  * Events): server, world and player ticks, logins, respawns and dimension changes, the server
@@ -301,6 +304,74 @@ public final class LegacyEvents {
         if (active() && event.getLevel() instanceof Level level && !level.isClientSide && LegacyContent.hasLegacyWorld(level)) {
             Object world = LegacyContent.legacyWorld(level);
             fire("world save", () -> LegacyBridge.call("worldSaved", world));
+        }
+    }
+
+    // ---- Chunks (server levels; only when a legacy mod listens) ----
+
+    private static final String CHUNK_DATA_KEY = "RetrofitLegacy";
+    private static Boolean chunkEventsWanted;
+    /** Legacy data read with a chunk (ChunkDataEvent.Load may run off the server thread), until its ChunkEvent.Load. */
+    private static final Map<Level, Map<net.minecraft.world.level.ChunkPos, byte[]>> CHUNK_DATA = new java.util.WeakHashMap<>();
+
+    private static boolean chunkEvents() {
+        if (chunkEventsWanted == null) {
+            try {
+                chunkEventsWanted = LegacyBridge.<Boolean>call("chunkEventsWanted");
+            } catch (RuntimeException e) {
+                chunkEventsWanted = false;
+            }
+        }
+        return chunkEventsWanted;
+    }
+
+    @SubscribeEvent
+    public static void onChunkDataLoad(net.minecraftforge.event.level.ChunkDataEvent.Load event) {
+        if (active() && event.getLevel() instanceof net.minecraft.server.level.ServerLevel level && event.getData().contains(CHUNK_DATA_KEY)
+                && chunkEvents()) {
+            synchronized (CHUNK_DATA) {
+                CHUNK_DATA.computeIfAbsent(level, l -> new HashMap<>()).put(event.getChunk().getPos(), event.getData().getByteArray(CHUNK_DATA_KEY));
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onChunkLoad(net.minecraftforge.event.level.ChunkEvent.Load event) {
+        if (active() && event.getLevel() instanceof net.minecraft.server.level.ServerLevel level
+                && event.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk && chunkEvents()) {
+            net.minecraft.world.level.ChunkPos pos = event.getChunk().getPos();
+            byte[] data;
+            synchronized (CHUNK_DATA) {
+                Map<net.minecraft.world.level.ChunkPos, byte[]> pending = CHUNK_DATA.get(level);
+                data = pending == null ? null : pending.remove(pos);
+            }
+            Object world = LegacyContent.legacyWorld(level);
+            fire("chunk load", () -> LegacyBridge.call("chunkLoaded", world, pos.x, pos.z, data));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onChunkDataSave(net.minecraftforge.event.level.ChunkDataEvent.Save event) {
+        if (active() && event.getLevel() instanceof net.minecraft.server.level.ServerLevel level && chunkEvents()
+                && LegacyContent.hasLegacyWorld(level)) {
+            net.minecraft.world.level.ChunkPos pos = event.getChunk().getPos();
+            Object world = LegacyContent.legacyWorld(level);
+            fire("chunk save", () -> {
+                byte[] data = LegacyBridge.call("chunkSaved", world, pos.x, pos.z);
+                if (data != null) {
+                    event.getData().putByteArray(CHUNK_DATA_KEY, data);
+                }
+            });
+        }
+    }
+
+    @SubscribeEvent
+    public static void onChunkUnload(net.minecraftforge.event.level.ChunkEvent.Unload event) {
+        if (active() && event.getLevel() instanceof net.minecraft.server.level.ServerLevel level && chunkEvents()
+                && LegacyContent.hasLegacyWorld(level)) {
+            net.minecraft.world.level.ChunkPos pos = event.getChunk().getPos();
+            Object world = LegacyContent.legacyWorld(level);
+            fire("chunk unload", () -> LegacyBridge.call("chunkUnloaded", world, pos.x, pos.z));
         }
     }
 

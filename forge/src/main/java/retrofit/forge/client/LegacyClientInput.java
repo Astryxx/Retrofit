@@ -48,6 +48,9 @@ public final class LegacyClientInput {
             Object[][] keys = LegacyBridge.call("modKeyBindings");
             for (Object[] key : keys) {
                 int code = (Integer) key[2];
+                if (code < 0 && (code + 100 < 0 || code + 100 > org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LAST)) {
+                    code = 0; // a mouse button GLFW doesn't have: unbound (the player can bind it in Controls)
+                }
                 KeyMapping mapping = code < 0
                         ? new KeyMapping((String) key[0], InputConstants.Type.MOUSE, code + 100, (String) key[1]) // 1.7.10: -100 + button
                         : new KeyMapping((String) key[0], InputConstants.Type.KEYSYM, code == 0 ? -1 : LegacyKeys.toGlfw(code), (String) key[1]);

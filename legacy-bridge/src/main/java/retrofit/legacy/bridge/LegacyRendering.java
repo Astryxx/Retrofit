@@ -62,11 +62,77 @@ public final class LegacyRendering {
         Tessellator tessellator = Tessellator.field_78398_a;
         try {
             tessellator.func_78382_b(); // startDrawingQuads
-            renderBlocks.func_147805_b((Block) block, 0, 0, 0); // renderBlockByRenderType
+            renderInPasses((Block) block, 0, 0, 0);
             tessellator.func_78381_a(); // draw
         } catch (RuntimeException e) {
             resetTessellator();
             throw e;
+        }
+        return Capture.vertexCount();
+    }
+
+    private static BridgeWorld regionWorld;
+    private static Field worldRenderPass;
+
+    /**
+     * Forge's render passes (ForgeHooksClient.worldRenderPass and renderPass), which 1.7.10's chunk renderer set while
+     * it drew blocks: the block's own pass. Renderers that draw per pass (Carpenter's Blocks) draw nothing
+     * outside one.
+     */
+    private static void renderPass(int pass) {
+        try {
+            if (worldRenderPass == null) {
+                worldRenderPass = net.minecraftforge.client.ForgeHooksClient.class.getDeclaredField("worldRenderPass");
+                worldRenderPass.setAccessible(true);
+            }
+            worldRenderPass.setInt(null, pass);
+        } catch (ReflectiveOperationException e) {
+            // keep the default
+        }
+        net.minecraftforge.client.ForgeHooksClient.setRenderPass(pass); // MinecraftForgeClient.getRenderPass
+    }
+
+    /** As 1.7.10's chunk renderer: the block once for each pass it renders in (Forge's canRenderInPass). */
+    private static void renderInPasses(Block block, int x, int y, int z) {
+        for (int pass = 0; pass < 2; pass++) {
+            if (block.canRenderInPass(pass)) {
+                renderPass(pass);
+                renderBlocks.func_147805_b(block, x, y, z); // renderBlockByRenderType
+            }
+        }
+        renderPass(-1);
+    }
+
+    /**
+     * Renders the block at x, y, z of a host region (a chunk mesh being built) the way 1.7.10 did in
+     * the world, so renderers that look at neighbours and tile entities draw what they should;
+     * vertices are relative to the block. Returns the vertex count. Hold Bridge.LOCK.
+     */
+    public static int renderBlockAt(retrofit.api.HostWorld region, int x, int y, int z) {
+        if (regionWorld == null) {
+            regionWorld = new BridgeWorld(region, 0);
+        } else {
+            regionWorld.setHost(region);
+        }
+        Block block = regionWorld.func_147439_a(x, y, z); // getBlock
+        if (renderBlocks == null) {
+            renderBlocks = new RenderBlocks(regionWorld);
+        }
+        renderBlocks.field_147845_a = regionWorld; // blockAccess
+        Capture.begin();
+        GL11.bindLegacyTexture(BLOCK_ATLAS);
+        Tessellator tessellator = Tessellator.field_78398_a;
+        try {
+            tessellator.func_78382_b(); // startDrawingQuads
+            tessellator.func_78373_b(-x, -y, -z); // setTranslation: relative to the block
+            renderInPasses(block, x, y, z);
+            tessellator.func_78381_a(); // draw
+        } catch (RuntimeException e) {
+            resetTessellator();
+            throw e;
+        } finally {
+            tessellator.func_78373_b(0, 0, 0);
+            regionWorld.setHost(null);
         }
         return Capture.vertexCount();
     }
@@ -154,6 +220,9 @@ public final class LegacyRendering {
         if (camera == null || camera.field_70170_p != world) { // worldObj
             camera = new CameraEntity(world);
         }
+        if (minecraftTimer != null) {
+            minecraftTimer.field_74281_c = partialTicks; // renderPartialTicks
+        }
         camera.func_70012_b(x, y, z, yaw, pitch); // setLocationAndAngles
         camera.field_70126_B = yaw;   // prevRotationYaw
         camera.field_70127_C = pitch; // prevRotationPitch
@@ -163,6 +232,8 @@ public final class LegacyRendering {
     }
 
     /** For GUIs: the same environment renderers get. */
+    private static net.minecraft.util.Timer minecraftTimer;
+
     static void ensureEnvironment() {
         environment();
     }
@@ -190,7 +261,14 @@ public final class LegacyRendering {
         environmentReady = true;
         try {
             Minecraft minecraft = Minecraft.func_71410_x(); // getMinecraft
-            textures = (TextureManager) allocate(TextureManager.class);
+            textures = new TextureManager(minecraft.func_110442_L()); // getResourceManager; loadTexture is ClientTextures
+            Field timer = Minecraft.class.getDeclaredField("field_71428_T"); // timer (mods read renderPartialTicks)
+            timer.setAccessible(true);
+            if (timer.get(minecraft) == null) {
+                retrofit.legacy.compat.FinalFields.set(timer, minecraft, new net.minecraft.util.Timer(20f));
+            }
+            minecraftTimer = (net.minecraft.util.Timer) timer.get(minecraft);
+            LegacyIcons.registerAtlases(textures);
             settings = minecraft.field_71474_y != null ? minecraft.field_71474_y : (GameSettings) allocate(GameSettings.class);
             minecraft.field_71446_o = textures; // renderEngine
             TileEntityRendererDispatcher.field_147556_a.field_147553_e = textures;
@@ -207,6 +285,48 @@ public final class LegacyRendering {
             if (languages.get(minecraft) == null) {
                 languages.set(minecraft, new net.minecraft.client.resources.LanguageManager(
                         new net.minecraft.client.resources.data.IMetadataSerializer(), System.getProperty("retrofit.language", "en_US")));
+            }
+            // Mods ask which resource packs are active (DragonAPI's textures) and toggle the lightmap through the
+            // entity renderer. An empty repository (the legacy packs are the host's, see Hooks), and an entity
+            // renderer created without its constructor: the lightmap calls it has need no state.
+            Field repository = Minecraft.class.getDeclaredField("field_110448_aq"); // mcResourcePackRepository
+            repository.setAccessible(true);
+            if (repository.get(minecraft) == null) {
+                Object packs = allocate(net.minecraft.client.resources.ResourcePackRepository.class);
+                for (Field field : net.minecraft.client.resources.ResourcePackRepository.class.getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                        continue;
+                    }
+                    field.setAccessible(true);
+                    if (field.getType() == java.util.List.class) {
+                        field.set(packs, new java.util.ArrayList<Object>());
+                    } else if (field.getType() == java.io.File.class) {
+                        // The resource pack folders (mods list them, e.g. BiblioCraft's paintings): <game dir>/retrofit/resourcepacks.
+                        java.io.File dir = new java.io.File(minecraft.field_71412_D, "resourcepacks"); // mcDataDir
+                        dir.mkdirs();
+                        retrofit.legacy.compat.FinalFields.set(field, packs, dir);
+                    }
+                }
+                retrofit.legacy.compat.FinalFields.set(repository, minecraft, packs);
+            }
+            if (minecraft.field_71424_I == null) { // mcProfiler (mods profile their client ticks and drawing)
+                retrofit.legacy.compat.FinalFields.set(Minecraft.class.getDeclaredField("field_71424_I"), minecraft, new net.minecraft.profiler.Profiler());
+            }
+            if (RenderManager.field_78727_a.field_78721_f == null) { // itemRenderer: held items of mobs (RenderBiped)
+                net.minecraft.client.renderer.ItemRenderer items = new net.minecraft.client.renderer.ItemRenderer(minecraft);
+                RenderManager.field_78727_a.field_78721_f = items;
+            }
+            if (minecraft.field_71438_f == null) { // renderGlobal
+                minecraft.field_71438_f = (net.minecraft.client.renderer.RenderGlobal) allocate(BridgeRenderGlobal.class);
+            }
+            if (minecraft.field_71460_t == null) { // entityRenderer
+                minecraft.field_71460_t = (net.minecraft.client.renderer.EntityRenderer) allocate(net.minecraft.client.renderer.EntityRenderer.class);
+                Field mc = net.minecraft.client.renderer.EntityRenderer.class.getDeclaredField("field_78531_r"); // mc (enableLightmap)
+                mc.setAccessible(true);
+                retrofit.legacy.compat.FinalFields.set(mc, minecraft.field_71460_t, minecraft);
+                Field entityRendererItems = net.minecraft.client.renderer.EntityRenderer.class.getDeclaredField("field_78516_c"); // itemRenderer
+                entityRendererItems.setAccessible(true);
+                retrofit.legacy.compat.FinalFields.set(entityRendererItems, minecraft.field_71460_t, RenderManager.field_78727_a.field_78721_f);
             }
             Field sounds = Minecraft.class.getDeclaredField("field_147127_av"); // mcSoundHandler
             sounds.setAccessible(true);

@@ -71,6 +71,11 @@ public final class ClientGuis {
     // ---- Redirect targets (see HeadlessTransformer) ----
 
     /** Minecraft.displayGuiScreen */
+    /** Called at boot, before init: the texture manager, fonts and sounds mods use while loading. */
+    public static void prepareEnvironment() {
+        LegacyRendering.ensureEnvironment();
+    }
+
     public static void displayScreen(Minecraft minecraft, GuiScreen screen) {
         retrofit.api.HostPlayer host = host();
         if (host != null) {

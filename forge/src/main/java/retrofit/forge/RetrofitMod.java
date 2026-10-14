@@ -45,6 +45,15 @@ public final class RetrofitMod {
                 jars.add(extractJar(jar, legacyDir.resolve(".retrofit")));
             }
             System.setProperty("retrofit.language", legacyLanguage());
+            if (!server) {
+                try {
+                    String[] user = retrofit.forge.client.ClientHooks.user();
+                    System.setProperty("retrofit.username", user[0]);
+                    System.setProperty("retrofit.uuid", user[1]);
+                } catch (RuntimeException e) {
+                    LOGGER.debug("The player's name is not known yet", e);
+                }
+            }
             String ipv4Before = System.getProperty("java.net.preferIPv4Stack");
             runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true, server);
             // Legacy code must not change JVM-wide settings (see LegacySystem); check the one FML 1.7.10 sets.

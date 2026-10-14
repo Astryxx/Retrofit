@@ -101,7 +101,16 @@ public class LegacyScreen extends AbstractContainerScreen<LegacyMenu> {
     @Override
     public void removed() {
         super.removed();
-        gui.closed();
+        if (!handedOver) {
+            gui.closed();
+        }
+    }
+
+    private boolean handedOver;
+
+    /** The legacy GUI moves to another screen (see ClientHooks.takeClientOnlyScreen): don't close it with this one. */
+    void handOver() {
+        handedOver = true;
     }
 
     @Override

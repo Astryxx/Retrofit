@@ -77,6 +77,11 @@ public class RetrofitTransformer implements IClassTransformer {
         LOG4J_HELPERS.getBytes(StandardCharsets.UTF_8),
         SLF4J_FACTORY.getBytes(StandardCharsets.UTF_8),
         LWJGL.getBytes(StandardCharsets.UTF_8),
+        "setAccessible".getBytes(StandardCharsets.UTF_8),
+        "getDeclaredField".getBytes(StandardCharsets.UTF_8),
+        "java/lang/reflect/Field".getBytes(StandardCharsets.UTF_8),
+        "openStream".getBytes(StandardCharsets.UTF_8),
+        "openConnection".getBytes(StandardCharsets.UTF_8),
     };
 
     /**
@@ -154,10 +159,15 @@ public class RetrofitTransformer implements IClassTransformer {
         return basicClass;
     }
 
-    /** Pack200 -> retrofit.legacy.compat.Pack200; System.setSecurityManager/setOut/setErr -> LegacySystem. */
+    /**
+     * Pack200 -> retrofit.legacy.compat.Pack200; System.setSecurityManager/setOut/setErr -> LegacySystem;
+     * setAccessible and getDeclaredField -> Reflection (Java 8 behaviour for JDK members); URL connections -> LegacyNet
+     * (timeouts).
+     */
     private static byte[] redirectRemovedApis(byte[] bytes) {
         ClassReader reader = new ClassReader(bytes);
         ClassWriter writer = new ClassWriter(0);
+        final boolean retrofitClass = reader.getClassName().startsWith("retrofit/");
         ClassVisitor redirects = new ClassVisitor(Opcodes.ASM5, writer) {
             @Override
             public MethodVisitor visitMethod(int access, String methodName, String desc, String signature, String[] exceptions) {
@@ -167,6 +177,30 @@ public class RetrofitTransformer implements IClassTransformer {
                         if (opcode == Opcodes.INVOKESTATIC && (owner.equals("java/lang/System") && isSystemRedirect(insnName)
                                 || isPropertyReader(owner + "." + insnName))) {
                             owner = "retrofit/legacy/compat/LegacySystem";
+                        } else if (!retrofitClass && insnName.equals("setAccessible") && isReflectionMember(owner)) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL && insnDesc.equals("(Z)V")) {
+                                opcode = Opcodes.INVOKESTATIC;
+                                insnDesc = "(Ljava/lang/reflect/AccessibleObject;Z)V";
+                                owner = "retrofit/legacy/compat/Reflection";
+                            } else if (opcode == Opcodes.INVOKESTATIC) {
+                                owner = "retrofit/legacy/compat/Reflection";
+                            }
+                        } else if (!retrofitClass && opcode == Opcodes.INVOKEVIRTUAL && owner.equals("java/lang/reflect/Field")
+                                && isFieldSetter(insnName)) {
+                            // field.set(target, value) -> Reflection.set(field, target, value): final fields on Java 18+
+                            opcode = Opcodes.INVOKESTATIC;
+                            insnDesc = "(Ljava/lang/reflect/Field;" + insnDesc.substring(1);
+                            owner = "retrofit/legacy/compat/Reflection";
+                        } else if (!retrofitClass && opcode == Opcodes.INVOKEVIRTUAL && owner.equals("java/net/URL")
+                                && (insnName.equals("openStream") || insnName.equals("openConnection")) && insnDesc.startsWith("()")) {
+                            opcode = Opcodes.INVOKESTATIC;
+                            insnDesc = "(Ljava/net/URL;" + insnDesc.substring(1);
+                            owner = "retrofit/legacy/compat/LegacyNet";
+                        } else if (!retrofitClass && opcode == Opcodes.INVOKEVIRTUAL && owner.equals("java/lang/Class")
+                                && insnName.equals("getDeclaredField")) {
+                            opcode = Opcodes.INVOKESTATIC;
+                            insnDesc = "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/reflect/Field;";
+                            owner = "retrofit/legacy/compat/Reflection";
                         }
                         super.visitMethodInsn(opcode, owner, insnName, insnDesc, itf);
                     }
@@ -201,6 +235,16 @@ public class RetrofitTransformer implements IClassTransformer {
             }
         }
         return false;
+    }
+
+    private static boolean isFieldSetter(String name) {
+        return name.equals("set") || name.equals("setBoolean") || name.equals("setByte") || name.equals("setChar") || name.equals("setShort")
+                || name.equals("setInt") || name.equals("setLong") || name.equals("setFloat") || name.equals("setDouble");
+    }
+
+    private static boolean isReflectionMember(String owner) {
+        return owner.equals("java/lang/reflect/AccessibleObject") || owner.equals("java/lang/reflect/Field")
+                || owner.equals("java/lang/reflect/Method") || owner.equals("java/lang/reflect/Constructor");
     }
 
     private static boolean isPropertyReader(String method) {

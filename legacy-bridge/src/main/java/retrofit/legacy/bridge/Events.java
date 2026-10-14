@@ -219,6 +219,93 @@ public final class Events {
 
     public static void worldUnloaded(Object world) {
         MinecraftForge.EVENT_BUS.post(new WorldEvent.Unload((World) world));
+        synchronized (CHUNKS) {
+            CHUNKS.remove(world);
+        }
+    }
+
+    // ---- Chunks ----
+
+    /**
+     * Legacy worlds keep no chunks (the host level holds the blocks), so chunk events carry a chunk
+     * view (BridgeChunk) per loaded host chunk.
+     */
+    private static final Map<Object, Map<Long, net.minecraft.world.chunk.Chunk>> CHUNKS = new java.util.IdentityHashMap<Object, Map<Long, net.minecraft.world.chunk.Chunk>>();
+    private static int busId = -1;
+
+    private static net.minecraft.world.chunk.Chunk chunk(Object world, int x, int z, boolean create) {
+        synchronized (CHUNKS) {
+            Map<Long, net.minecraft.world.chunk.Chunk> chunks = CHUNKS.get(world);
+            if (chunks == null) {
+                if (!create) {
+                    return null;
+                }
+                chunks = new HashMap<Long, net.minecraft.world.chunk.Chunk>();
+                CHUNKS.put(world, chunks);
+            }
+            long key = (long) x << 32 | (z & 0xFFFFFFFFL);
+            net.minecraft.world.chunk.Chunk chunk = chunks.get(key);
+            if (chunk == null && create) {
+                chunk = new BridgeChunk((World) world, x, z);
+                chunks.put(key, chunk);
+            }
+            return chunk;
+        }
+    }
+
+    /** Whether any legacy mod listens to an event class (FML keeps its listeners in a static LISTENER_LIST). */
+    private static boolean listened(Class<?> eventClass) {
+        try {
+            if (busId < 0) {
+                Field bus = cpw.mods.fml.common.eventhandler.EventBus.class.getDeclaredField("busID");
+                bus.setAccessible(true);
+                busId = bus.getInt(MinecraftForge.EVENT_BUS);
+            }
+            Field list = eventClass.getDeclaredField("LISTENER_LIST");
+            list.setAccessible(true);
+            Object listeners = list.get(null);
+            return listeners != null && ((cpw.mods.fml.common.eventhandler.ListenerList) listeners).getListeners(busId).length > 0;
+        } catch (ReflectiveOperationException e) {
+            return true; // can't tell: fire it
+        }
+    }
+
+    /** Whether any legacy mod listens to chunk load, unload or data events (the host skips them otherwise). */
+    public static boolean chunkEventsWanted() {
+        return listened(net.minecraftforge.event.world.ChunkEvent.Load.class) || listened(net.minecraftforge.event.world.ChunkEvent.Unload.class)
+                || listened(net.minecraftforge.event.world.ChunkDataEvent.Load.class) || listened(net.minecraftforge.event.world.ChunkDataEvent.Save.class);
+    }
+
+    /** A host chunk was loaded: ChunkDataEvent.Load with what mods saved in it (if anything), then ChunkEvent.Load. */
+    public static void chunkLoaded(Object world, int x, int z, byte[] data) throws Exception {
+        net.minecraft.world.chunk.Chunk chunk = chunk(world, x, z, true);
+        if (data != null) {
+            MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkDataEvent.Load(chunk, Bridge.fromBytes(data)));
+        }
+        MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkEvent.Load(chunk));
+    }
+
+    /** A host chunk is being saved: ChunkDataEvent.Save; returns the data mods put in (null if none). */
+    public static byte[] chunkSaved(Object world, int x, int z) throws Exception {
+        net.minecraft.world.chunk.Chunk chunk = chunk(world, x, z, true);
+        NBTTagCompound tag = new NBTTagCompound();
+        MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkDataEvent.Save(chunk, tag));
+        return tag.func_82582_d() ? null : Bridge.toBytes(tag); // hasNoTags
+    }
+
+    public static void chunkUnloaded(Object world, int x, int z) {
+        net.minecraft.world.chunk.Chunk chunk = chunk(world, x, z, false);
+        if (chunk == null) {
+            return;
+        }
+        chunk.field_76636_d = false;
+        MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkEvent.Unload(chunk));
+        synchronized (CHUNKS) {
+            Map<Long, net.minecraft.world.chunk.Chunk> chunks = CHUNKS.get(world);
+            if (chunks != null) {
+                chunks.remove((long) x << 32 | (z & 0xFFFFFFFFL));
+            }
+        }
     }
 
     // ---- Commands ----

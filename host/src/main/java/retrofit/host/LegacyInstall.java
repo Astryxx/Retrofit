@@ -33,12 +33,17 @@ public final class LegacyInstall {
     private static final String FORGE_MAVEN = "https://maven.minecraftforge.net/";
 
     /**
-     * Legacy code logs through a patched log4j-api bridged to the host's SLF4J, replacing
-     * Forge 1.7.10's Log4Shell-vulnerable log4j 2.0-beta9 (API-compatible for FML's use).
+     * Libraries used instead of Forge 1.7.10's own. Legacy code logs through log4j-api bridged to
+     * the host's SLF4J, replacing Forge 1.7.10's Log4Shell-vulnerable log4j 2.0-beta9
+     * (API-compatible for FML's use).
      */
-    private static final List<Library> LOGGING_LIBRARIES = List.of(
+    private static final List<Library> REPLACED_LIBRARIES = List.of(
             new Library("org.apache.logging.log4j", "log4j-api", "2.19.0", null, List.of()),
-            new Library("org.apache.logging.log4j", "log4j-to-slf4j", "2.19.0", null, List.of()));
+            new Library("org.apache.logging.log4j", "log4j-to-slf4j", "2.19.0", null, List.of()),
+            // Replaces Forge's ASM 5.0.3 (same API). 5.0.3 drops the interface flag of method handles
+            // when it rewrites a class, so Java 8 interfaces with lambdas fail Java 17's verification
+            // after any transformer touched them (Java 8 did not check).
+            new Library("org.ow2.asm", "asm-all", "5.2", null, List.of("2ea49e08b876bbd33e0a7ce75c8f371d29e1f10a")));
 
     /**
      * Unpacks Forge 1.7.10's Pack200-compressed patches. Not every 1.20.1 distribution lets mods
@@ -100,7 +105,7 @@ public final class LegacyInstall {
 
     public List<Path> classpath() throws IOException {
         Map<String, Library> libraries = new LinkedHashMap<>();
-        for (Library library : LOGGING_LIBRARIES) {
+        for (Library library : REPLACED_LIBRARIES) {
             libraries.put(library.group() + ":" + library.artifact(), library);
         }
         Path forgeJar = forgeJar();
@@ -205,7 +210,7 @@ public final class LegacyInstall {
             Library library = Library.parse(json);
             String key = library.group() + ":" + library.artifact();
             if (library.group().equals("org.apache.logging.log4j")) {
-                continue; // Log4Shell-vulnerable 2.0-beta9; replaced by LOGGING_LIBRARIES
+                continue; // Log4Shell-vulnerable 2.0-beta9; replaced by REPLACED_LIBRARIES
             }
             if (key.equals("net.minecraftforge:forge")) {
                 continue; // added separately (see forgeJar)
