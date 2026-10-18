@@ -32,11 +32,26 @@ final class ClientPlayers {
         }
     }
 
+    /**
+     * Outside world rendering, Minecraft.renderViewEntity is the player, as on 1.7.10 (mods' tick
+     * handlers check it: Thaumcraft makes its research popup only if it's a player). Rendering
+     * points it at the camera (LegacyRendering.prepareFrame).
+     */
+    static void viewFromPlayer() {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        if (minecraft != null && minecraft.field_71439_g != null) { // thePlayer
+            minecraft.field_71451_h = minecraft.field_71439_g; // renderViewEntity
+        }
+    }
+
     /** Minecraft.thePlayer and theWorld follow the local player's mirror. */
     static void makeCurrent(EntityPlayer player) {
         Minecraft minecraft = Minecraft.func_71410_x();
         if (player instanceof BridgeClientPlayer) {
             minecraft.field_71439_g = (BridgeClientPlayer) player; // thePlayer
+        }
+        if (minecraft.field_71456_v == null) { // ingameGUI: mods print chat through it
+            minecraft.field_71456_v = new BridgeGuiIngame(minecraft);
         }
         if (player.field_70170_p instanceof WorldClient) { // worldObj
             minecraft.field_71441_e = (WorldClient) player.field_70170_p; // theWorld

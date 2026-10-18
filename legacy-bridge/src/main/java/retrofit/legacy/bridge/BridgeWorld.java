@@ -89,7 +89,7 @@ public class BridgeWorld extends World {
     /** getTileEntity */
     @Override
     public TileEntity func_147438_o(int x, int y, int z) {
-        return WorldGlue.getTileEntity(host, x, y, z);
+        return WorldGlue.getTileEntity(this, host, x, y, z);
     }
 
     /** setTileEntity */

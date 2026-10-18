@@ -14,6 +14,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.registries.RegisterEvent;
+import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 import retrofit.forge.RetrofitMod;
 import retrofit.host.LegacyRuntime;
@@ -89,6 +90,14 @@ public final class LegacyContent {
         if (runtime == null) {
             return;
         }
+        try {
+            LegacyBridge.init(runtime); // at the first registry: fluids come before blocks
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Retrofit could not connect to the legacy bridge", e);
+        }
+        LegacyFluids.register(event);
+        LegacyEnchantments.register(event);
+        registerCreativeTabs(event);
         event.register(Registries.BLOCK, helper -> {
             try {
                 LegacyBridge.init(runtime);
@@ -96,6 +105,9 @@ public final class LegacyContent {
                 throw new IllegalStateException("Retrofit could not connect to the legacy bridge", e);
             }
             for (String name : LegacyBridge.modBlockNames()) {
+                if (name.equals("retrofit:modern_block") || name.equals("retrofit:modern_open_block")) {
+                    continue; // Retrofit's stand-ins for 1.20.1 mods' blocks in legacy code
+                }
                 Object legacyBlock = LegacyBridge.block(name);
                 LegacyBlock block = LegacyBlock.create(legacyBlock, LegacyBridge.blockRenderInfo(legacyBlock),
                         LegacyBridge.call("blockInfo", legacyBlock));
@@ -112,6 +124,9 @@ public final class LegacyContent {
                         new LegacyBlockItem(block, LegacyBridge.item(LEGACY_NAMES.get(block))));
             }
             for (String name : LegacyBridge.modItemNames()) {
+                if (name.equals(ModernItems.LEGACY_NAME)) {
+                    continue; // carries 1.20.1 items through legacy code; never an item of its own here
+                }
                 Object legacyItem = LegacyBridge.item(name);
                 int[] armor = LegacyBridge.call("armorInfo", legacyItem);
                 if (armor[0] >= 0) {
@@ -130,6 +145,10 @@ public final class LegacyContent {
                 helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_menu"), LegacyMenu.type()));
         event.register(Registries.RECIPE_SERIALIZER, helper ->
                 helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_crafting"), LegacyRecipes.CRAFTING));
+        event.register(Registries.RECIPE_SERIALIZER, helper -> {
+            helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_shaped"), LegacyRecipeDisplays.SHAPED);
+            helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "legacy_shapeless"), LegacyRecipeDisplays.SHAPELESS);
+        });
         event.register(Registries.BLOCK_ENTITY_TYPE, helper -> {
             LegacyBlock[] withTiles = BLOCKS.stream().filter(LegacyBlock::hasTileEntity).toArray(LegacyBlock[]::new);
             blockEntityType = BlockEntityType.Builder.of(LegacyBlockEntity::new, withTiles).build(null);
@@ -143,28 +162,81 @@ public final class LegacyContent {
         if (RetrofitMod.runtime() != null) {
             LegacyBlockTable.get();
             event.enqueueWork(LegacyNetwork::register);
+            event.enqueueWork(LegacyFluids::registerModernFluids);
+        }
+    }
+
+    /** 1.7.10's own creative tabs (index 0 to 10) and where their mod items go in 1.20.1's. */
+    private static final java.util.Map<net.minecraft.resources.ResourceKey<net.minecraft.world.item.CreativeModeTab>, int[]> VANILLA_TABS = java.util.Map.of(
+            CreativeModeTabs.BUILDING_BLOCKS, new int[]{0}, CreativeModeTabs.FUNCTIONAL_BLOCKS, new int[]{1},
+            CreativeModeTabs.REDSTONE_BLOCKS, new int[]{2}, CreativeModeTabs.TOOLS_AND_UTILITIES, new int[]{3, 7},
+            CreativeModeTabs.INGREDIENTS, new int[]{4, 10}, CreativeModeTabs.FOOD_AND_DRINKS, new int[]{6, 9},
+            CreativeModeTabs.COMBAT, new int[]{8});
+
+    /** The mods' own creative tabs (registered with the other content). */
+    static void registerCreativeTabs(RegisterEvent event) {
+        event.register(Registries.CREATIVE_MODE_TAB, helper -> {
+            Object[][] tabs;
+            try {
+                tabs = LegacyBridge.call("legacyCreativeTabs");
+            } catch (RuntimeException e) {
+                LOGGER.error("Could not list the legacy creative tabs", e);
+                return;
+            }
+            for (Object[] tab : tabs) {
+                int index = (Integer) tab[0];
+                String label = (String) tab[1];
+                helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "tab_" + toResourceLocation(label).getPath().replace('.', '_')),
+                        net.minecraft.world.item.CreativeModeTab.builder()
+                                .title(net.minecraft.network.chat.Component.translatable("itemGroup." + label))
+                                .icon(() -> creativeTabIcon(index))
+                                .displayItems((parameters, output) -> addTabContents(index, output::accept))
+                                .build());
+            }
+            LOGGER.info("Registered {} legacy creative tabs", tabs.length);
+        });
+    }
+
+    private static ItemStack creativeTabIcon(int index) {
+        try {
+            ItemStack icon = LegacyStacks.toModern(LegacyBridge.call("legacyCreativeTabIcon", index));
+            return icon.isEmpty() ? new ItemStack(net.minecraft.world.item.Items.BOOK) : icon;
+        } catch (RuntimeException e) {
+            return new ItemStack(net.minecraft.world.item.Items.BOOK);
+        }
+    }
+
+    /** Client: a legacy tab's items, each once (1.20.1 refuses a stack twice in a tab). */
+    private static void addTabContents(int index, java.util.function.Consumer<ItemStack> output) {
+        Object[] stacks;
+        try {
+            stacks = LegacyBridge.call("legacyCreativeTabContents", index);
+        } catch (RuntimeException e) {
+            LegacyErrors.report("creative tab " + index, "listing its items", e);
+            return;
+        }
+        java.util.Set<ItemStack> seen = net.minecraft.world.item.ItemStackLinkedSet.createTypeAndTagSet();
+        for (Object legacy : stacks) {
+            ItemStack stack = LegacyStacks.toModern(legacy);
+            if (!stack.isEmpty() && seen.add(stack)) {
+                stack.setCount(1);
+                output.accept(stack);
+            }
         }
     }
 
     @SubscribeEvent
     public static void onBuildCreativeTabs(BuildCreativeModeTabContentsEvent event) {
-        if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS) {
-            for (LegacyBlock block : BLOCKS) {
-                if (block.asItem() instanceof LegacyBlockItem item && item.hasSubtypes()) {
-                    for (int meta : LegacyBridge.itemSubtypes(item.legacyItem())) {
-                        event.accept(item.stackOf(meta));
+        int[] legacyTabs = VANILLA_TABS.get(event.getTabKey());
+        if (legacyTabs != null && LegacyBridge.isReady()) {
+            for (int index : legacyTabs) {
+                addTabContents(index, stack -> {
+                    try {
+                        event.accept(stack);
+                    } catch (IllegalArgumentException | IllegalStateException duplicate) {
+                        // already there (from another legacy tab mapped to this one)
                     }
-                } else {
-                    event.accept(block);
-                }
-            }
-        } else if (event.getTabKey() == CreativeModeTabs.COMBAT) {
-            ARMOR.forEach(event::accept);
-        } else if (event.getTabKey() == CreativeModeTabs.INGREDIENTS) {
-            for (LegacyItem item : ITEMS) {
-                for (int meta : item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0}) {
-                    event.accept(item.stackOf(meta));
-                }
+                });
             }
         }
     }

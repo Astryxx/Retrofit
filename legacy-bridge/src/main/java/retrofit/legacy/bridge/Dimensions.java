@@ -32,8 +32,9 @@ public final class Dimensions {
     }
 
     /**
-     * The mods' dimensions: {id, name, flags, average ground level} each; flags: 1 no sky (a ceiling,
-     * like the Nether), 2 hell world, 4 players can respawn there, 8 surface world.
+     * The mods' dimensions: {id, name, flags, average ground level, fog colour, sky colour} each
+     * (colours 0xRRGGBB, or -1 if the provider can't say); flags: 1 no sky (a ceiling, like the
+     * Nether), 2 hell world, 4 players can respawn there, 8 surface world.
      */
     public static Object[][] legacyDimensions() {
         List<Object[]> result = new ArrayList<Object[]>();
@@ -45,12 +46,43 @@ public final class Dimensions {
                 WorldProvider provider = ((net.minecraft.world.World) WorldGen.genWorld(id)).field_73011_w; // provider
                 int flags = (provider.field_76576_e ? 1 : 0) | (provider.field_76575_d ? 2 : 0) // hasNoSky, isHellWorld
                         | (provider.func_76567_e() ? 4 : 0) | (provider.func_76569_d() ? 8 : 0); // canRespawnHere, isSurfaceWorld
-                result.add(new Object[]{id, provider.func_80007_l(), flags, provider.func_76557_i()}); // getDimensionName, getAverageGroundLevel
+                result.add(new Object[]{id, provider.func_80007_l(), flags, provider.func_76557_i(), // getDimensionName, getAverageGroundLevel
+                        fogColor(provider), skyColor(provider)});
             } catch (Throwable t) {
                 System.out.println("[Retrofit] Legacy dimension " + id + " can't be used: " + t);
             }
         }
         return result.toArray(new Object[0][]);
+    }
+
+    private static int rgb(net.minecraft.util.Vec3 colour) {
+        int r = (int) Math.max(0, Math.min(255, colour.field_72450_a * 255)); // xCoord
+        int g = (int) Math.max(0, Math.min(255, colour.field_72448_b * 255));
+        int b = (int) Math.max(0, Math.min(255, colour.field_72449_c * 255));
+        return r << 16 | g << 8 | b;
+    }
+
+    /** The provider's fog colour at noon (WorldProvider.getFogColor), which mods override for their dimensions' look. */
+    private static int fogColor(WorldProvider provider) {
+        try {
+            java.lang.reflect.Method method = WorldProvider.class.getMethod("func_76562_b", float.class, float.class); // client-only in 1.7.10
+            return rgb((net.minecraft.util.Vec3) method.invoke(provider, 0f, 1f));
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /** The provider's sky colour at noon (getSkyColor), if it doesn't need a viewer for it. */
+    private static int skyColor(WorldProvider provider) {
+        try {
+            java.lang.reflect.Method method = provider.getClass().getMethod("getSkyColor", net.minecraft.entity.Entity.class, float.class);
+            if (method.getDeclaringClass() == WorldProvider.class) {
+                return -1; // the default: the biome's sky, which the host already has
+            }
+            return rgb((net.minecraft.util.Vec3) method.invoke(provider, null, 1f));
+        } catch (Throwable t) {
+            return -1;
+        }
     }
 
     private static IChunkProvider generator(net.minecraft.world.World world, int dimension) {

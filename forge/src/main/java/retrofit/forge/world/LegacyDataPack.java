@@ -90,6 +90,8 @@ public final class LegacyDataPack implements PackResources {
             put("minecraft", "tags/blocks/" + tag + ".json", json.toString());
         });
         LegacyRecipes.addTo(this);
+        LegacyOreDictionary.addTo(this);
+        LegacyAchievements.addTo(this);
         LegacyWorldGen.addTo(this);
         LegacyEntityTypes.addTo(this);
         LegacyDimensions.addTo(this);

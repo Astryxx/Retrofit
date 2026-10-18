@@ -6,6 +6,15 @@ package retrofit.api;
  * beyond the state copied into it around each legacy call. Implemented by the host.
  */
 public interface HostPlayer {
+    /** The host player (opaque): legacy code attacking with a player's mirror attacks as that player. */
+    default Object hostEntity() {
+        return null;
+    }
+
+    /** A mod unlocked an achievement (its stat id): the player gets its advancement. */
+    default void grantAchievement(String statId) {
+    }
+
     /** A chat message for this player, as 1.7.10 chat JSON (the 1.20.1 format reads it). */
     void sendMessage(String json);
 

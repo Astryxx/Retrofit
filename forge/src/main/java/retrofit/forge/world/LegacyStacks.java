@@ -78,6 +78,9 @@ public final class LegacyStacks {
         int count = (Integer) read[1];
         int damage = (Integer) read[2];
         CompoundTag tag = read[3] == null ? null : fromBytes((byte[]) read[3]);
+        if (name.equals(ModernItems.LEGACY_NAME)) {
+            return ModernItems.toModern(tag, count); // a 1.20.1 item that went through legacy code
+        }
         if (name.startsWith("minecraft:")) {
             return vanilla(name, count, damage, tag);
         }
@@ -90,7 +93,7 @@ public final class LegacyStacks {
             stack.setDamageValue(damage);
         }
         if (tag != null) {
-            stack.getOrCreateTag().merge(tag);
+            stack.getOrCreateTag().merge(modernEnchantments(tag.copy()));
         }
         stack.setCount(count);
         return stack;
@@ -143,12 +146,13 @@ public final class LegacyStacks {
             if (tag != null) {
                 tag.remove(LegacyItem.META_TAG);
                 tag.remove("Damage");
+                legacyEnchantments(tag);
             }
             return LegacyBridge.makeStackOf(legacyItem.legacyItem(), stack.getCount(), legacyItem.meta(stack), bytesOrNull(tag));
         }
         Object[] legacy = reverseTable().get(stack.getItem());
         if (legacy == null) {
-            return null;
+            return ModernItems.toLegacy(stack); // a 1.20.1-only item: carried as itself (null if it can't be)
         }
         int damage = stack.isDamageableItem() ? stack.getDamageValue() : (Integer) legacy[1];
         return LegacyBridge.makeStack((String) legacy[0], stack.getCount(), damage, bytesOrNull(legacyTag(stack.getTag())));
@@ -238,7 +242,59 @@ public final class LegacyStacks {
                 return i;
             }
         }
-        return -1;
+        return LegacyEnchantments.legacyId(name); // a mod's enchantment, or -1
+    }
+
+    private static String modernEnchantmentId(int legacyId) {
+        if (legacyId >= 0 && legacyId < ENCHANTMENTS.length && ENCHANTMENTS[legacyId] != null) {
+            return ENCHANTMENTS[legacyId];
+        }
+        return LegacyEnchantments.modernId(legacyId);
+    }
+
+    /**
+     * A legacy item's tag as 1.20.1 keeps it: enchantments in 1.20.1's form ("ench" with legacy ids
+     * -> "Enchantments" with names), so tooltips, glint, the enchanting table and anvils know them.
+     */
+    static CompoundTag modernEnchantments(CompoundTag tag) {
+        if (tag == null) {
+            return null;
+        }
+        for (String[] key : new String[][]{{"ench", "Enchantments"}, {"StoredEnchantments", "StoredEnchantments"}}) {
+            if (!tag.contains(key[0], Tag.TAG_LIST)) {
+                continue;
+            }
+            ListTag legacy = tag.getList(key[0], Tag.TAG_COMPOUND);
+            if (!legacy.isEmpty() && legacy.getCompound(0).contains("id", Tag.TAG_STRING)) {
+                continue; // already 1.20.1's
+            }
+            ListTag modern = new ListTag();
+            for (int i = 0; i < legacy.size(); i++) {
+                CompoundTag enchantment = legacy.getCompound(i);
+                String id = modernEnchantmentId(enchantment.getShort("id"));
+                if (id != null) {
+                    CompoundTag converted = new CompoundTag();
+                    converted.putString("id", id);
+                    converted.putShort("lvl", enchantment.getShort("lvl"));
+                    modern.add(converted);
+                }
+            }
+            tag.remove(key[0]);
+            if (!modern.isEmpty()) {
+                tag.put(key[1], modern);
+            }
+        }
+        return tag;
+    }
+
+    /** The reverse of modernEnchantments: what legacy code reads. */
+    static CompoundTag legacyEnchantments(CompoundTag tag) {
+        if (tag == null) {
+            return null;
+        }
+        convertEnchantments(tag, "Enchantments", "ench");
+        convertEnchantments(tag, "StoredEnchantments", "StoredEnchantments");
+        return tag;
     }
 
     private static String plainText(String json) {

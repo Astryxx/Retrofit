@@ -436,7 +436,119 @@ public final class Bridge {
 
     /** invalidate */
     public static void remove(Object tileEntity) {
-        ((TileEntity) tileEntity).func_145843_s();
+        ((TileEntity) tileEntity).func_145843_s(); // invalidate
+    }
+
+    /** Its chunk unloads (the tile entity is saved and comes back with the chunk). */
+    public static void unloadTile(Object tileEntity) {
+        ((TileEntity) tileEntity).onChunkUnload();
+    }
+
+    /**
+     * Self-test of host inventories as legacy code sees them (the mod sweep): the host put 10
+     * cobblestone in slot 0 of the chest at a position and a furnace east of it. Takes 3 out
+     * (decrStackSize), puts 2 diamonds in slot 1, and takes 2 more by changing the stack in place
+     * and calling markDirty, as many mods do. The host then expects 5 cobblestone and 2 diamonds.
+     */
+    public static String checkHostInventory(Object legacyWorld, int x, int y, int z) {
+        World world = (World) legacyWorld;
+        TileEntity chest = world.func_147438_o(x, y, z); // getTileEntity
+        if (!(chest instanceof net.minecraft.tileentity.TileEntityChest)) {
+            return "FAILED: chest tile is " + chest;
+        }
+        net.minecraft.inventory.IInventory inventory = (net.minecraft.inventory.IInventory) chest;
+        ItemStack first = inventory.func_70301_a(0);
+        if (first == null || first.func_77973_b() != Item.func_150898_a(Blocks.field_150347_e) || first.field_77994_a != 10) { // getItem, getItemFromBlock(cobblestone)
+            return "FAILED: slot 0 is " + first;
+        }
+        ItemStack taken = inventory.func_70298_a(0, 3);
+        if (taken == null || taken.field_77994_a != 3) {
+            return "FAILED: decrStackSize gave " + taken;
+        }
+        inventory.func_70299_a(1, new ItemStack(net.minecraft.init.Items.field_151045_i, 2)); // diamond
+        ItemStack again = inventory.func_70301_a(0);
+        again.field_77994_a -= 2;
+        inventory.func_70296_d(); // markDirty
+        TileEntity furnace = world.func_147438_o(x + 1, y, z);
+        if (!(furnace instanceof net.minecraft.tileentity.TileEntityFurnace)) {
+            return "FAILED: furnace tile is " + furnace;
+        }
+        int[] top = ((net.minecraft.inventory.ISidedInventory) furnace).func_94128_d(1);
+        return "ok: chest of " + inventory.func_70302_i_() + " slots, furnace top slots " + java.util.Arrays.toString(top);
+    }
+
+    // ---- Enchantments ----
+
+    /** {id, translation key, weight, max level, type name} of mods' enchantments (vanilla's are 0 to 62 and 1.20.1's own). */
+    public static Object[][] legacyEnchantments() {
+        List<Object[]> result = new ArrayList<Object[]>();
+        net.minecraft.enchantment.Enchantment[] all = net.minecraft.enchantment.Enchantment.field_77331_b; // enchantmentsList
+        for (int id = 0; id < all.length; id++) {
+            net.minecraft.enchantment.Enchantment enchantment = all[id];
+            if (enchantment == null || enchantment.getClass().getName().startsWith("net.minecraft.")) {
+                continue;
+            }
+            result.add(new Object[]{id, enchantment.func_77320_a(), enchantment.func_77324_c(), enchantment.func_77325_b(), // getName, getWeight, getMaxLevel
+                    enchantment.field_77351_y == null ? "all" : enchantment.field_77351_y.name()}); // type
+        }
+        return result.toArray(new Object[0][]);
+    }
+
+    // ---- Creative tabs ----
+
+    /** {index, label} of the creative tabs mods added (vanilla's are 0 to 11). Fields, not methods: these work on servers too. */
+    public static Object[][] legacyCreativeTabs() throws ReflectiveOperationException {
+        Field label = net.minecraft.creativetab.CreativeTabs.class.getDeclaredField("field_78034_o"); // tabLabel
+        label.setAccessible(true);
+        List<Object[]> tabs = new ArrayList<Object[]>();
+        net.minecraft.creativetab.CreativeTabs[] all = net.minecraft.creativetab.CreativeTabs.field_78032_a; // creativeTabArray
+        for (int i = 12; i < all.length; i++) {
+            if (all[i] != null) {
+                tabs.add(new Object[]{i, label.get(all[i])});
+            }
+        }
+        return tabs.toArray(new Object[0][]);
+    }
+
+    /**
+     * Client: the mod items a creative tab shows, as the mod lists them (getSubItems: subtypes,
+     * prebuilt tools, filled containers), in registration order.
+     */
+    @SuppressWarnings("unchecked")
+    public static Object[] legacyCreativeTabContents(int index) {
+        net.minecraft.creativetab.CreativeTabs[] all = net.minecraft.creativetab.CreativeTabs.field_78032_a;
+        if (index < 0 || index >= all.length || all[index] == null) {
+            return new Object[0];
+        }
+        net.minecraft.creativetab.CreativeTabs tab = all[index];
+        List<Object> stacks = new ArrayList<Object>();
+        for (Object element : Item.field_150901_e) { // itemRegistry
+            Item item = (Item) element;
+            String name = Item.field_150901_e.func_148750_c(item); // getNameForObject
+            if (name == null || name.startsWith("minecraft:") || name.equals(ModernContent.ITEM_NAME)) {
+                continue;
+            }
+            try {
+                for (net.minecraft.creativetab.CreativeTabs shown : item.getCreativeTabs()) {
+                    if (shown == tab) {
+                        item.func_150895_a(item, tab, stacks); // getSubItems
+                    }
+                }
+            } catch (Throwable t) {
+                // an item that can't list itself: left out of the tab
+            }
+        }
+        return stacks.toArray();
+    }
+
+    /** Client: a creative tab's icon stack, or null. */
+    public static Object legacyCreativeTabIcon(int index) {
+        net.minecraft.creativetab.CreativeTabs[] all = net.minecraft.creativetab.CreativeTabs.field_78032_a;
+        try {
+            return index < 0 || index >= all.length || all[index] == null ? null : all[index].func_151244_d(); // getIconItemStack
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     public static String describe(Object legacyObject) {

@@ -87,7 +87,7 @@ public final class Guis {
     public static Object clientGui(Object legacyPlayer, String modId, int guiId, int x, int y, int z) {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
         if (guiId < 0) {
-            return ClientGuis.vanillaGui(player, guiId, modId, x); // modId carries the title, x the size
+            return ClientGuis.vanillaGui(player, guiId, modId, x, y, z); // modId carries the title; x the size for chests
         }
         ModContainer container = Loader.instance().getIndexedModList().get(modId);
         return container == null ? null
@@ -186,5 +186,50 @@ public final class Guis {
     static void openChest(BridgePlayerMP player, net.minecraft.inventory.IInventory inventory) {
         Container menu = new net.minecraft.inventory.ContainerChest(player.field_71071_by, inventory);
         open(player, menu, inventory.func_145825_b(), ClientGuis.CHEST, inventory.func_70302_i_(), 0, 0); // getInventoryName, getSizeInventory
+    }
+
+    /**
+     * Server: the other vanilla GUIs EntityPlayerMP opens (displayGUIFurnace, displayGUIBeacon...),
+     * over a mod's tile entity or at a position (crafting, enchanting, anvil). The client makes
+     * the matching vanilla GUI, as 1.7.10's handleOpenWindow did.
+     */
+    static void openVanilla(BridgePlayerMP player, int kind, Object tile, int x, int y, int z, String title) {
+        net.minecraft.entity.player.InventoryPlayer inventory = player.field_71071_by;
+        Container menu;
+        switch (kind) {
+            case ClientGuis.FURNACE:
+                menu = new net.minecraft.inventory.ContainerFurnace(inventory, (net.minecraft.tileentity.TileEntityFurnace) tile);
+                break;
+            case ClientGuis.DISPENSER:
+                menu = new net.minecraft.inventory.ContainerDispenser(inventory, (net.minecraft.tileentity.TileEntityDispenser) tile);
+                break;
+            case ClientGuis.HOPPER:
+                menu = new net.minecraft.inventory.ContainerHopper(inventory, (net.minecraft.inventory.IInventory) tile);
+                break;
+            case ClientGuis.BREWING:
+                menu = new net.minecraft.inventory.ContainerBrewingStand(inventory, (net.minecraft.tileentity.TileEntityBrewingStand) tile);
+                break;
+            case ClientGuis.BEACON:
+                menu = new net.minecraft.inventory.ContainerBeacon(inventory, (net.minecraft.tileentity.TileEntityBeacon) tile);
+                break;
+            case ClientGuis.WORKBENCH:
+                menu = new net.minecraft.inventory.ContainerWorkbench(inventory, player.field_70170_p, x, y, z);
+                break;
+            case ClientGuis.ENCHANTMENT:
+                menu = new net.minecraft.inventory.ContainerEnchantment(inventory, player.field_70170_p, x, y, z);
+                break;
+            case ClientGuis.ANVIL:
+                menu = new net.minecraft.inventory.ContainerRepair(inventory, player.field_70170_p, x, y, z, player);
+                break;
+            default:
+                return;
+        }
+        if (tile instanceof net.minecraft.tileentity.TileEntity) {
+            net.minecraft.tileentity.TileEntity entity = (net.minecraft.tileentity.TileEntity) tile;
+            x = entity.field_145851_c;
+            y = entity.field_145848_d;
+            z = entity.field_145849_e;
+        }
+        open(player, menu, title == null ? "" : title, kind, x, y, z);
     }
 }

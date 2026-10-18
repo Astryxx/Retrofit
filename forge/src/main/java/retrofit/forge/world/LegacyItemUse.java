@@ -37,11 +37,37 @@ final class LegacyItemUse {
     private LegacyItemUse() {
     }
 
+    /**
+     * 1.7.10 had one hand: legacy code uses "the held item". For the off hand, the two hands swap
+     * while legacy code runs (it sees the off-hand item as held), then swap back with whatever
+     * legacy code made of them.
+     */
+    private static <T> T inOffHand(Player player, java.util.function.Supplier<T> action) {
+        ItemStack main = player.getMainHandItem();
+        player.setItemInHand(InteractionHand.MAIN_HAND, player.getOffhandItem());
+        player.setItemInHand(InteractionHand.OFF_HAND, main);
+        try {
+            return action.get();
+        } finally {
+            ItemStack used = player.getMainHandItem();
+            player.setItemInHand(InteractionHand.MAIN_HAND, player.getOffhandItem());
+            player.setItemInHand(InteractionHand.OFF_HAND, used);
+        }
+    }
+
     static InteractionResult useOn(UseOnContext context) {
         Player player = context.getPlayer();
-        if (player == null || context.getHand() != InteractionHand.MAIN_HAND) {
+        if (player == null) {
             return InteractionResult.PASS;
         }
+        if (context.getHand() != InteractionHand.MAIN_HAND) {
+            return inOffHand(player, () -> useOnHeld(context));
+        }
+        return useOnHeld(context);
+    }
+
+    private static InteractionResult useOnHeld(UseOnContext context) {
+        Player player = context.getPlayer();
         Level level = context.getLevel();
         BlockPos pos = context.getClickedPos();
         Vec3 at = context.getClickLocation();
@@ -59,10 +85,14 @@ final class LegacyItemUse {
     }
 
     static InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
-        ItemStack held = player.getItemInHand(hand);
         if (hand != InteractionHand.MAIN_HAND) {
-            return InteractionResultHolder.pass(held);
+            if (useDuration(player.getItemInHand(hand)) > 0) {
+                return InteractionResultHolder.pass(player.getItemInHand(hand)); // used over time (bows, food): main hand only
+            }
+            InteractionResultHolder<ItemStack> result = inOffHand(player, () -> use(level, player, InteractionHand.MAIN_HAND));
+            return new InteractionResultHolder<>(result.getResult(), player.getItemInHand(hand));
         }
+        ItemStack held = player.getItemInHand(hand);
         try {
             Object mirror = LegacyPlayers.mirror(player, true);
             LegacyBridge.call("rightClick", mirror, LegacyContent.legacyWorld(level));

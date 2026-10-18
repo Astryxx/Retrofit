@@ -21,3 +21,20 @@ dependencies {
 tasks.named('compileJava') {
     dependsOn ':harness:dumpSrgJar'
 }
+
+// Stand-ins for APIs 1.7.10 mods ship themselves (CoFH's RF, IC2's energy net): the bridge compiles
+// against them, and at run time they resolve to the copies in the installed mods. Classes that use
+// them load only when a mod provides the API (see Energy). Not packaged.
+sourceSets {
+    stubs {
+        java.srcDir 'src/stubs/java'
+        compileClasspath += files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+    }
+}
+tasks.named('compileStubsJava') {
+    dependsOn ':harness:dumpSrgJar'
+    options.release = 8
+}
+dependencies {
+    compileOnly sourceSets.stubs.output
+}

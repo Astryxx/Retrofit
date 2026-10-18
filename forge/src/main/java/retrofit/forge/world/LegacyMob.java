@@ -54,6 +54,31 @@ public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, Legacy
         return core.interact(player, hand);
     }
 
+    private net.minecraft.world.entity.MobType mobType;
+
+    /** Undead and arthropod legacy mobs (getCreatureAttribute) for Smite, Bane of Arthropods, healing and harming. */
+    @Override
+    public net.minecraft.world.entity.MobType getMobType() {
+        if (mobType == null) {
+            Object legacy = core.legacy();
+            if (legacy == null) {
+                return net.minecraft.world.entity.MobType.UNDEFINED;
+            }
+            int attribute;
+            try {
+                attribute = LegacyBridge.call("entityCreatureAttribute", legacy);
+            } catch (RuntimeException e) {
+                attribute = 0;
+            }
+            mobType = switch (attribute) {
+                case 1 -> net.minecraft.world.entity.MobType.UNDEAD;
+                case 2 -> net.minecraft.world.entity.MobType.ARTHROPOD;
+                default -> net.minecraft.world.entity.MobType.UNDEFINED;
+            };
+        }
+        return mobType;
+    }
+
     /** Legacy entities despawn themselves (EntityLiving.despawnEntity). */
     @Override
     public void checkDespawn() {
@@ -95,5 +120,11 @@ public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, Legacy
     public void remove(RemovalReason reason) {
         super.remove(reason);
         core.removed();
+    }
+
+    /** Riders sit where the legacy entity puts them (getMountedYOffset). */
+    @Override
+    public double getPassengersRidingOffset() {
+        return core().ridingOffset(super.getPassengersRidingOffset()) - 0.15;
     }
 }

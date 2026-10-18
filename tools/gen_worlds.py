@@ -19,7 +19,7 @@ METHODS = [
      "return WorldGlue.setBlock(host, x, y, z, Blocks.field_150350_a, 0, 3);"),
     ("setBlockMetadataWithNotify", "public boolean func_72921_c(int x, int y, int z, int meta, int flags)",
      "return WorldGlue.setMeta(host, x, y, z, meta, flags);"),
-    ("getTileEntity", "public TileEntity func_147438_o(int x, int y, int z)", "return WorldGlue.getTileEntity(host, x, y, z);"),
+    ("getTileEntity", "public TileEntity func_147438_o(int x, int y, int z)", "return WorldGlue.getTileEntity(this, host, x, y, z);"),
     ("setTileEntity", "public void func_147455_a(int x, int y, int z, TileEntity tile)",
      "WorldGlue.setTileEntity(host, this, x, y, z, tile);"),
     ("removeTileEntity", "public void func_147475_p(int x, int y, int z)",
@@ -140,6 +140,13 @@ public class BridgeWorldServer extends WorldServer {""", """    public BridgeWor
         super(LegacyWorlds.server(), BridgeSaveHandler.create(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
+    }
+
+    /** getEntityByID: WorldServer's id map only has entities it spawned itself; legacy entities and players are in the entity list. */
+    @Override
+    public Entity func_73045_a(int id) {
+        Entity entity = super.func_73045_a(id);
+        return entity != null ? entity : LegacyEntities.byId(this, id);
     }
 
     /**

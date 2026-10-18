@@ -166,6 +166,9 @@ public final class ClientEvents {
      */
     public static int drawOverlay(float partialTicks, int windowWidth, int windowHeight, int guiScale) {
         Minecraft minecraft = Minecraft.func_71410_x();
+        if (minecraft.field_71439_g == null || minecraft.field_71441_e == null) { // thePlayer, theWorld: HUD code reads both (none while changing worlds)
+            return 0;
+        }
         LegacyRendering.ensureEnvironment();
         minecraft.field_71443_c = windowWidth;
         minecraft.field_71440_d = windowHeight;

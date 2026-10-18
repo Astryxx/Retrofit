@@ -94,4 +94,10 @@ public class LegacyThing extends Entity implements IEntityAdditionalSpawnData, L
         super.remove(reason);
         core.removed();
     }
+
+    /** Riders sit where the legacy entity puts them (getMountedYOffset). */
+    @Override
+    public double getPassengersRidingOffset() {
+        return core().ridingOffset(super.getPassengersRidingOffset()) - 0.15;
+    }
 }

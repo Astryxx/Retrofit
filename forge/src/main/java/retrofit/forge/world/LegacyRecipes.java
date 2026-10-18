@@ -66,7 +66,120 @@ public final class LegacyRecipes {
         } catch (RuntimeException e) {
             LOGGER.error("Could not read the legacy furnace recipes", e);
         }
-        LOGGER.info("Legacy recipes: crafting through the legacy recipe list, {} smelting recipes", smelting);
+        int shown = addDisplays(pack);
+        LOGGER.info("Legacy recipes: crafting through the legacy recipe list ({} shown in the recipe book and viewers), {} smelting recipes",
+                shown, smelting);
+    }
+
+    /** Legacy crafting recipes for the recipe book and recipe viewers (LegacyRecipeDisplays); returns how many. */
+    private static int addDisplays(LegacyDataPack pack) {
+        Object[][] recipes;
+        try {
+            recipes = LegacyBridge.call("craftingRecipes");
+        } catch (RuntimeException e) {
+            LOGGER.error("Could not list the legacy crafting recipes", e);
+            return 0;
+        }
+        int count = 0;
+        for (Object[] recipe : recipes) {
+            try {
+                JsonObject json = display(recipe);
+                if (json != null) {
+                    pack.put("retrofit", "recipes/legacy_display_" + count++ + ".json", json.toString());
+                }
+            } catch (RuntimeException e) {
+                // one that can't be shown: it still crafts
+            }
+        }
+        return count;
+    }
+
+    private static JsonObject display(Object[] recipe) {
+        boolean shaped = (Integer) recipe[0] == 1;
+        Object[][] cells = (Object[][]) recipe[3];
+        ItemStack output = LegacyStacks.toModern(recipe[4]);
+        if (output.isEmpty()) {
+            return null;
+        }
+        com.google.gson.JsonElement[] ingredients = new com.google.gson.JsonElement[cells.length];
+        for (int i = 0; i < cells.length; i++) {
+            if (cells[i] == null) {
+                continue;
+            }
+            com.google.gson.JsonArray alternatives = new com.google.gson.JsonArray();
+            for (Object stack : cells[i]) {
+                JsonObject ingredient = ingredient(stack);
+                if (ingredient != null && !alternatives.contains(ingredient)) {
+                    alternatives.add(ingredient);
+                }
+            }
+            if (alternatives.isEmpty()) {
+                return null; // an ingredient nothing in 1.20.1 is (an empty ore name)
+            }
+            ingredients[i] = alternatives.size() == 1 ? alternatives.get(0) : alternatives;
+        }
+        JsonObject json = new JsonObject();
+        json.addProperty("category", "misc");
+        json.addProperty("group", "retrofit_legacy");
+        if (shaped) {
+            int width = (Integer) recipe[1];
+            int height = (Integer) recipe[2];
+            if (width < 1 || height < 1 || width > 3 || height > 3 || width * height != cells.length) {
+                return null;
+            }
+            json.addProperty("type", "retrofit:legacy_shaped");
+            com.google.gson.JsonArray pattern = new com.google.gson.JsonArray();
+            JsonObject key = new JsonObject();
+            for (int row = 0; row < height; row++) {
+                StringBuilder line = new StringBuilder();
+                for (int column = 0; column < width; column++) {
+                    int cell = row * width + column;
+                    if (ingredients[cell] == null) {
+                        line.append(' ');
+                    } else {
+                        char symbol = (char) ('A' + cell);
+                        line.append(symbol);
+                        key.add(String.valueOf(symbol), ingredients[cell]);
+                    }
+                }
+                pattern.add(line.toString());
+            }
+            json.add("pattern", pattern);
+            json.add("key", key);
+        } else {
+            json.addProperty("type", "retrofit:legacy_shapeless");
+            com.google.gson.JsonArray list = new com.google.gson.JsonArray();
+            for (com.google.gson.JsonElement ingredient : ingredients) {
+                if (ingredient != null) {
+                    list.add(ingredient);
+                }
+            }
+            if (list.isEmpty() || list.size() > 9) {
+                return null;
+            }
+            json.add("ingredients", list);
+        }
+        JsonObject result = new JsonObject();
+        result.addProperty("item", ForgeRegistries.ITEMS.getKey(output.getItem()).toString());
+        result.addProperty("count", output.getCount());
+        if (output.hasTag()) {
+            result.addProperty("nbt", output.getTag().toString());
+        }
+        json.add("result", result);
+        return json;
+    }
+
+    /** Players know every legacy recipe (the recipe book shows only known ones); they join on login, without toasts. */
+    static void unlock(net.minecraft.server.level.ServerPlayer player) {
+        java.util.List<net.minecraft.world.item.crafting.Recipe<?>> displays = new java.util.ArrayList<>();
+        for (net.minecraft.world.item.crafting.Recipe<?> recipe : player.server.getRecipeManager().getRecipes()) {
+            if (recipe instanceof LegacyRecipeDisplays.Shaped || recipe instanceof LegacyRecipeDisplays.Shapeless) {
+                displays.add(recipe);
+            }
+        }
+        if (!displays.isEmpty()) {
+            player.awardRecipes(displays);
+        }
     }
 
     /** A 1.20.1 ingredient for a legacy stack: the item, narrowed to its subtype where it has one. */

@@ -165,8 +165,10 @@ public final class LegacyDimensions {
             biome.addProperty("temperature", hell ? 2.0 : 0.8);
             biome.addProperty("downfall", 0.4);
             JsonObject effects = new JsonObject();
-            effects.addProperty("sky_color", hell ? 0x330808 : 0x78A7FF);
-            effects.addProperty("fog_color", hell ? 0x330808 : 0xC0D8FF);
+            int fog = dimension.length > 4 ? (Integer) dimension[4] : -1; // the provider's own colours, where it has them
+            int sky = dimension.length > 5 ? (Integer) dimension[5] : -1;
+            effects.addProperty("sky_color", sky >= 0 ? sky : fog >= 0 && noSky ? fog : hell ? 0x330808 : 0x78A7FF);
+            effects.addProperty("fog_color", fog >= 0 ? fog : hell ? 0x330808 : 0xC0D8FF);
             effects.addProperty("water_color", 0x3F76E4);
             effects.addProperty("water_fog_color", 0x050533);
             biome.add("effects", effects);

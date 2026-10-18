@@ -16,6 +16,6 @@ final class LegacyEntities {
                 return entity;
             }
         }
-        return null;
+        return HostCreatures.byId(world, id); // a stand-in for a 1.20.1 entity
     }
 }

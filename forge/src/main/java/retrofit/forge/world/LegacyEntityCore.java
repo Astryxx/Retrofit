@@ -51,8 +51,24 @@ public final class LegacyEntityCore {
         this.height = height;
     }
 
+    /** Where riders sit, from the legacy entity (getMountedYOffset), above its feet. */
+    private double mountedOffset = -1;
+
+    double ridingOffset(double fallback) {
+        return mountedOffset >= 0 ? mountedOffset : fallback;
+    }
+
+    /** The host entity of a legacy entity, a player's mirror, or a stand-in for a 1.20.1 entity; null if none. */
     static Entity hostOf(Object legacy) {
-        return legacy == null ? null : HOSTS.get(legacy);
+        if (legacy == null) {
+            return null;
+        }
+        Entity host = HOSTS.get(legacy);
+        if (host == null) {
+            Object handle = LegacyBridge.call("hostHandle", legacy);
+            host = handle instanceof Entity entity ? entity : null;
+        }
+        return host;
     }
 
     String legacyName() {
@@ -63,7 +79,10 @@ public final class LegacyEntityCore {
     void adopt(Object entity) {
         legacy = entity;
         HOSTS.put(entity, host);
-        LegacyBridge.call("entityJoin", entity, LegacyContent.legacyWorld(host.level()));
+        if (!LegacyBridge.<Boolean>call("entityJoin", entity, LegacyContent.legacyWorld(host.level()))) {
+            host.discard(); // a mod cancelled its EntityJoinWorldEvent
+            return;
+        }
         apply(LegacyBridge.call("entityState", entity), true);
     }
 
@@ -78,8 +97,13 @@ public final class LegacyEntityCore {
                 legacy = LegacyBridge.call("entityLoad", (Object) LegacyStacks.toBytes(pending), world);
                 pending = null;
             }
+            boolean fresh = false;
             if (legacy == null) {
                 legacy = LegacyBridge.call("entityCreate", legacyName, world, host.getX(), host.getY(), host.getZ());
+                fresh = legacy != null && !host.level().isClientSide;
+            }
+            if (fresh) {
+                LegacyBridge.call("entityFinalizeSpawn", legacy); // natural spawns, spawn eggs, /summon: equipment, variants
             }
             if (legacy == null) {
                 broken = true;
@@ -96,7 +120,9 @@ public final class LegacyEntityCore {
                 LegacyBridge.call("entityApplySpawnData", legacy, spawnData);
                 LegacyBridge.call("entityPlace", legacy, host.getX(), host.getY(), host.getZ(), host.getYRot(), host.getXRot());
             }
-            LegacyBridge.call("entityJoin", legacy, world);
+            if (!LegacyBridge.<Boolean>call("entityJoin", legacy, world)) {
+                host.discard(); // a mod cancelled its EntityJoinWorldEvent
+            }
         } catch (RuntimeException e) {
             fail("being created", e);
         }
@@ -122,6 +148,7 @@ public final class LegacyEntityCore {
             if (watcher != null) {
                 LegacyNetwork.sendEntityData(host, watcher);
             }
+            syncVehicle(entity);
             if (state[14] != 0) { // dead
                 com.mojang.logging.LogUtils.getLogger().debug("Legacy entity {} at {} is dead (health {})", legacyName, host.blockPosition(), state[10]);
                 if (Boolean.getBoolean("retrofit.debugEntities")) {
@@ -136,7 +163,23 @@ public final class LegacyEntityCore {
         }
     }
 
-    /** {x, y, z, yaw, pitch, head yaw, body yaw, motion x, y, z, health, max health, width, height, dead, on ground} */
+    /** Legacy creatures riding legacy creatures (jockeys, mounts of mounts): the host entities ride likewise. */
+    private void syncVehicle(Object entity) {
+        // A legacy vehicle that threw its rider off (water, bucking): the host player gets off too.
+        if (!host.getPassengers().isEmpty() && host.getFirstPassenger() instanceof net.minecraft.world.entity.player.Player
+                && LegacyBridge.call("entityRider", entity) == null) {
+            host.getFirstPassenger().stopRiding();
+        }
+        Object vehicle = LegacyBridge.call("entityRiding", entity);
+        Entity hostVehicle = vehicle == null ? null : hostOf(vehicle);
+        if (hostVehicle != null && host.getVehicle() != hostVehicle) {
+            host.startRiding(hostVehicle, true);
+        } else if (vehicle == null && host.getVehicle() instanceof LegacyEntityCarrier) {
+            host.stopRiding();
+        }
+    }
+
+    /** {x, y, z, yaw, pitch, head yaw, body yaw, motion x, y, z, health, max health, width, height, dead, on ground, mounted offset} */
     private void apply(double[] state, boolean exact) {
         // Some mods leave NaN in rotations or motion (1.7.10 tolerated it; 1.20.1 discards such entities).
         if (Double.isNaN(state[0]) || Double.isNaN(state[1]) || Double.isNaN(state[2])) {
@@ -147,6 +190,9 @@ public final class LegacyEntityCore {
             if (!Double.isFinite(state[i])) {
                 state[i] = fallback[i];
             }
+        }
+        if (state.length > 16) {
+            mountedOffset = state[16];
         }
         if (exact) {
             host.moveTo(state[0], state[1], state[2], (float) state[3], (float) state[4]);
@@ -223,6 +269,7 @@ public final class LegacyEntityCore {
             Object mirror = LegacyPlayers.mirror(player, true);
             boolean used = LegacyBridge.call("entityInteract", entity, mirror);
             LegacyPlayers.writeBack(player, mirror);
+            LegacyPlayers.syncRiding(player, mirror); // mounts (horses, brooms) mount the player in legacy code
             return used ? InteractionResult.sidedSuccess(host.level().isClientSide) : InteractionResult.PASS;
         } catch (RuntimeException e) {
             LegacyErrors.report("entity " + legacyName, "being used", e);

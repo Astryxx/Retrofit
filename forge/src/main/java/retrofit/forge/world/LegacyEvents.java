@@ -103,7 +103,26 @@ public final class LegacyEvents {
             dispatcher.register(Commands.literal(name)
                     .executes(context -> run(context.getSource(), name))
                     .then(Commands.argument("arguments", StringArgumentType.greedyString())
+                            .suggests((context, builder) -> suggest(context.getSource(), name, builder))
                             .executes(context -> run(context.getSource(), name + " " + StringArgumentType.getString(context, "arguments")))));
+        }
+    }
+
+    /** Tab completion: the legacy command's own suggestions (addTabCompletionOptions) for the word being typed. */
+    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggest(CommandSourceStack source, String name,
+                                                                                                      com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        String typed = builder.getRemaining();
+        try {
+            ServerPlayer player = source.getPlayer();
+            Object mirror = player == null ? null : LegacyPlayers.mirror(player, false);
+            String[] options = LegacyBridge.call("commandCompletions", mirror, name + " " + typed);
+            com.mojang.brigadier.suggestion.SuggestionsBuilder word = builder.createOffset(builder.getStart() + typed.lastIndexOf(' ') + 1);
+            for (String option : options) {
+                word.suggest(option);
+            }
+            return word.buildFuture();
+        } catch (RuntimeException e) {
+            return builder.buildFuture();
         }
     }
 
@@ -234,6 +253,7 @@ public final class LegacyEvents {
         if (active()) {
             if (event.getEntity() instanceof ServerPlayer player) {
                 fire("player state load", () -> LegacyPlayers.loadState(player));
+                fire("recipe unlocking", () -> LegacyRecipes.unlock(player));
             }
             fire("player login", () -> LegacyBridge.call("playerLoggedIn", LegacyPlayers.mirror(event.getEntity(), true)));
         }

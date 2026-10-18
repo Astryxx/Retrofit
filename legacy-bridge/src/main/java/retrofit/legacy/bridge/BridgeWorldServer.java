@@ -31,6 +31,13 @@ public class BridgeWorldServer extends WorldServer {
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
     }
 
+    /** getEntityByID: WorldServer's id map only has entities it spawned itself; legacy entities and players are in the entity list. */
+    @Override
+    public Entity func_73045_a(int id) {
+        Entity entity = super.func_73045_a(id);
+        return entity != null ? entity : LegacyEntities.byId(this, id);
+    }
+
     /**
      * Forge asks for this from the World constructor, before the chunk provider exists. The host
      * saves the real world; legacy per-world data (map storage) goes to the Retrofit folder.
@@ -96,7 +103,7 @@ public class BridgeWorldServer extends WorldServer {
     /** getTileEntity */
     @Override
     public TileEntity func_147438_o(int x, int y, int z) {
-        return WorldGlue.getTileEntity(host, x, y, z);
+        return WorldGlue.getTileEntity(this, host, x, y, z);
     }
 
     /** setTileEntity */

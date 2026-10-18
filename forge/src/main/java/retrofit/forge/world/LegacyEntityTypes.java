@@ -128,7 +128,9 @@ public final class LegacyEntityTypes {
             };
             EntityType<?> type;
             if (living) {
-                EntityType<LegacyMob> mob = EntityType.Builder.<LegacyMob>of((t, level) -> new LegacyMob(t, level, name, width, height), mobCategory)
+                boolean monster = category == 0;
+                EntityType<LegacyMob> mob = EntityType.Builder.<LegacyMob>of((t, level) -> monster
+                                ? new LegacyMonster(t, level, name, width, height) : new LegacyMob(t, level, name, width, height), mobCategory)
                         .sized(Math.max(0.1f, width), Math.max(0.1f, height)).clientTrackingRange(10).build(id.toString());
                 LIVING.add(mob);
                 type = mob;

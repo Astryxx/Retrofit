@@ -90,6 +90,89 @@ public final class Recipes {
         return remaining;
     }
 
+    /**
+     * The crafting recipes with a mod item in them that recipe viewers can show: {shaped (1/0),
+     * width, height, ingredients (each an array of alternative stacks, or null for an empty
+     * cell), output}. Vanilla shaped and shapeless recipes and Forge's ore recipes; mods' own
+     * recipe classes still craft, but can't be listed.
+     */
+    @SuppressWarnings("unchecked")
+    public static Object[][] craftingRecipes() {
+        List<Object[]> recipes = new ArrayList<Object[]>();
+        for (Object element : CraftingManager.func_77594_a().func_77592_b()) { // getInstance().getRecipeList()
+            try {
+                Object[] recipe = describe((IRecipe) element);
+                if (recipe != null && involvesMod(recipe)) {
+                    recipes.add(recipe);
+                }
+            } catch (Throwable t) {
+                // a recipe that can't be read: it still crafts
+            }
+        }
+        return recipes.toArray(new Object[0][]);
+    }
+
+    private static Object[] describe(IRecipe recipe) throws ReflectiveOperationException {
+        ItemStack output = recipe.func_77571_b(); // getRecipeOutput
+        if (output == null || output.func_77973_b() == null) {
+            return null;
+        }
+        if (recipe.getClass() == net.minecraft.item.crafting.ShapedRecipes.class) {
+            net.minecraft.item.crafting.ShapedRecipes shaped = (net.minecraft.item.crafting.ShapedRecipes) recipe;
+            Object[][] cells = new Object[shaped.field_77574_d.length][]; // recipeItems
+            for (int i = 0; i < cells.length; i++) {
+                cells[i] = shaped.field_77574_d[i] == null ? null : new Object[]{shaped.field_77574_d[i]};
+            }
+            return new Object[]{1, shaped.field_77576_b, shaped.field_77577_c, cells, output}; // recipeWidth, recipeHeight
+        }
+        if (recipe.getClass() == net.minecraft.item.crafting.ShapelessRecipes.class) {
+            List<Object> items = ((net.minecraft.item.crafting.ShapelessRecipes) recipe).field_77579_b; // recipeItems
+            return new Object[]{0, 0, 0, cells(items.toArray()), output};
+        }
+        if (recipe.getClass() == net.minecraftforge.oredict.ShapedOreRecipe.class) {
+            net.minecraftforge.oredict.ShapedOreRecipe shaped = (net.minecraftforge.oredict.ShapedOreRecipe) recipe;
+            java.lang.reflect.Field width = shaped.getClass().getDeclaredField("width");
+            java.lang.reflect.Field height = shaped.getClass().getDeclaredField("height");
+            width.setAccessible(true);
+            height.setAccessible(true);
+            return new Object[]{1, width.getInt(shaped), height.getInt(shaped), cells(shaped.getInput()), output};
+        }
+        if (recipe.getClass() == net.minecraftforge.oredict.ShapelessOreRecipe.class) {
+            return new Object[]{0, 0, 0, cells(((net.minecraftforge.oredict.ShapelessOreRecipe) recipe).getInput().toArray()), output};
+        }
+        return null;
+    }
+
+    /** Recipe inputs (stacks, or ore lists) as arrays of alternatives. */
+    private static Object[][] cells(Object[] inputs) {
+        Object[][] cells = new Object[inputs.length][];
+        for (int i = 0; i < inputs.length; i++) {
+            Object input = inputs[i];
+            if (input instanceof ItemStack) {
+                cells[i] = new Object[]{input};
+            } else if (input instanceof List) {
+                cells[i] = ((List<?>) input).isEmpty() ? new Object[0] : ((List<?>) input).toArray();
+            }
+        }
+        return cells;
+    }
+
+    private static boolean involvesMod(Object[] recipe) {
+        if (isModItem((ItemStack) recipe[4])) {
+            return true;
+        }
+        for (Object[] cell : (Object[][]) recipe[3]) {
+            if (cell != null) {
+                for (Object stack : cell) {
+                    if (stack instanceof ItemStack && isModItem((ItemStack) stack)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     /** Smelting recipes with a mod item on either side: {input, output, experience}. */
     @SuppressWarnings("unchecked")
     public static Object[][] smeltingRecipes() {

@@ -27,7 +27,8 @@ public final class LegacyClientEvents {
         boolean start = event.phase == TickEvent.Phase.START;
         run(() -> {
             if (start && Minecraft.getInstance().player != null) {
-                LegacyPlayers.mirror(Minecraft.getInstance().player, false);
+                Object mirror = LegacyPlayers.mirror(Minecraft.getInstance().player, false);
+                LegacyPlayers.syncClientRiding(Minecraft.getInstance().player, mirror);
                 syncMouseOver(Minecraft.getInstance());
             }
             LegacyBridge.call("clientTick", start);

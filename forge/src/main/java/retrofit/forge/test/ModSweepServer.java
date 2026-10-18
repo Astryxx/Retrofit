@@ -59,7 +59,7 @@ public final class ModSweepServer {
     private static final int ACTIVATION_TICKS = 12;
     private static final int ITEM_BATCH_TICKS = 20;
 
-    public enum Phase { WAITING, BLOCKS, ACTIVATE, ENTITIES, ITEMS, WORLDGEN, DIMENSIONS, DONE }
+    public enum Phase { WAITING, BLOCKS, ACTIVATE, ENTITIES, ITEMS, ITEM_USE, WORLDGEN, DIMENSIONS, DONE }
 
     /** Read by the client half in singleplayer. */
     public static volatile Phase phase = Phase.WAITING;
@@ -78,6 +78,13 @@ public final class ModSweepServer {
     private static final List<Entity> SPAWNED = new ArrayList<>();
     private static final List<ItemStack> ITEMS = new ArrayList<>();
     private static int itemBatch;
+    private static int killTick = -1;
+    private static int interactIndex;
+    private static int interacted;
+    private static int mounted;
+    private static int ridingTicks;
+    private static Entity ridden;
+    private static net.minecraft.world.phys.Vec3 rideStart;
     private static List<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>> dimensions = List.of();
     private static int worldGenReadyTick = -1;
 
@@ -117,6 +124,9 @@ public final class ModSweepServer {
                         requestScreenshot("sweep-blocks");
                     } else if (inPhase == 200) {
                         reportBlocks(level);
+                        checkHostInventories(level);
+                        checkEnergy(level);
+                        checkCreatures(level);
                         enter(Phase.ACTIVATE);
                     }
                 }
@@ -137,9 +147,11 @@ public final class ModSweepServer {
                         spawnEntities(player, level);
                     } else if (inPhase == 100) {
                         requestScreenshot("sweep-entities");
-                    } else if (inPhase == 200) {
+                    } else if (inPhase > 100 && killTick < 0) {
+                        interactStep(player, level, inPhase);
+                    } else if (killTick >= 0 && inPhase == killTick) {
                         killEntities(player, level);
-                    } else if (inPhase == 260) {
+                    } else if (killTick >= 0 && inPhase == killTick + 60) {
                         reportDeaths();
                         collectItems();
                         // Survival, standing on the block grid's floor, so the client shows the plain inventory.
@@ -154,10 +166,26 @@ public final class ModSweepServer {
                     if (inPhase % ITEM_BATCH_TICKS == 1) {
                         if (!giveItemBatch(player)) {
                             player.getInventory().clearContent();
+                            LOGGER.info("[ModSweep] Items: {} legacy item stacks ticked in the inventory", ITEMS.size());
+                            checkItemEnergy();
+                            enter(Phase.ITEM_USE);
+                        }
+                    }
+                }
+                case ITEM_USE -> {
+                    // Every item right-clicked in the air once (wands, spell books, food, brooms...), still invulnerable.
+                    if (inPhase % 2 == 0) {
+                        int index = inPhase / 2;
+                        if (index < ITEMS.size()) {
+                            useItem(player, level, ITEMS.get(index));
+                        } else if (index == ITEMS.size()) {
+                            player.getInventory().clearContent();
+                            player.stopRiding();
                             player.setGameMode(GameType.CREATIVE);
                             player.getAbilities().flying = true;
                             player.onUpdateAbilities();
-                            LOGGER.info("[ModSweep] Items: {} legacy item stacks ticked in the inventory", ITEMS.size());
+                            LOGGER.info("[ModSweep] Item use: {} items right-clicked, {} started being used, {} put the player on something",
+                                    ITEMS.size(), itemsUsing, itemsMounted);
                             generateChunks(player, level);
                             enter(Phase.WORLDGEN);
                         }
@@ -313,6 +341,201 @@ public final class ModSweepServer {
                 perMod.entrySet().stream().map(e -> e.getKey() + " " + e.getValue()[0] + "/" + e.getValue()[1]).toList());
     }
 
+    /**
+     * In the sweep, barrels store Forge Energy, standing in for a 1.20.1 energy mod's machine:
+     * legacy code must see them as RF/EU machines.
+     */
+    @SubscribeEvent
+    public static void onAttachCapabilities(net.minecraftforge.event.AttachCapabilitiesEvent<net.minecraft.world.level.block.entity.BlockEntity> event) {
+        if (!ENABLED || !(event.getObject() instanceof net.minecraft.world.level.block.entity.BarrelBlockEntity)) {
+            return;
+        }
+        net.minecraftforge.energy.EnergyStorage storage = new net.minecraftforge.energy.EnergyStorage(100_000, 10_000, 10_000, 50_000);
+        var optional = net.minecraftforge.common.util.LazyOptional.<net.minecraftforge.energy.IEnergyStorage>of(() -> storage);
+        net.minecraftforge.fluids.capability.templates.FluidTank tank = new net.minecraftforge.fluids.capability.templates.FluidTank(16_000);
+        var tankOptional = net.minecraftforge.common.util.LazyOptional.<net.minecraftforge.fluids.capability.IFluidHandler>of(() -> tank);
+        event.addCapability(new ResourceLocation(RetrofitMod.MOD_ID, "sweep_energy"), new net.minecraftforge.common.capabilities.ICapabilityProvider() {
+            @Override
+            public <T> net.minecraftforge.common.util.LazyOptional<T> getCapability(net.minecraftforge.common.capabilities.Capability<T> capability, Direction side) {
+                if (capability == net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER) {
+                    return tankOptional.cast();
+                }
+                return capability == net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY ? optional.cast() : net.minecraftforge.common.util.LazyOptional.empty();
+            }
+        });
+    }
+
+    /**
+     * Energy across versions: a 1.20.1 energy block (a barrel, see above) seen by legacy code as an
+     * RF/EU machine, and every legacy machine of the installed mods offered Forge Energy.
+     */
+    private static void checkEnergy(ServerLevel level) {
+        BlockPos at = origin.offset(-6, 1, -4);
+        level.setBlock(at.below(), Blocks.SMOOTH_STONE.defaultBlockState(), 2);
+        level.setBlock(at, Blocks.BARREL.defaultBlockState(), 3);
+        var storage = level.getBlockEntity(at) == null ? null
+                : level.getBlockEntity(at).getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY).orElse(null);
+        if (storage == null) {
+            LOGGER.error("[ModSweep] Energy FAILED: the test barrel has no Forge Energy");
+            return;
+        }
+        try {
+            String result = LegacyBridge.call("checkHostEnergy", LegacyContent.legacyWorld(level), at.getX(), at.getY(), at.getZ());
+            LOGGER.info("[ModSweep] Energy, 1.20.1 block seen by legacy code: {}; it now stores {} FE", result, storage.getEnergyStored());
+            String fluids = LegacyBridge.call("checkHostFluids", LegacyContent.legacyWorld(level), at.getX(), at.getY(), at.getZ());
+            var tank = level.getBlockEntity(at).getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER).orElse(null);
+            String held = tank == null ? "no tank" : tank.getFluidInTank(0).getAmount() + " mB of " + ForgeRegistries.FLUIDS.getKey(tank.getFluidInTank(0).getFluid());
+            LOGGER.info("[ModSweep] Fluids, 1.20.1 tank seen by legacy code: {}; it now holds {}", fluids, held);
+        } catch (RuntimeException e) {
+            LOGGER.error("[ModSweep] Energy FAILED for the 1.20.1 block", e);
+        }
+        level.setBlock(at, Blocks.AIR.defaultBlockState(), 3);
+        // Real 1.20.1 machines, when their mods are installed (-PmodernMods=...).
+        for (String id : new String[]{"mekanism:basic_energy_cube", "mekanism:basic_fluid_tank", "mekanism:basic_universal_cable"}) {
+            var block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(id));
+            if (block == null || block == Blocks.AIR) {
+                continue;
+            }
+            level.setBlock(at, block.defaultBlockState(), 3);
+            try {
+                String energy = LegacyBridge.call("checkHostEnergy", LegacyContent.legacyWorld(level), at.getX(), at.getY(), at.getZ());
+                String fluids = LegacyBridge.call("checkHostFluids", LegacyContent.legacyWorld(level), at.getX(), at.getY(), at.getZ());
+                LOGGER.info("[ModSweep] 1.20.1 machine {} seen by legacy code: energy {}; fluids {}", id, energy, fluids);
+            } catch (RuntimeException e) {
+                LOGGER.error("[ModSweep] 1.20.1 machine {} FAILED in legacy code", id, e);
+            }
+            level.setBlock(at, Blocks.AIR.defaultBlockState(), 3);
+        }
+        long displays = level.getServer().getRecipeManager().getRecipes().stream()
+                .filter(r -> r instanceof retrofit.forge.world.LegacyRecipeDisplays.Shaped || r instanceof retrofit.forge.world.LegacyRecipeDisplays.Shapeless).count();
+        LOGGER.info("[ModSweep] Recipe book and viewers: {} legacy crafting recipes shown", displays);
+        Map<String, int[]> tanks = new TreeMap<>(); // has tanks, took water
+        for (Placed machine : MACHINES) {
+            if (level.getBlockEntity(machine.pos) instanceof LegacyBlockEntity legacy) {
+                var handler = legacy.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER, Direction.UP).orElse(null);
+                if (handler != null) {
+                    int[] counts = tanks.computeIfAbsent(machine.mod, m -> new int[2]);
+                    counts[0]++;
+                    if (handler.fill(new net.minecraftforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER, 1000),
+                            net.minecraftforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE) > 0) {
+                        counts[1]++;
+                    }
+                }
+            }
+        }
+        LOGGER.info("[ModSweep] Fluids, legacy tanks as 1.20.1 fluid handlers (tanks, took water): {}",
+                tanks.entrySet().stream().map(e -> e.getKey() + " " + e.getValue()[0] + "/" + e.getValue()[1]).toList());
+        Map<String, int[]> perMod = new TreeMap<>(); // takes FE, took some, gives FE, gave some
+        for (Placed machine : MACHINES) {
+            if (!(level.getBlockEntity(machine.pos) instanceof LegacyBlockEntity legacy)) {
+                continue;
+            }
+            for (Direction side : new Direction[]{null, Direction.UP, Direction.NORTH}) {
+                var energy = legacy.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY, side).orElse(null);
+                if (energy == null) {
+                    continue;
+                }
+                int[] counts = perMod.computeIfAbsent(machine.mod, m -> new int[4]);
+                if (energy.canReceive()) {
+                    counts[0]++;
+                    if (energy.receiveEnergy(1000, false) > 0) {
+                        counts[1]++;
+                    }
+                }
+                if (energy.canExtract()) {
+                    counts[2]++;
+                    if (energy.extractEnergy(1000, false) > 0) {
+                        counts[3]++;
+                    }
+                }
+                break;
+            }
+        }
+        LOGGER.info("[ModSweep] Energy, legacy machines as Forge Energy (take, took, give, gave): {}",
+                perMod.entrySet().stream().map(e -> e.getKey() + " " + e.getValue()[0] + "/" + e.getValue()[1] + "/" + e.getValue()[2] + "/" + e.getValue()[3]).toList());
+    }
+
+    /** 1.20.1 creatures as legacy code sees them: found by entity queries, with their 1.7.10 classes, hurt by legacy damage. */
+    private static void checkCreatures(ServerLevel level) {
+        BlockPos at = origin.offset(-10, 1, -10);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                level.setBlock(at.offset(dx, -1, dz), Blocks.SMOOTH_STONE.defaultBlockState(), 2);
+            }
+        }
+        var cow = EntityType.COW.create(level);
+        var zombie = EntityType.ZOMBIE.create(level);
+        if (cow == null || zombie == null) {
+            return;
+        }
+        cow.moveTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, 0, 0);
+        zombie.moveTo(at.getX() + 1.5, at.getY(), at.getZ() + 0.5, 0, 0);
+        zombie.setNoAi(true);
+        level.addFreshEntity(cow);
+        level.addFreshEntity(zombie);
+        float before = cow.getHealth();
+        try {
+            String result = LegacyBridge.call("checkHostCreatures", LegacyContent.legacyWorld(level), at.getX(), at.getY(), at.getZ());
+            boolean hurt = cow.getHealth() < before;
+            if (result.startsWith("ok") && hurt) {
+                LOGGER.info("[ModSweep] 1.20.1 creatures in legacy code: {}; the cow went from {} to {} health: OK", result, before, cow.getHealth());
+            } else {
+                LOGGER.error("[ModSweep] 1.20.1 creatures in legacy code FAILED: {}; cow health {} -> {}", result, before, cow.getHealth());
+            }
+        } catch (RuntimeException e) {
+            LOGGER.error("[ModSweep] 1.20.1 creatures in legacy code FAILED", e);
+        }
+        cow.discard();
+        zombie.discard();
+    }
+
+    /** Legacy electric items (RF, IC2) as Forge Energy: charged as a 1.20.1 charger would. */
+    private static void checkItemEnergy() {
+        Map<String, int[]> perMod = new TreeMap<>(); // energy items, charged
+        for (ItemStack sample : ITEMS) {
+            ItemStack stack = sample.copy();
+            var energy = stack.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY).orElse(null);
+            if (energy == null) {
+                continue;
+            }
+            int[] counts = perMod.computeIfAbsent(modOf(ForgeRegistries.ITEMS.getKey(stack.getItem())), m -> new int[2]);
+            counts[0]++;
+            if (energy.canReceive() && energy.receiveEnergy(10_000, false) > 0) {
+                counts[1]++;
+            }
+        }
+        LOGGER.info("[ModSweep] Energy, legacy items as Forge Energy (energy items, charged): {}",
+                perMod.entrySet().stream().map(e -> e.getKey() + " " + e.getValue()[0] + "/" + e.getValue()[1]).toList());
+    }
+
+    /** Vanilla chests and furnaces as legacy code sees them (pipes, machines): read, take, put, change in place. */
+    private static void checkHostInventories(ServerLevel level) {
+        BlockPos at = origin.offset(-4, 1, -4);
+        level.setBlock(at.below(), Blocks.SMOOTH_STONE.defaultBlockState(), 2);
+        level.setBlock(at, Blocks.CHEST.defaultBlockState(), 3);
+        level.setBlock(at.east(), Blocks.FURNACE.defaultBlockState(), 3);
+        if (!(level.getBlockEntity(at) instanceof net.minecraft.world.Container chest)) {
+            LOGGER.error("[ModSweep] Host inventories FAILED: no chest placed");
+            return;
+        }
+        chest.setItem(0, new ItemStack(net.minecraft.world.item.Items.COBBLESTONE, 10));
+        try {
+            String result = LegacyBridge.call("checkHostInventory", LegacyContent.legacyWorld(level), at.getX(), at.getY(), at.getZ());
+            boolean ok = result.startsWith("ok") && chest.getItem(0).is(net.minecraft.world.item.Items.COBBLESTONE) && chest.getItem(0).getCount() == 5
+                    && chest.getItem(1).is(net.minecraft.world.item.Items.DIAMOND) && chest.getItem(1).getCount() == 2;
+            if (ok) {
+                LOGGER.info("[ModSweep] Host inventories: {}; the chest now holds {} and {}: OK", result, chest.getItem(0), chest.getItem(1));
+            } else {
+                LOGGER.error("[ModSweep] Host inventories FAILED: {}; the chest holds {} and {}", result, chest.getItem(0), chest.getItem(1));
+            }
+        } catch (RuntimeException e) {
+            LOGGER.error("[ModSweep] Host inventories FAILED", e);
+        }
+        chest.clearContent(); // no drops
+        level.setBlock(at, Blocks.AIR.defaultBlockState(), 3);
+        level.setBlock(at.east(), Blocks.AIR.defaultBlockState(), 3);
+    }
+
     /** After ~8 seconds of ticking: which blocks are still there, and which tile entities exist. */
     private static void reportBlocks(ServerLevel level) {
         Map<String, int[]> perMod = new TreeMap<>(); // still there, gone, tile ok, tile missing
@@ -400,6 +623,50 @@ public final class ModSweepServer {
         view(player, base.offset(perRow * 2, 0, 0), 12, 45);
     }
 
+    /**
+     * Right-clicks each spawned entity with an empty hand, as a player would (taming, trading, mounting);
+     * an entity that mounts the player is ridden forward for a second, to see the mod steer it.
+     */
+    private static void interactStep(ServerPlayer player, ServerLevel level, int inPhase) {
+        if (ridingTicks > 0) {
+            player.zza = 1.0f; // forward
+            if (--ridingTicks == 0) {
+                double moved = ridden.position().distanceTo(rideStart);
+                LOGGER.info("[ModSweep] Rode {} forward: moved {} blocks{}", ForgeRegistries.ENTITY_TYPES.getKey(ridden.getType()),
+                        String.format("%.1f", moved), player.getVehicle() == ridden ? "" : " (the player is no longer on it)");
+                player.zza = 0;
+                player.stopRiding();
+            }
+            return;
+        }
+        if (inPhase % 3 != 0) {
+            return;
+        }
+        while (interactIndex < SPAWNED.size() && SPAWNED.get(interactIndex).isRemoved()) {
+            interactIndex++;
+        }
+        if (interactIndex >= SPAWNED.size()) {
+            LOGGER.info("[ModSweep] Entity right-clicks: {} entities, {} of them mounted the player", interacted, mounted);
+            killTick = inPhase + 1;
+            return;
+        }
+        Entity entity = SPAWNED.get(interactIndex++);
+        player.teleportTo(level, entity.getX() + 1.5, entity.getY(), entity.getZ(), 90f, 20f);
+        player.getInventory().setItem(player.getInventory().selected, ItemStack.EMPTY);
+        net.minecraft.world.InteractionResult result = player.interactOn(entity, InteractionHand.MAIN_HAND);
+        interacted++;
+        if (player.getVehicle() == entity) {
+            mounted++;
+            ridden = entity;
+            rideStart = entity.position();
+            ridingTicks = 20;
+            LOGGER.info("[ModSweep] {} mounted the player ({})", ForgeRegistries.ENTITY_TYPES.getKey(entity.getType()), result);
+        } else if (player.containerMenu != player.inventoryMenu) {
+            LOGGER.info("[ModSweep] {} opened {}", ForgeRegistries.ENTITY_TYPES.getKey(entity.getType()), player.containerMenu.getClass().getSimpleName());
+            player.closeContainer();
+        }
+    }
+
     private static void killEntities(ServerPlayer player, ServerLevel level) {
         Map<String, int[]> perMod = new TreeMap<>(); // alive after 10 s, gone
         for (Entity entity : SPAWNED) {
@@ -477,6 +744,33 @@ public final class ModSweepServer {
         }
         itemBatch++;
         return true;
+    }
+
+    private static int itemsUsing;
+    private static int itemsMounted;
+
+    private static void useItem(ServerPlayer player, ServerLevel level, ItemStack stack) {
+        if (player.isDeadOrDying()) {
+            player.server.getPlayerList().respawn(player, false);
+            return; // an item killed the player; carry on with the next one
+        }
+        player.stopRiding();
+        player.getInventory().clearContent();
+        player.setItemInHand(InteractionHand.MAIN_HAND, stack.copy());
+        player.teleportTo(level, origin.getX() + 1.5, origin.getY() + 1, origin.getZ() + 1.5, 0f, -30f); // looking up: into the air
+        player.gameMode.useItem(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND);
+        if (player.isUsingItem()) {
+            itemsUsing++;
+            player.releaseUsingItem();
+        }
+        if (player.getVehicle() != null) {
+            itemsMounted++;
+            LOGGER.info("[ModSweep] Using {} put the player on {}", ForgeRegistries.ITEMS.getKey(stack.getItem()),
+                    ForgeRegistries.ENTITY_TYPES.getKey(player.getVehicle().getType()));
+        }
+        if (player.containerMenu != player.inventoryMenu) {
+            player.closeContainer();
+        }
     }
 
     private static void generateChunks(ServerPlayer player, ServerLevel level) {

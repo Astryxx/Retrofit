@@ -113,6 +113,7 @@ public final class LegacyPlayers {
      */
     public static void tickServer(ServerPlayer player) {
         Object mirror = mirror(player, false);
+        tickRiding(player, mirror);
         LegacyBridge.call("tickServerPlayer", mirror);
         applyNewEffects(player, mirror);
         int[] modEffects = LegacyBridge.call("modEffects", mirror);
@@ -146,6 +147,8 @@ public final class LegacyPlayers {
         }
         shown.clear();
         shown.addAll(now);
+        applyAbilities(player, mirror);
+        applyPotionModifiers(player, mirror);
         float[] stats = LegacyBridge.call("changedStats", mirror);
         if (stats != null) {
             player.getFoodData().setFoodLevel((int) stats[0]);
@@ -154,6 +157,117 @@ public final class LegacyPlayers {
                 player.setHealth(stats[2]);
             }
         }
+    }
+
+    /** Flight legacy code granted or took away (Ars Magica 2's flight, brooms) goes to the player. */
+    private static void applyAbilities(Player player, Object mirror) {
+        int abilities = LegacyBridge.call("changedAbilities", mirror);
+        if (abilities < 0 || player.getAbilities().instabuild) {
+            return;
+        }
+        player.getAbilities().mayfly = (abilities & MAY_FLY) != 0;
+        player.getAbilities().flying = player.getAbilities().mayfly && (abilities & FLYING) != 0;
+        player.onUpdateAbilities();
+    }
+
+    /** Attribute modifiers of mod potions currently on each player (by UUID), so they come off when the potion ends. */
+    private static final Map<UUID, Map<UUID, net.minecraft.world.entity.ai.attributes.Attribute>> POTION_MODIFIERS = new ConcurrentHashMap<>();
+
+    private static net.minecraft.world.entity.ai.attributes.Attribute attribute(String legacyName) {
+        return switch (legacyName) {
+            case "generic.maxHealth" -> net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH;
+            case "generic.movementSpeed" -> net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED;
+            case "generic.attackDamage" -> net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE;
+            case "generic.knockbackResistance" -> net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE;
+            case "generic.followRange" -> net.minecraft.world.entity.ai.attributes.Attributes.FOLLOW_RANGE;
+            default -> null;
+        };
+    }
+
+    /** What mod potions do to speed, health, damage and so on (their attribute modifiers) applies to the host player. */
+    private static void applyPotionModifiers(Player player, Object mirror) {
+        Object[][] modifiers = LegacyBridge.call("modAttributeModifiers", mirror);
+        Map<UUID, net.minecraft.world.entity.ai.attributes.Attribute> applied =
+                POTION_MODIFIERS.computeIfAbsent(player.getUUID(), id -> new java.util.HashMap<>());
+        if (modifiers.length == 0 && applied.isEmpty()) {
+            return;
+        }
+        java.util.Set<UUID> now = new java.util.HashSet<>();
+        for (Object[] modifier : modifiers) {
+            net.minecraft.world.entity.ai.attributes.Attribute attribute = attribute((String) modifier[0]);
+            var instance = attribute == null ? null : player.getAttribute(attribute);
+            if (instance == null) {
+                continue;
+            }
+            UUID id = UUID.fromString((String) modifier[1]);
+            double amount = (Double) modifier[2];
+            now.add(id);
+            var current = instance.getModifier(id);
+            if (current == null || current.getAmount() != amount) {
+                instance.removeModifier(id);
+                instance.addTransientModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(id, "Legacy potion", amount,
+                        net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.fromValue((Integer) modifier[3])));
+                applied.put(id, attribute);
+            }
+        }
+        for (var entry : new java.util.ArrayList<>(applied.entrySet())) {
+            if (!now.contains(entry.getKey())) {
+                var instance = player.getAttribute(entry.getValue());
+                if (instance != null) {
+                    instance.removeModifier(entry.getKey());
+                }
+                applied.remove(entry.getKey());
+            }
+        }
+    }
+
+    // ---- Riding legacy creatures ----
+
+    private static java.lang.reflect.Field jumping;
+
+    /**
+     * Makes host and legacy riding agree after legacy code ran: legacy code that mounted the mirror
+     * (or took it off) mounts the host player; a host player that got off (sneaking) gets the mirror off.
+     */
+    public static void syncRiding(Player player, Object mirror) {
+        Object legacyVehicle = LegacyBridge.call("entityRiding", mirror);
+        net.minecraft.world.entity.Entity hostVehicle = player.getVehicle();
+        if (legacyVehicle != null) {
+            net.minecraft.world.entity.Entity target = LegacyEntityCore.hostOf(legacyVehicle);
+            if (target != null && hostVehicle != target) {
+                player.startRiding(target, true);
+            }
+        } else if (hostVehicle instanceof LegacyEntityCarrier && !player.level().isClientSide) {
+            player.stopRiding();
+        }
+    }
+
+    /** Every tick while riding a legacy creature: the mirror rides it too, steering with the player's keys. */
+    private static void tickRiding(ServerPlayer player, Object mirror) {
+        net.minecraft.world.entity.Entity vehicle = player.getVehicle();
+        if (vehicle instanceof LegacyEntityCarrier carrier) {
+            Object legacyVehicle = carrier.core().legacy();
+            LegacyBridge.call("setRiding", mirror, legacyVehicle);
+            boolean jump = false;
+            try {
+                if (jumping == null) {
+                    jumping = net.minecraftforge.fml.util.ObfuscationReflectionHelper.findField(net.minecraft.world.entity.LivingEntity.class, "f_20899_");
+                }
+                jump = jumping.getBoolean(player);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // no jump
+            }
+            LegacyBridge.call("setRiderInput", mirror, player.zza, player.xxa, jump);
+        } else if (LegacyBridge.call("entityRiding", mirror) != null) {
+            LegacyBridge.call("setRiding", mirror, null); // got off (sneak) or the vehicle went away
+        }
+    }
+
+    /** Client: the local player's mirror rides what the player rides (mods check player.ridingEntity in renderers and HUDs). */
+    public static void syncClientRiding(Player player, Object mirror) {
+        net.minecraft.world.entity.Entity vehicle = player.getVehicle();
+        Object legacyVehicle = vehicle instanceof LegacyEntityCarrier carrier ? carrier.clientLegacy() : null;
+        LegacyBridge.call("setRiding", mirror, legacyVehicle);
     }
 
     /** Client: the local player; null on servers. */
@@ -199,6 +313,7 @@ public final class LegacyPlayers {
     private static void applyChanges(Player player, Object mirror, boolean container) {
         if (!player.level().isClientSide) {
             applyNewEffects(player, mirror);
+            applyAbilities(player, mirror);
         }
         Object[] changes = LegacyBridge.call("inventoryChanges", mirror);
         if (changes != null) {
@@ -257,6 +372,18 @@ public final class LegacyPlayers {
         volatile Player player;
 
         @Override
+        public Object hostEntity() {
+            return player;
+        }
+
+        @Override
+        public void grantAchievement(String statId) {
+            if (player instanceof ServerPlayer server) {
+                LegacyAchievements.grant(server, statId);
+            }
+        }
+
+        @Override
         public void sendMessage(String json) {
             Player target = player;
             if (target == null) {
@@ -296,28 +423,7 @@ public final class LegacyPlayers {
             if (target == null || target.level().isClientSide) {
                 return false;
             }
-            net.minecraft.world.damagesource.DamageSources sources = target.damageSources();
-            net.minecraft.world.entity.Entity attacker = LegacyEntityCore.hostOf(legacyAttacker);
-            net.minecraft.world.damagesource.DamageSource source;
-            if (attacker instanceof net.minecraft.world.entity.LivingEntity living) {
-                source = sources.mobAttack(living);
-            } else {
-                source = switch (kind == null ? "generic" : kind) {
-                    case "fall" -> sources.fall();
-                    case "inFire" -> sources.inFire();
-                    case "onFire" -> sources.onFire();
-                    case "lava" -> sources.lava();
-                    case "drown" -> sources.drown();
-                    case "cactus" -> sources.cactus();
-                    case "magic" -> sources.magic();
-                    case "wither" -> sources.wither();
-                    case "outOfWorld" -> sources.fellOutOfWorld();
-                    case "inWall" -> sources.inWall();
-                    case "starve" -> sources.starve();
-                    case "explosion", "explosion.player" -> sources.explosion(null, null);
-                    default -> attacker != null ? sources.mobProjectile(attacker, null) : sources.generic();
-                };
-            }
+            net.minecraft.world.damagesource.DamageSource source = HostCreatures.damageSource(target, kind, legacyAttacker);
             return target.hurt(source, amount);
         }
 

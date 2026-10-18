@@ -27,6 +27,7 @@ public final class HeadlessServer {
         Object handler = commonHandler.getMethod("instance").invoke(null);
         System.out.println("[Retrofit] Starting FML server mod loading (construct + preInit)");
         commonHandler.getMethod("onServerStart", minecraftServer).invoke(handler, server);
+        HeadlessClient.registerBridgeContent(lcl);
         System.out.println("[Retrofit] Running init + postInit");
         commonHandler.getMethod("onServerStarted").invoke(handler);
 

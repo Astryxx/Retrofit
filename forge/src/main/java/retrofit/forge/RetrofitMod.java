@@ -37,6 +37,10 @@ public final class RetrofitMod {
             LOGGER.warn("Retrofit is disabled (-Dretrofit.disabled=true); 1.7.10 mods are not loaded.");
             return;
         }
+        // Chunks legacy tickets forced last time are released at load: the mods force them again from their own
+        // saved tickets (1.7.10's ForgeChunkManager, see the legacy bridge's ChunkLoading).
+        net.minecraftforge.common.world.ForgeChunkManager.setForcedChunkLoadingCallback(MOD_ID,
+                (level, tickets) -> tickets.getEntityTickets().keySet().forEach(tickets::removeAllTickets));
         boolean server = FMLEnvironment.dist == Dist.DEDICATED_SERVER;
         Path legacyDir = FMLPaths.GAMEDIR.get().resolve("retrofit");
         try {

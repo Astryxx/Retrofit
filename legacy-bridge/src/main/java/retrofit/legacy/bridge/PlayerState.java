@@ -135,9 +135,43 @@ public final class PlayerState {
         }
     }
 
+    /** Where mods keep their own per-player files (PlayerEvent.LoadFromFile/SaveToFile: Baubles' .baub files). */
+    private static java.io.File playerDirectory() {
+        java.io.File directory = new java.io.File(LegacyWorlds.saveDirectory(), "playerdata");
+        directory.mkdirs();
+        return directory;
+    }
+
+    /**
+     * A player's server mirror changes (login, another dimension, logout): mods save their per-player
+     * data from the old one (PlayerEvent.SaveToFile) and load it into the new one (LoadFromFile), as
+     * 1.7.10 does when it saves and loads the player. Either may be null.
+     */
+    static void handOver(EntityPlayer from, EntityPlayer to, String uuid) {
+        if (from != null) {
+            fileEvent(from, uuid, false);
+        }
+        if (to != null) {
+            fileEvent(to, uuid, true);
+        }
+    }
+
+    private static void fileEvent(EntityPlayer player, String uuid, boolean load) {
+        try {
+            if (load) {
+                net.minecraftforge.event.ForgeEventFactory.firePlayerLoadingEvent(player, playerDirectory(), uuid);
+            } else {
+                net.minecraftforge.event.ForgeEventFactory.firePlayerSavingEvent(player, playerDirectory(), uuid);
+            }
+        } catch (Throwable t) {
+            System.out.println("[Retrofit] A mod failed " + (load ? "loading" : "saving") + " its data for player " + uuid + ": " + t);
+        }
+    }
+
     /** The player's legacy state, for the host to save with the player (null if there is none). */
     public static byte[] playerData(Object legacyPlayer) throws Exception {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
+        fileEvent(player, player.func_110124_au().toString(), false); // getUniqueID: mods' own player files too
         NBTTagCompound state = save(player);
         synchronized (SAVED) {
             SAVED.put(player.func_110124_au().toString(), state); // getUniqueID
@@ -240,6 +274,51 @@ public final class PlayerState {
             array[i] = result.get(i);
         }
         return array;
+    }
+
+    /**
+     * The attribute modifiers mod potions give (Potion.registerPotionAttributeModifier: speed, health,
+     * damage...), for the host player: {attribute name, modifier UUID, amount, operation} each.
+     */
+    @SuppressWarnings("rawtypes")
+    public static Object[][] modAttributeModifiers(Object legacyPlayer) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        List<Object[]> result = new ArrayList<Object[]>();
+        for (Object element : player.func_70651_bq()) {
+            PotionEffect effect = (PotionEffect) element;
+            if (effect.func_76456_a() <= LAST_VANILLA_POTION) {
+                continue;
+            }
+            Potion potion = Potion.field_76425_a[effect.func_76456_a()];
+            Map modifiers = potion == null ? null : attributeModifiers(potion);
+            if (modifiers == null) {
+                continue;
+            }
+            for (Object entry : modifiers.entrySet()) {
+                Map.Entry e = (Map.Entry) entry;
+                net.minecraft.entity.ai.attributes.AttributeModifier modifier = (net.minecraft.entity.ai.attributes.AttributeModifier) e.getValue();
+                result.add(new Object[]{((net.minecraft.entity.ai.attributes.IAttribute) e.getKey()).func_111108_a(), // getAttributeUnlocalizedName
+                        modifier.func_111167_a().toString(), potion.func_111183_a(effect.func_76458_c(), modifier), modifier.func_111169_c()});
+            }
+        }
+        return result.toArray(new Object[0][]);
+    }
+
+    private static java.lang.reflect.Field attributeModifierMap;
+
+    /** Potion.attributeModifierMap: the getter (func_111186_k) is client-only in 1.7.10. */
+    @SuppressWarnings("rawtypes")
+    private static Map attributeModifiers(Potion potion) {
+        try {
+            if (attributeModifierMap == null) {
+                java.lang.reflect.Field field = Potion.class.getDeclaredField("field_111188_I");
+                field.setAccessible(true);
+                attributeModifierMap = field;
+            }
+            return (Map) attributeModifierMap.get(potion);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
     }
 
     /** A mod potion effect was removed on the host (milk, commands): the mirror loses it too. */

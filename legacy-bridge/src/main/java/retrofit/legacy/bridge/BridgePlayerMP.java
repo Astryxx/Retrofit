@@ -56,6 +56,69 @@ final class BridgePlayerMP extends EntityPlayerMP {
         Guis.openChest(this, inventory);
     }
 
+    // The other vanilla GUIs (mods reuse them: Chisel's beacon, mod furnaces and dispensers).
+
+    /** displayGUIFurnace */
+    @Override
+    public void func_146101_a(net.minecraft.tileentity.TileEntityFurnace tile) {
+        Guis.openVanilla(this, ClientGuis.FURNACE, tile, 0, 0, 0, tile.func_145825_b());
+    }
+
+    /** displayGUIDispenser */
+    @Override
+    public void func_146102_a(net.minecraft.tileentity.TileEntityDispenser tile) {
+        Guis.openVanilla(this, ClientGuis.DISPENSER, tile, 0, 0, 0, tile.func_145825_b());
+    }
+
+    /** displayGUIHopper */
+    @Override
+    public void func_146093_a(net.minecraft.tileentity.TileEntityHopper tile) {
+        Guis.openVanilla(this, ClientGuis.HOPPER, tile, 0, 0, 0, tile.func_145825_b());
+    }
+
+    /** displayGUIBrewingStand */
+    @Override
+    public void func_146098_a(net.minecraft.tileentity.TileEntityBrewingStand tile) {
+        Guis.openVanilla(this, ClientGuis.BREWING, tile, 0, 0, 0, tile.func_145825_b());
+    }
+
+    /** displayGUIBeacon */
+    @Override
+    public void func_146104_a(net.minecraft.tileentity.TileEntityBeacon tile) {
+        Guis.openVanilla(this, ClientGuis.BEACON, tile, 0, 0, 0, tile.func_145825_b());
+    }
+
+    /** displayGUIWorkbench */
+    @Override
+    public void func_71058_b(int x, int y, int z) {
+        Guis.openVanilla(this, ClientGuis.WORKBENCH, null, x, y, z, null);
+    }
+
+    /** displayGUIEnchantment */
+    @Override
+    public void func_71002_c(int x, int y, int z, String name) {
+        Guis.openVanilla(this, ClientGuis.ENCHANTMENT, null, x, y, z, name);
+    }
+
+    /** displayGUIAnvil */
+    @Override
+    public void func_82244_d(int x, int y, int z) {
+        Guis.openVanilla(this, ClientGuis.ANVIL, null, x, y, z, null);
+    }
+
+    /** addStat: achievements mods unlock become the player's advancements (see Achievements). */
+    @Override
+    public void func_71064_a(net.minecraft.stats.StatBase stat, int amount) {
+        try {
+            super.func_71064_a(stat, amount);
+        } catch (RuntimeException e) {
+            // the legacy statistics file: not needed, the host keeps the player's progress
+        }
+        if (stat instanceof net.minecraft.stats.Achievement && amount > 0) {
+            host.grantAchievement(stat.field_75975_e); // statId
+        }
+    }
+
     /** canCommandSenderUseCommand: the host's permission level (1.7.10 asked its own ops list). */
     @Override
     public boolean func_70003_b(int level, String command) {

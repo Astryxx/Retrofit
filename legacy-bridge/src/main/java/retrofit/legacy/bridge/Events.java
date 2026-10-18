@@ -41,6 +41,8 @@ public final class Events {
             FMLCommonHandler.instance().onPreServerTick();
         } else {
             FMLCommonHandler.instance().onPostServerTick();
+            HostTiles.flushAll();
+            HostCreatures.tickEnd();
         }
     }
 
@@ -64,6 +66,7 @@ public final class Events {
 
     /** Client only. */
     public static void clientTick(boolean start) {
+        ClientPlayers.viewFromPlayer();
         if (start) {
             FMLCommonHandler.instance().onPreClientTick();
         } else {
@@ -73,6 +76,7 @@ public final class Events {
 
     /** Client only. */
     public static void renderTick(boolean start, float partialTicks) {
+        ClientPlayers.viewFromPlayer();
         if (start) {
             FMLCommonHandler.instance().onRenderTickStart(partialTicks);
         } else {
@@ -116,6 +120,7 @@ public final class Events {
      * mods are added), then FMLServerAboutToStartEvent.
      */
     public static void serverAboutToStart(File saveDirectory) throws Exception {
+        ChunkLoading.register();
         LegacyWorlds.setSaveDirectory(saveDirectory);
         try {
             loadIds(new File(saveDirectory, "fml-ids.dat"));
@@ -321,6 +326,14 @@ public final class Events {
             }
         }
         return new TreeSet<String>(names).toArray(new String[0]);
+    }
+
+    /** Tab completions for the last word of a legacy command line ("name args..."). */
+    @SuppressWarnings("unchecked")
+    public static String[] commandCompletions(Object player, String line) {
+        Object sender = player != null ? player : LegacyWorlds.server();
+        List<String> options = LegacyWorlds.server().func_71187_D().func_71558_b((net.minecraft.command.ICommandSender) sender, line); // getPossibleCommands
+        return options == null ? new String[0] : options.toArray(new String[0]);
     }
 
     /** Runs a legacy command line ("name args") for a player's mirror, or the server console (null). */

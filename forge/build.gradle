@@ -65,6 +65,9 @@ minecraft {
                 property 'retrofit.debugGui', 'true'
                 property 'retrofit.debugEntities', 'true'
             }
+            if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background')) {
+                property 'retrofit.background', 'true' // test runs never take the mouse or keep the focus (retrofit.forge.test.BackgroundWindow)
+            }
             if (project.hasProperty('modSweep')) {
                 property 'retrofit.modSweep', 'true' // retrofit.forge.test.ModSweepServer: every block, GUI, entity and item of the mods
                 property 'retrofit.debugEntities', 'true' // logs why legacy entities die
@@ -76,8 +79,30 @@ minecraft {
     }
 }
 
+// 1.20.1 mods for interop tests in development runs only (-PmodernMods=jei,mekanism,mekanism-generators),
+// from Modrinth's Maven, remapped for the development environment.
+repositories {
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+def modernMods = [
+        'jei'                : 'maven.modrinth:jei:IrfJO7PN',                 // 15.59.0.212
+        'mekanism'           : 'maven.modrinth:mekanism:uxe1WQp4',            // 10.4.16.80
+        'mekanism-generators': 'maven.modrinth:mekanism-generators:Th4Czz4N', // 10.4.16.80
+]
+
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.4.26'
+    if (project.hasProperty('modernMods')) {
+        project.property('modernMods').toString().split(',').each { name ->
+            if (!modernMods.containsKey(name)) {
+                throw new GradleException("Unknown 1.20.1 test mod ${name}; known: ${modernMods.keySet()}")
+            }
+            runtimeOnly fg.deobf(modernMods[name])
+        }
+    }
 }
 
 def legacyBootJar = project(':legacy-boot').tasks.named('jar')

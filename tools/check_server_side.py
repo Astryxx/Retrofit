@@ -19,10 +19,15 @@ CLASSES = ROOT / 'legacy-bridge' / 'build' / 'classes' / 'java' / 'main'
 # Classes only ever loaded on clients (see their docs).
 CLIENT_ONLY = {'ClientGuis', 'ClientTextures', 'BridgeRenderGlobal', 'ClientEvents', 'ClientPlayers', 'ClientWorlds', 'BridgeClientPlayer', 'BridgeClientNetHandler',
                'BridgeSoundHandler', 'BridgeEffectRenderer', 'BridgeSkinManager', 'BridgeWorldClient',
-               'LegacyRendering', 'LegacyIcons', 'CameraEntity'}
+               'LegacyRendering', 'LegacyIcons', 'CameraEntity', 'BridgeGuiIngame', 'BridgeGuiIngame$Chat'}
 
 # Known and fine: called only on clients, guarded, or not 1.7.10 classes at all.
 ALLOWED = {
+    'net/minecraft/creativetab/CreativeTabs.func_151244_d',   # getIconItemStack: Bridge.legacyCreativeTabIcon, clients only
+    'net/minecraft/item/Item.func_150895_a',                  # getSubItems: Bridge.legacyCreativeTabContents, clients only
+    'net/minecraft/enchantment/EnumEnchantmentType.name',     # java.lang.Enum
+    'net/minecraftforge/common/util/ForgeDirection.ordinal',  # java.lang.Enum
+    'net/minecraft/util/IIcon.func_94215_i',                  # getIconName: Fluids.fluidIcons, clients only (and caught)
     'net/minecraft/block/Block.func_149701_w',          # getRenderBlockPass: caught (Bridge.blockRenderInfo)
     'net/minecraft/block/Block.func_149734_b',          # randomDisplayTick: only from animateTick, a client method
     'net/minecraft/block/Block.func_149694_d',          # getItem (pick block): caught (Interactions.pickStack)

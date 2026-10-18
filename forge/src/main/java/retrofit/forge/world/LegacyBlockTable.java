@@ -129,13 +129,61 @@ public final class LegacyBlockTable {
         return state.isAir() && combined >> 4 != 0 ? null : state;
     }
 
-    /** The legacy (id << 4 | meta) a modern vanilla state reads as. */
+    private int[] modernBlockIds;
+    private Object solidStandIn;
+    private Object openStandIn;
+
+    /** {solid, non-solid} legacy ids of Retrofit's stand-ins for 1.20.1 mods' blocks (0: none). */
+    private int[] modernBlockIds() {
+        int[] ids = modernBlockIds;
+        if (ids == null) {
+            try {
+                ids = LegacyBridge.call("modernBlockIds");
+            } catch (RuntimeException e) {
+                ids = new int[2];
+            }
+            modernBlockIds = ids;
+        }
+        return ids;
+    }
+
+    /**
+     * The legacy (id << 4 | meta) a modern state reads as: vanilla states as their 1.7.10 selves
+     * (1.20.1-only vanilla blocks as stone), 1.20.1 mods' blocks as Retrofit's stand-ins.
+     */
     public int legacyOf(BlockState state) {
         Integer combined = toLegacy.get(state);
-        return combined != null ? combined : STONE; // a state registered after the table was built
+        if (combined != null) {
+            return combined;
+        }
+        net.minecraft.resources.ResourceLocation id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        if (id != null && !id.getNamespace().equals("minecraft")) {
+            int[] standIns = modernBlockIds();
+            int standIn = state.canOcclude() ? standIns[0] : standIns[1];
+            if (standIn > 0) {
+                return standIn << 4;
+            }
+        }
+        return STONE; // a vanilla state 1.7.10 didn't have
     }
 
     public Object legacyBlock(int legacyId) {
+        if (legacyId >= legacyBlocks.length) { // a mod block, or a stand-in for a 1.20.1 mod's
+            int[] standIns = modernBlockIds();
+            if (legacyId == standIns[0] && solidStandIn != null) {
+                return solidStandIn;
+            }
+            if (legacyId == standIns[1] && openStandIn != null) {
+                return openStandIn;
+            }
+            Object block = legacyId < 4096 ? LegacyBridge.call("blockById", legacyId) : null;
+            if (legacyId == standIns[0]) {
+                solidStandIn = block;
+            } else if (legacyId == standIns[1]) {
+                openStandIn = block;
+            }
+            return block != null ? block : legacyBlocks[0];
+        }
         Object block = legacyBlocks[legacyId];
         return block != null ? block : legacyBlocks[0];
     }

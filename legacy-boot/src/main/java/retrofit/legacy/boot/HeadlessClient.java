@@ -67,11 +67,23 @@ public final class HeadlessClient {
         }
         if (clientGuis != null) {
             clientGuis.getMethod("prepareEnvironment").invoke(null);
+            registerBridgeContent(lcl);
         }
         System.out.println("[Retrofit] Running init + postInit");
         method(clientHandlerClass, "finishMinecraftLoading").invoke(clientHandler);
 
         report(lcl, start);
+    }
+
+    /** Retrofit's own legacy content (the item that carries 1.20.1 items), registered alongside the mods' (after preInit). */
+    static void registerBridgeContent(ClassLoader lcl) {
+        try {
+            Class.forName("retrofit.legacy.bridge.ModernContent", true, lcl).getMethod("register").invoke(null);
+        } catch (ClassNotFoundException noBridge) {
+            // booting without the bridge (dumping the SRG jar)
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Retrofit] Could not register Retrofit's legacy content: " + e);
+        }
     }
 
     /**

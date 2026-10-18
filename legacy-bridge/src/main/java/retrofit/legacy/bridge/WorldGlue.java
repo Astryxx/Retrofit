@@ -68,8 +68,24 @@ final class WorldGlue {
         return host != null && host.setLegacyBlock(x, y, z, getBlock(host, x, y, z), meta, flags);
     }
 
-    static TileEntity getTileEntity(HostWorld host, int x, int y, int z) {
-        return host == null ? null : (TileEntity) host.getLegacyTileEntity(x, y, z);
+    /** The host level behind a bridged world, or null for other worlds. */
+    static HostWorld hostOf(World world) {
+        if (world instanceof BridgeWorldServer) {
+            return ((BridgeWorldServer) world).host();
+        }
+        if (world instanceof BridgeWorld) {
+            return ((BridgeWorld) world).host();
+        }
+        return null;
+    }
+
+    /** The legacy tile entity at a position; for host inventories (vanilla chests, furnaces...) a stand-in (HostTiles). */
+    static TileEntity getTileEntity(World world, HostWorld host, int x, int y, int z) {
+        if (host == null) {
+            return null;
+        }
+        TileEntity tile = (TileEntity) host.getLegacyTileEntity(x, y, z);
+        return tile != null ? tile : HostTiles.at(world, host, x, y, z);
     }
 
     static void setTileEntity(HostWorld host, World world, int x, int y, int z, TileEntity tile) {
@@ -139,6 +155,16 @@ final class WorldGlue {
             if (type.isInstance(entity) && entity.field_70121_D.func_72326_a(box) // boundingBox.intersectsWith
                     && (selector == null || selector.func_82704_a(entity))) { // isEntityApplicable
                 result.add(entity);
+            }
+        }
+        // The host's own creatures, items and orbs, as stand-ins (only for queries that could match one).
+        if (type.isAssignableFrom(HostCreatureProxies.Zombie.class) || type.isAssignableFrom(net.minecraft.entity.item.EntityItem.class)
+                || type.isAssignableFrom(net.minecraft.entity.item.EntityXPOrb.class) || !net.minecraft.entity.EntityLivingBase.class.isAssignableFrom(type)
+                || net.minecraft.entity.EntityLiving.class.isAssignableFrom(type)) {
+            for (Entity entity : HostCreatures.inBox(world, box)) {
+                if (type.isInstance(entity) && entity.field_70121_D.func_72326_a(box) && (selector == null || selector.func_82704_a(entity))) {
+                    result.add(entity);
+                }
             }
         }
         return result;

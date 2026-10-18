@@ -101,6 +101,9 @@ public final class ModSweepClient {
         if (legacy && screenTicks == 8 && guiShots < MAX_GUI_SCREENSHOTS) {
             shot(minecraft, "sweep-gui-" + (++guiShots));
         }
+        if (screen instanceof retrofit.forge.client.LegacyPlainScreen && screenTicks == 12) {
+            minecraft.setScreen(null); // plain legacy screens pause singleplayer games, which would stop the sweep
+        }
         if (ModSweepServer.phase == ModSweepServer.Phase.DONE && ++doneTicks == 40) {
             LOGGER.info("[ModSweep] Client: done; quitting");
             minecraft.stop();

@@ -136,6 +136,23 @@ public class LegacyMenu extends AbstractContainerMenu {
         }
     }
 
+    /**
+     * Client: the server's contents. Some mod containers are sized by state the client doesn't
+     * have yet (the held item's NBT, a tile entity not synced yet), so the server's may have more
+     * slots than this one: those extra slots are left out instead of failing the whole update.
+     */
+    @Override
+    public void initializeContents(int stateId, java.util.List<ItemStack> items, ItemStack carried) {
+        super.initializeContents(stateId, items.size() > slots.size() ? items.subList(0, slots.size()) : items, carried);
+    }
+
+    @Override
+    public void setItem(int slotId, int stateId, ItemStack stack) {
+        if (slotId >= 0 && slotId < slots.size()) {
+            super.setItem(slotId, stateId, stack);
+        }
+    }
+
     @Override
     public ItemStack quickMoveStack(Player clicker, int index) {
         return ItemStack.EMPTY; // shift-clicks go through clicked(), to the legacy container's transferStackInSlot

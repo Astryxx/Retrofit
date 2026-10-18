@@ -70,6 +70,7 @@ public final class LegacyPlayers {
                 } else {
                     PlayerState.restore(uuid, player);
                 }
+                PlayerState.handOver(other, player, uuid);
             }
             player.field_71093_bK = world.field_73011_w.field_76574_g; // dimension = provider.dimensionId: mods check where players are
             world.field_73010_i.add(player); // playerEntities
@@ -98,6 +99,7 @@ public final class LegacyPlayers {
                 if (kept != null) {
                     PlayerState.load(kept, PlayerState.save(player));
                 }
+                PlayerState.handOver(player, kept, uuid);
             }
             if (player != null) {
                 entry.getKey().field_73010_i.remove(player);
@@ -161,6 +163,22 @@ public final class LegacyPlayers {
         }
         setFood(player.func_71024_bL(), food, saturation);
         GIVEN_STATS.put(player, new float[]{food, saturation, health});
+        GIVEN_ABILITIES.put(player, flags & (MAY_FLY | FLYING));
+    }
+
+    private static final Map<EntityPlayer, Integer> GIVEN_ABILITIES = new WeakHashMap<EntityPlayer, Integer>();
+
+    /** MAY_FLY and FLYING if legacy code changed them since {@link #sync} (flight buffs, brooms), else -1. */
+    public static int changedAbilities(Object legacyPlayer) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        Integer given = GIVEN_ABILITIES.get(player);
+        PlayerCapabilities capabilities = player.field_71075_bZ;
+        int now = (capabilities.field_75101_c ? MAY_FLY : 0) | (capabilities.field_75100_b ? FLYING : 0); // allowFlying, isFlying
+        if (given == null || given == now) {
+            return -1;
+        }
+        GIVEN_ABILITIES.put(player, now);
+        return now;
     }
 
     /** {food, saturation, health} if legacy code changed any of them since {@link #sync}, else null. */

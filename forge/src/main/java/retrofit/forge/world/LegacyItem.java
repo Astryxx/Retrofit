@@ -224,4 +224,11 @@ public class LegacyItem extends Item implements LegacyStackItem {
     public int getBurnTime(ItemStack stack, @javax.annotation.Nullable net.minecraft.world.item.crafting.RecipeType<?> type) {
         return LegacyRecipes.burnTime(stack);
     }
+
+    /** Legacy electric items (RF, IC2) as Forge Energy: 1.20.1 chargers and machines use them. */
+    @Override
+    public net.minecraftforge.common.capabilities.ICapabilityProvider initCapabilities(net.minecraft.world.item.ItemStack stack,
+                                                                                       @javax.annotation.Nullable net.minecraft.nbt.CompoundTag nbt) {
+        return LegacyItemEnergy.of(stack);
+    }
 }

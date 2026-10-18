@@ -36,6 +36,15 @@ import java.lang.reflect.Method;
 public final class ClientGuis {
     /** guiId of a vanilla chest GUI over a mod's inventory (EntityPlayerMP.displayGUIChest). */
     static final int CHEST = -1;
+    // -2 is Guis.DIRECT. The other vanilla GUIs (EntityPlayerMP.displayGUIFurnace and so on):
+    static final int FURNACE = -10;
+    static final int DISPENSER = -11;
+    static final int HOPPER = -12;
+    static final int BREWING = -13;
+    static final int BEACON = -14;
+    static final int WORKBENCH = -15;
+    static final int ENCHANTMENT = -16;
+    static final int ANVIL = -17;
 
     private static Method mouseClicked;
     private static Method mouseReleased;
@@ -61,11 +70,38 @@ public final class ClientGuis {
         }
     }
 
-    static Object vanillaGui(EntityPlayer player, int guiId, String title, int size) {
-        if (guiId == CHEST) {
-            return new GuiChest(player.field_71071_by, new InventoryBasic(title, false, size));
+    /** The vanilla GUI for a vanilla container the server opened, over a stand-in tile entity as the 1.7.10 client made. */
+    static Object vanillaGui(EntityPlayer player, int guiId, String title, int x, int y, int z) {
+        net.minecraft.entity.player.InventoryPlayer inventory = player.field_71071_by;
+        World world = player.field_70170_p;
+        boolean named = title != null && !title.isEmpty() && !title.startsWith("container.");
+        switch (guiId) {
+            case CHEST:
+                return new GuiChest(inventory, new InventoryBasic(title, false, x)); // x: the size
+            case FURNACE: {
+                net.minecraft.tileentity.TileEntityFurnace tile = new net.minecraft.tileentity.TileEntityFurnace();
+                if (named) {
+                    tile.func_145951_a(title); // setCustomInventoryName
+                }
+                return new net.minecraft.client.gui.inventory.GuiFurnace(inventory, tile);
+            }
+            case DISPENSER:
+                return new net.minecraft.client.gui.inventory.GuiDispenser(inventory, new net.minecraft.tileentity.TileEntityDispenser());
+            case HOPPER:
+                return new net.minecraft.client.gui.GuiHopper(inventory, new net.minecraft.tileentity.TileEntityHopper());
+            case BREWING:
+                return new net.minecraft.client.gui.inventory.GuiBrewingStand(inventory, new net.minecraft.tileentity.TileEntityBrewingStand());
+            case BEACON:
+                return new net.minecraft.client.gui.inventory.GuiBeacon(inventory, new net.minecraft.tileentity.TileEntityBeacon());
+            case WORKBENCH:
+                return new net.minecraft.client.gui.inventory.GuiCrafting(inventory, world, x, y, z);
+            case ENCHANTMENT:
+                return new net.minecraft.client.gui.GuiEnchantment(inventory, world, x, y, z, named ? title : null);
+            case ANVIL:
+                return new net.minecraft.client.gui.GuiRepair(inventory, world, x, y, z);
+            default:
+                return null;
         }
-        return null;
     }
 
     // ---- Redirect targets (see HeadlessTransformer) ----

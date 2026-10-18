@@ -131,6 +131,25 @@ public final class Entities {
         return entity;
     }
 
+    /**
+     * A new mob made by the host (natural spawning, spawn eggs, /summon), set up as 1.7.10 did:
+     * SpecialSpawn first, then onSpawnWithEgg, where mobs pick their equipment, variant and size.
+     */
+    public static void entityFinalizeSpawn(Object entity) {
+        if (!(entity instanceof net.minecraft.entity.EntityLiving)) {
+            return;
+        }
+        net.minecraft.entity.EntityLiving living = (net.minecraft.entity.EntityLiving) entity;
+        try {
+            if (!net.minecraftforge.event.ForgeEventFactory.doSpecialSpawn(living, living.field_70170_p,
+                    (float) living.field_70165_t, (float) living.field_70163_u, (float) living.field_70161_v)) {
+                living.func_110161_a(null); // onSpawnWithEgg
+            }
+        } catch (Throwable t) {
+            System.out.println("[Retrofit] " + EntityList.func_75621_b(living) + " failed setting itself up for spawning: " + t);
+        }
+    }
+
     public static Object entityLoad(byte[] nbt, Object world) throws IOException {
         return EntityList.func_75615_a(fromBytes(nbt), (World) world); // createEntityFromNBT
     }
@@ -143,13 +162,25 @@ public final class Entities {
     }
 
     /** Joins a legacy world's entity list (where legacy code looks for entities). */
-    public static void entityJoin(Object entity, Object world) {
+    /**
+     * The entity joins a legacy world, as World.spawnEntityInWorld did: EntityJoinWorldEvent first (mods
+     * set entities up there); false if a mod cancelled it, and then the entity isn't spawned.
+     */
+    public static boolean entityJoin(Object entity, Object world) {
         Entity legacy = (Entity) entity;
         World target = (World) world;
         legacy.func_70029_a(target); // setWorld
         if (!target.field_72996_f.contains(legacy)) {
+            try {
+                if (net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.EntityJoinWorldEvent(legacy, target))) {
+                    return false;
+                }
+            } catch (Throwable t) {
+                System.out.println("[Retrofit] An EntityJoinWorldEvent handler failed for " + legacy + ": " + t);
+            }
             target.field_72996_f.add(legacy); // loadedEntityList
         }
+        return true;
     }
 
     public static void entityLeave(Object entity) {
@@ -192,7 +223,47 @@ public final class Entities {
                 living ? body.func_110143_aJ() : 0, living ? body.func_110138_aP() : 0,
                 legacy.field_70130_N, legacy.field_70131_O,
                 legacy.field_70128_L ? 1 : 0, legacy.field_70122_E ? 1 : 0,
+                legacy.func_70042_X(), // getMountedYOffset: where riders sit
         };
+    }
+
+    // ---- Riding ----
+
+    private static java.lang.reflect.Field jumping;
+
+    /** What an entity (or a player's mirror) rides, or null. */
+    public static Object entityRiding(Object entity) {
+        return ((Entity) entity).field_70154_o; // ridingEntity
+    }
+
+    /** What rides an entity, or null. */
+    public static Object entityRider(Object entity) {
+        return ((Entity) entity).field_70153_n; // riddenByEntity
+    }
+
+    /** Makes legacy riding match the host: the rider on {@code vehicle}, or off what it rides if null. */
+    public static void setRiding(Object rider, Object vehicle) {
+        Entity entity = (Entity) rider;
+        if (entity.field_70154_o == vehicle) {
+            return;
+        }
+        if (vehicle == null) {
+            entity.func_70078_a(null); // mountEntity(null): dismount
+        } else {
+            entity.func_70078_a((Entity) vehicle);
+        }
+    }
+
+    /** The rider's movement keys, which 1.7.10 vehicles steer by (moveForward, moveStrafing, isJumping). */
+    public static void setRiderInput(Object rider, float forward, float strafe, boolean jump) throws ReflectiveOperationException {
+        EntityLivingBase entity = (EntityLivingBase) rider;
+        entity.field_70701_bs = forward; // moveForward
+        entity.field_70702_br = strafe;  // moveStrafing
+        if (jumping == null) {
+            jumping = EntityLivingBase.class.getDeclaredField("field_70703_bu"); // isJumping
+            jumping.setAccessible(true);
+        }
+        jumping.setBoolean(entity, jump);
     }
 
     /** Client: where the server's copy is now; the copy interpolates there and runs its client update (animations). */
@@ -218,6 +289,15 @@ public final class Entities {
         legacy.field_70166_s = legacy.field_70136_U = legacy.field_70161_v;
     }
 
+    /** getCreatureAttribute: 0 undefined, 1 undead, 2 arthropod. */
+    public static int entityCreatureAttribute(Object entity) {
+        if (!(entity instanceof net.minecraft.entity.EntityLivingBase)) {
+            return 0;
+        }
+        net.minecraft.entity.EnumCreatureAttribute attribute = ((net.minecraft.entity.EntityLivingBase) entity).func_70668_bt();
+        return attribute == net.minecraft.entity.EnumCreatureAttribute.UNDEAD ? 1 : attribute == net.minecraft.entity.EnumCreatureAttribute.ARTHROPOD ? 2 : 0;
+    }
+
     public static int entityId(Object entity) {
         return ((Entity) entity).func_145782_y();
     }
@@ -229,30 +309,77 @@ public final class Entities {
 
     // ---- Sync ----
 
-    /** DataWatcher entries changed since the last call, as 1.7.10 sent them; null if none. */
-    public static byte[] entityWatcherChanges(Object entity) throws IOException {
-        List<?> changed = ((Entity) entity).func_70096_w().func_75688_b(); // getChanged
-        if (changed == null || changed.isEmpty()) {
+    /** Equipment last sent to clients, per entity (1.7.10's EntityTracker sent changes as S04PacketEntityEquipment). */
+    private static final java.util.Map<Entity, net.minecraft.item.ItemStack[]> SENT_EQUIPMENT =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Entity, net.minecraft.item.ItemStack[]>());
+
+    /**
+     * Sync data for clients: the DataWatcher entries (changed ones, or all) and the equipment slots
+     * that changed (held item and armor: mobs holding swords, wearing pumpkins); null if nothing changed.
+     */
+    private static byte[] syncData(Entity entity, boolean all) throws IOException {
+        List<?> entries = all ? entity.func_70096_w().func_75685_c() : entity.func_70096_w().func_75688_b(); // getAllWatched, getChanged
+        int changedSlots = 0;
+        net.minecraft.item.ItemStack[] now = null;
+        if (entity instanceof net.minecraft.entity.EntityLivingBase) {
+            net.minecraft.item.ItemStack[] sent = SENT_EQUIPMENT.get(entity);
+            now = new net.minecraft.item.ItemStack[5];
+            for (int slot = 0; slot < 5; slot++) {
+                net.minecraft.item.ItemStack stack = ((net.minecraft.entity.EntityLivingBase) entity).func_71124_b(slot); // getEquipmentInSlot
+                now[slot] = stack == null ? null : stack.func_77946_l(); // copy
+                if (all ? stack != null : !net.minecraft.item.ItemStack.func_77989_b(stack, sent == null ? null : sent[slot])) { // areItemStacksEqual
+                    changedSlots |= 1 << slot;
+                }
+            }
+            SENT_EQUIPMENT.put(entity, now);
+        }
+        if ((entries == null || entries.isEmpty()) && changedSlots == 0) {
             return null;
         }
         ByteBuf buffer = Unpooled.buffer();
-        net.minecraft.entity.DataWatcher.func_151507_a(changed, new PacketBuffer(buffer)); // writeWatchedListToPacketBuffer
+        PacketBuffer packet = new PacketBuffer(buffer);
+        packet.writeBoolean(entries != null && !entries.isEmpty());
+        if (entries != null && !entries.isEmpty()) {
+            net.minecraft.entity.DataWatcher.func_151507_a(entries, packet); // writeWatchedListToPacketBuffer
+        }
+        packet.writeByte(changedSlots);
+        for (int slot = 0; slot < 5; slot++) {
+            if ((changedSlots & 1 << slot) != 0) {
+                packet.func_150788_a(now[slot]); // writeItemStackToBuffer
+            }
+        }
         return bytes(buffer);
     }
 
-    /** All DataWatcher entries (for spawning on a client). */
+    /** DataWatcher entries and equipment changed since the last call; null if none. */
+    public static byte[] entityWatcherChanges(Object entity) throws IOException {
+        return syncData((Entity) entity, false);
+    }
+
+    /** All DataWatcher entries and equipment (for spawning on a client). */
     public static byte[] entityWatcherAll(Object entity) throws IOException {
-        ByteBuf buffer = Unpooled.buffer();
-        ((Entity) entity).func_70096_w().func_151509_a(new PacketBuffer(buffer)); // writeTo
-        return bytes(buffer);
+        return syncData((Entity) entity, true);
     }
 
     /** Client */
     @SuppressWarnings("rawtypes")
     public static void entityApplyWatcher(Object entity, byte[] data) throws IOException {
-        List entries = net.minecraft.entity.DataWatcher.func_151508_b(new PacketBuffer(Unpooled.wrappedBuffer(data))); // readWatchedListFromPacketBuffer
-        if (entries != null) {
-            ((Entity) entity).func_70096_w().func_75687_a(entries); // updateWatchedObjectsFromList
+        if (data == null || data.length == 0) {
+            return;
+        }
+        PacketBuffer packet = new PacketBuffer(Unpooled.wrappedBuffer(data));
+        if (packet.readBoolean()) {
+            List entries = net.minecraft.entity.DataWatcher.func_151508_b(packet); // readWatchedListFromPacketBuffer
+            if (entries != null) {
+                ((Entity) entity).func_70096_w().func_75687_a(entries); // updateWatchedObjectsFromList
+            }
+        }
+        int changedSlots = packet.readByte();
+        for (int slot = 0; slot < 5; slot++) {
+            if ((changedSlots & 1 << slot) != 0) {
+                net.minecraft.item.ItemStack stack = packet.func_150791_c(); // readItemStackFromBuffer
+                ((Entity) entity).func_70062_b(slot, stack); // setCurrentItemOrArmor
+            }
         }
     }
 

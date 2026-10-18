@@ -91,6 +91,89 @@ final class LevelHostWorld implements HostWorld {
     }
 
     @Override
+    public retrofit.api.HostInventory getHostInventory(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        return level.isLoaded(pos) ? HostContainerInventory.at(level, pos) : null;
+    }
+
+    @Override
+    public Object[] hostBlockDrops(int x, int y, int z, int fortune) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (!(level instanceof net.minecraft.server.level.ServerLevel server) || !level.isLoaded(pos)) {
+            return null;
+        }
+        BlockState state = level.getBlockState(pos);
+        java.util.List<ItemStack> drops = Block.getDrops(state, server, pos, level.getBlockEntity(pos));
+        java.util.List<Object> legacy = new java.util.ArrayList<>();
+        for (ItemStack drop : drops) {
+            Object stack = LegacyStacks.toLegacy(drop);
+            if (stack != null) {
+                legacy.add(stack);
+            }
+        }
+        return legacy.toArray();
+    }
+
+    @Override
+    public float hostBlockHardness(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        return level.isLoaded(pos) ? level.getBlockState(pos).getDestroySpeed(level, pos) : 1.5f;
+    }
+
+    @Override
+    public int hostBlockLight(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        return level.isLoaded(pos) ? level.getBlockState(pos).getLightEmission(level, pos) : 0;
+    }
+
+    @Override
+    public boolean hostBlockIsStone(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (!level.isLoaded(pos)) {
+            return false;
+        }
+        BlockState state = level.getBlockState(pos);
+        return state.is(net.minecraft.tags.BlockTags.BASE_STONE_OVERWORLD) || state.is(net.minecraftforge.common.Tags.Blocks.STONE);
+    }
+
+    @Override
+    public Object[][] hostEntities(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        return level.isClientSide ? new Object[0][] : HostCreatures.inBox(level, minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    @Override
+    public double[] hostEntityState(Object handle) {
+        return HostCreatures.state(handle);
+    }
+
+    @Override
+    public boolean hurtHostEntity(Object handle, String kind, Object legacyAttacker, float amount) {
+        return HostCreatures.hurt(handle, kind, legacyAttacker, amount);
+    }
+
+    @Override
+    public void hostEntityAction(Object handle, int action, double a, double b, double c) {
+        HostCreatures.act(handle, action, a, b, c);
+    }
+
+    @Override
+    public void setHostItemStack(Object handle, Object legacyStack) {
+        HostCreatures.setItemStack(handle, legacyStack);
+    }
+
+    @Override
+    public retrofit.api.HostFluids getHostFluids(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        return level.isLoaded(pos) ? LegacyFluids.hostFluids(level, pos) : null;
+    }
+
+    @Override
+    public retrofit.api.HostEnergy getHostEnergy(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        return level.isLoaded(pos) ? HostEnergyStorage.at(level, pos) : null;
+    }
+
+    @Override
     public void setLegacyTileEntity(int x, int y, int z, Object legacyTileEntity) {
         if (level.getBlockEntity(new BlockPos(x, y, z)) instanceof LegacyBlockEntity legacy) {
             legacy.adopt(legacyTileEntity);
@@ -167,6 +250,18 @@ final class LevelHostWorld implements HostWorld {
     }
 
     // ---- Light, height, biome, time, weather ----
+
+    /** Legacy chunk-loading tickets (see the legacy bridge's ChunkLoading), as Forge forced chunks owned by Retrofit. */
+    @Override
+    public void forceChunk(int chunkX, int chunkZ, boolean forced) {
+        if (level instanceof net.minecraft.server.level.ServerLevel server) {
+            server.getServer().execute(() -> net.minecraftforge.common.world.ForgeChunkManager.forceChunk(server, retrofit.forge.RetrofitMod.MOD_ID,
+                    CHUNK_OWNER, chunkX, chunkZ, forced, true));
+        }
+    }
+
+    /** The owner of the chunks legacy tickets force (one for all of them; the legacy side counts tickets). */
+    static final java.util.UUID CHUNK_OWNER = java.util.UUID.nameUUIDFromBytes("retrofit:legacy_tickets".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
     @Override
     public int getBlockLight(int x, int y, int z) {

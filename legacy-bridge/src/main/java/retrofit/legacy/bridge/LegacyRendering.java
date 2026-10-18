@@ -328,6 +328,9 @@ public final class LegacyRendering {
                 entityRendererItems.setAccessible(true);
                 retrofit.legacy.compat.FinalFields.set(entityRendererItems, minecraft.field_71460_t, RenderManager.field_78727_a.field_78721_f);
             }
+            if (minecraft.field_71456_v == null) { // ingameGUI: chat for mods that print to it
+                minecraft.field_71456_v = new BridgeGuiIngame(minecraft);
+            }
             Field sounds = Minecraft.class.getDeclaredField("field_147127_av"); // mcSoundHandler
             sounds.setAccessible(true);
             sounds.set(minecraft, allocate(BridgeSoundHandler.class));

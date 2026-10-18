@@ -22,6 +22,8 @@ public final class LegacyBridge {
             "retrofit.legacy.bridge.Recipes", "retrofit.legacy.bridge.Guis", "retrofit.legacy.bridge.Network",
             "retrofit.legacy.bridge.Events", "retrofit.legacy.bridge.WorldGen", "retrofit.legacy.bridge.Entities",
             "retrofit.legacy.bridge.PlayerState", "retrofit.legacy.bridge.LivingEvents", "retrofit.legacy.bridge.Dimensions",
+            "retrofit.legacy.bridge.Energy", "retrofit.legacy.bridge.HostCreatures", "retrofit.legacy.bridge.ModernContent",
+            "retrofit.legacy.bridge.Fluids", "retrofit.legacy.bridge.Achievements",
     };
     /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
     private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis", "retrofit.legacy.bridge.ClientEvents"};
@@ -60,6 +62,11 @@ public final class LegacyBridge {
         prepareFrame = lookup.findStatic(bridge, "prepareFrame", MethodType.methodType(void.class, Object.class,
                 double.class, double.class, double.class, float.class, float.class, float.class));
         lock = bridge.getField("LOCK").get(null);
+    }
+
+    /** Whether the legacy side has booted (no legacy mods: never). */
+    public static boolean isReady() {
+        return !HANDLES.isEmpty();
     }
 
     /** Calls a legacy bridge entry point by name; legacy exceptions come out as IllegalStateException. */

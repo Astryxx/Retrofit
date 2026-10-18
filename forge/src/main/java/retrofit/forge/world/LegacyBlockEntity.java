@@ -127,6 +127,30 @@ public class LegacyBlockEntity extends BlockEntity {
                 fail("offering its inventory", e);
             }
         }
+        if (capability == net.minecraftforge.common.capabilities.ForgeCapabilities.FLUID_HANDLER && !broken && level != null) {
+            try {
+                Object tile = legacyTile();
+                var tanks = tile == null ? null : LegacyFluids.handlerOf(tile, side == null ? -1 : side.get3DDataValue());
+                if (tanks != null) {
+                    return net.minecraftforge.common.util.LazyOptional.of(() -> tanks).cast();
+                }
+            } catch (RuntimeException e) {
+                fail("offering its tanks", e);
+            }
+        }
+        if (capability == net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY && !broken && level != null) {
+            try {
+                Object tile = legacyTile();
+                if (tile != null) {
+                    LegacyEnergyStorage energy = LegacyEnergyStorage.of(tile, side == null ? -1 : side.get3DDataValue());
+                    if (energy != null) {
+                        return net.minecraftforge.common.util.LazyOptional.of(() -> energy).cast();
+                    }
+                }
+            } catch (RuntimeException e) {
+                fail("offering its energy", e);
+            }
+        }
         return super.getCapability(capability, side);
     }
 
@@ -220,9 +244,31 @@ public class LegacyBlockEntity extends BlockEntity {
     @Override
     public void setRemoved() {
         super.setRemoved();
-        if (legacyTile != null) {
-            LegacyBridge.remove(legacyTile);
+        if (legacyTile != null && !unloading) {
+            LegacyBridge.remove(legacyTile); // invalidate: the block is gone
         }
+    }
+
+    /** The chunk unloads (setRemoved follows): 1.7.10 only called onChunkUnload then; invalidate means the block was removed. */
+    private boolean unloading;
+
+    @Override
+    public void onChunkUnloaded() {
+        super.onChunkUnloaded();
+        unloading = true;
+        if (legacyTile != null) {
+            try {
+                LegacyBridge.call("unloadTile", legacyTile);
+            } catch (RuntimeException e) {
+                LegacyErrors.report(this, "unloading with its chunk", e);
+            }
+        }
+    }
+
+    @Override
+    public void clearRemoved() {
+        super.clearRemoved();
+        unloading = false;
     }
 
     /** Binary NBT is the same format in 1.7.10 and 1.20.1, so tags cross as bytes. */
