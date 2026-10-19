@@ -78,6 +78,21 @@ final class WorldGlue {
         }
     }
 
+    /** checkChunksExist over the host's whole height (1.20.1 worlds go below y 0). */
+    static boolean areaLoaded(HostWorld host, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+        if (host == null) {
+            return false;
+        }
+        for (int x = minX >> 4; x <= maxX >> 4; x++) {
+            for (int z = minZ >> 4; z <= maxZ >> 4; z++) {
+                if (!host.blockLoaded(x << 4, Math.max(minY, Math.min(maxY, 64)), z << 4)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     /** The host level behind a bridged world, or null for other worlds. */
     static HostWorld hostOf(World world) {
         if (world instanceof BridgeWorldServer) {
@@ -95,7 +110,11 @@ final class WorldGlue {
             return null;
         }
         TileEntity tile = (TileEntity) host.getLegacyTileEntity(x, y, z);
-        return tile != null ? tile : HostTiles.at(world, host, x, y, z);
+        if (tile != null || !host.hasHostBlockEntity(x, y, z)) {
+            return tile; // (most places have no 1.20.1 block entity: no stand-in to look for)
+        }
+        tile = HostTiles.at(world, host, x, y, z);
+        return tile != null ? tile : HostSpawner.at(world, host, x, y, z);
     }
 
     static void setTileEntity(HostWorld host, World world, int x, int y, int z, TileEntity tile) {

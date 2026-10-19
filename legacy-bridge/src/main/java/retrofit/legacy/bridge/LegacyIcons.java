@@ -189,6 +189,39 @@ public final class LegacyIcons {
         }
     }
 
+    /**
+     * The icon of each render pass an item draws with (requiresMultipleRenderPasses: TC's
+     * essentia phials, potions, spawn eggs), at most {@code max}; a single pass otherwise. Entries
+     * may be null.
+     */
+    public static String[] itemPassTextures(Object item, int meta, int max) {
+        Item legacy = (Item) item;
+        try {
+            if (!legacy.func_77623_v()) { // requiresMultipleRenderPasses
+                return new String[]{itemTexture(item, meta)};
+            }
+            int passes = Math.max(1, Math.min(max, legacy.getRenderPasses(meta)));
+            String[] textures = new String[passes];
+            for (int pass = 0; pass < passes; pass++) {
+                IIcon icon = legacy.func_77618_c(meta, pass); // getIconFromDamageForRenderPass
+                textures[pass] = icon == null ? null : icon.func_94215_i();
+            }
+            return textures;
+        } catch (Throwable t) {
+            return new String[]{itemTexture(item, meta)};
+        }
+    }
+
+    /** An item stack's colour for a render pass (getColorFromItemStack), 0xFFFFFF for none. */
+    public static int itemColor(Object stack, int pass) {
+        try {
+            ItemStack legacy = (ItemStack) stack;
+            return legacy.func_77973_b().func_82790_a(legacy, pass); // getItem().getColorFromItemStack
+        } catch (Throwable t) {
+            return 0xFFFFFF;
+        }
+    }
+
     /** The damage values an item shows in the creative menu (getSubItems), or {0}. */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static int[] itemSubtypes(Object legacyItem) {

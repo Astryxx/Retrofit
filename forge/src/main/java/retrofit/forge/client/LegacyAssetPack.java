@@ -112,6 +112,7 @@ final class LegacyAssetPack implements PackResources {
             }
             addBlock(block, blockTextures);
         }
+        addWoodAliases();
         for (LegacyItem item : items) {
             addItem(item, itemTextures);
         }
@@ -166,6 +167,28 @@ final class LegacyAssetPack implements PackResources {
 
     // ---- Blocks ----
 
+    /** The 1.20.1-named planks and logs of legacy woods (LegacyWoodSets) look like their legacy subtype. */
+    private void addWoodAliases() {
+        for (net.minecraft.world.level.block.Block block : ForgeRegistries.BLOCKS) {
+            if (!(block instanceof retrofit.forge.world.LegacyWoodSets.AliasBlock alias)) {
+                continue;
+            }
+            ResourceLocation key = ForgeRegistries.BLOCKS.getKey(alias);
+            ResourceLocation original = ForgeRegistries.BLOCKS.getKey(alias.original());
+            String model = "retrofit:block/legacy/" + original.getNamespace() + "/" + original.getPath() + "/m" + alias.meta();
+            JsonObject variant = new JsonObject();
+            variant.addProperty("model", model);
+            JsonObject variants = new JsonObject();
+            variants.add("", variant);
+            JsonObject blockstate = new JsonObject();
+            blockstate.add("variants", variants);
+            putJson(key.getNamespace(), "blockstates/" + key.getPath() + ".json", blockstate);
+            JsonObject itemModel = new JsonObject();
+            itemModel.addProperty("parent", model);
+            putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", itemModel);
+        }
+    }
+
     private void addBlock(LegacyBlock block, Map<String, String> textureIds) {
         ResourceLocation key = ForgeRegistries.BLOCKS.getKey(block);
         String[] models = new String[16];
@@ -202,7 +225,9 @@ final class LegacyAssetPack implements PackResources {
         String baseModel = models[0] != null ? models[0] : fallbackModel;
         JsonObject itemModel;
         Object legacyItem = block.asItem() instanceof LegacyBlockItem item ? item.legacyItem() : null;
-        if (legacyItem != null && LegacyBridge.hasItemRenderer(legacyItem, 0, "INVENTORY")) {
+        boolean customBlock = block.renderType() >= 42 && legacyItem != null && LegacyBridge.<Boolean>call("blockItemIn3d", block.legacyBlock());
+        if (legacyItem != null && LegacyBridge.hasItemRenderer(legacyItem, 0, "INVENTORY") || customBlock) {
+            // drawn by the legacy item renderer, or (mods' block renderers) as 1.7.10 drew the block as an item
             itemModel = customRendererItemModel();
         } else {
             itemModel = new JsonObject();
@@ -238,13 +263,12 @@ final class LegacyAssetPack implements PackResources {
         model.addProperty("parent", "minecraft:builtin/entity");
         model.addProperty("gui_light", "side");
         JsonObject display = new JsonObject();
-        display.add("gui", transform(new float[]{30, 225, 0}, new float[]{0, 0, 0}, 0.625f));
+        display.add("gui", transform(new float[]{0, 0, 0}, new float[]{0, 0, 0}, 1f)); // the GUI transform is 1.7.10's (LegacyItemRenderer)
         display.add("ground", transform(new float[]{0, 0, 0}, new float[]{0, 3, 0}, 0.25f));
         display.add("fixed", transform(new float[]{0, 0, 0}, new float[]{0, 0, 0}, 0.5f));
-        display.add("thirdperson_righthand", transform(new float[]{75, 45, 0}, new float[]{0, 2.5f, 0}, 0.375f));
-        display.add("thirdperson_lefthand", transform(new float[]{75, 45, 0}, new float[]{0, 2.5f, 0}, 0.375f));
-        display.add("firstperson_righthand", transform(new float[]{0, 45, 0}, new float[]{0, 0, 0}, 0.4f));
-        display.add("firstperson_lefthand", transform(new float[]{0, 225, 0}, new float[]{0, 0, 0}, 0.4f));
+        for (String hand : new String[]{"thirdperson_righthand", "thirdperson_lefthand", "firstperson_righthand", "firstperson_lefthand"}) {
+            display.add(hand, transform(new float[]{0, 0, 0}, new float[]{0, 0, 0}, 1f)); // 1.7.10's, in LegacyItemRenderer
+        }
         model.add("display", display);
         return model;
     }
@@ -281,13 +305,19 @@ final class LegacyAssetPack implements PackResources {
         }
         JsonObject model = new JsonObject();
         JsonObject textures = new JsonObject();
+        boolean tinted = tinted(block); // leaves, grass: coloured by LegacyBlockColors
         if (Arrays.stream(sprites).allMatch(sprites[0]::equals)) {
-            model.addProperty("parent", "minecraft:block/cube_all");
+            model.addProperty("parent", tinted ? "minecraft:block/leaves" : "minecraft:block/cube_all"); // leaves: cube_all with tint index 0
             textures.addProperty("all", sprites[0]);
         } else {
             model.addProperty("parent", "minecraft:block/cube");
             for (int i = 0; i < 6; i++) {
                 textures.addProperty(FACES[i], sprites[i]);
+            }
+            if (tinted) {
+                model.addProperty("parent", "minecraft:block/block");
+                model.add("elements", tintedCube());
+                textures.addProperty("particle", sprites[1]);
             }
         }
         textures.addProperty("particle", sprites[1]);
@@ -300,6 +330,38 @@ final class LegacyAssetPack implements PackResources {
         return model;
     }
 
+    private static final Map<Object, Boolean> TINTED = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Whether a legacy block has colours of its own (see the legacy bridge's LegacyRendering.blockTinted). */
+    static boolean tinted(LegacyBlock block) {
+        return TINTED.computeIfAbsent(block.legacyBlock(), legacy -> {
+            try {
+                return LegacyBridge.<Boolean>call("blockTinted", legacy);
+            } catch (RuntimeException e) {
+                return false;
+            }
+        });
+    }
+
+    /** minecraft:block/cube's element with tint index 0 on every face. */
+    private static JsonArray tintedCube() {
+        JsonObject faces = new JsonObject();
+        for (String face : FACES) {
+            JsonObject entry = new JsonObject();
+            entry.addProperty("texture", "#" + face);
+            entry.addProperty("cullface", face);
+            entry.addProperty("tintindex", 0);
+            faces.add(face, entry);
+        }
+        JsonObject element = new JsonObject();
+        element.add("from", array(new float[]{0, 0, 0}));
+        element.add("to", array(new float[]{16, 16, 16}));
+        element.add("faces", faces);
+        JsonArray elements = new JsonArray();
+        elements.add(element);
+        return elements;
+    }
+
     // ---- Items ----
 
     /** One flat item model per subtype; the item's main model picks one with {@link LegacyItemProperties#META}. */
@@ -308,18 +370,35 @@ final class LegacyAssetPack implements PackResources {
         int[] metas = item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0};
         JsonArray overrides = new JsonArray();
         String baseModel = null;
+        // Forge item renderers can handle some render types only (OreSpawn's big swords: in hand, not in inventories)
+        String[] types = {"INVENTORY", "ENTITY", "EQUIPPED", "EQUIPPED_FIRST_PERSON"};
+        boolean[] custom = new boolean[types.length];
+        boolean anyCustom = false, allCustom = true;
+        for (int i = 0; i < types.length; i++) {
+            custom[i] = LegacyBridge.hasItemRenderer(item.legacyItem(), metas[0], types[i]);
+            anyCustom |= custom[i];
+            allCustom &= custom[i];
+        }
+        boolean handheld = (LegacyBridge.<Integer>call("itemRendererHelpers", item.legacyItem(), metas[0], "EQUIPPED") & 1 << 30) != 0; // isFull3D
         for (int meta : metas) {
-            String texture = LegacyBridge.itemTexture(item.legacyItem(), meta);
-            if (texture == null) {
+            // one layer per render pass; item/generated tints layer n with tint index n (LegacyItemColors: the pass's colour)
+            String[] passes = LegacyBridge.call("itemPassTextures", item.legacyItem(), meta, 5);
+            if (passes.length == 0 || passes[0] == null) {
                 continue;
             }
             String modelPath = "item/legacy/" + key.getNamespace() + "/" + key.getPath() + "/m" + meta;
             JsonObject model = new JsonObject();
-            model.addProperty("parent", "minecraft:item/generated");
+            model.addProperty("parent", handheld ? "minecraft:item/handheld" : "minecraft:item/generated"); // tools, swords: held as 1.7.10's full-3D items
             JsonObject textures = new JsonObject();
-            textures.addProperty("layer0", textureIds.computeIfAbsent(texture, name -> spriteId("items", name)));
+            for (int pass = 0; pass < passes.length && passes[pass] != null; pass++) {
+                textures.addProperty("layer" + pass, textureIds.computeIfAbsent(passes[pass], name -> spriteId("items", name)));
+            }
             model.add("textures", textures);
             putJson("retrofit", "models/" + modelPath + ".json", model);
+            if (anyCustom && !allCustom) {
+                putJson("retrofit", "models/" + modelPath + "_mixed.json", mixedModel("retrofit:" + modelPath, custom));
+                modelPath += "_mixed";
+            }
             if (baseModel == null) {
                 baseModel = "retrofit:" + modelPath;
             }
@@ -327,10 +406,10 @@ final class LegacyAssetPack implements PackResources {
                 overrides.add(metaOverride(meta, "retrofit:" + modelPath));
             }
         }
-        if (baseModel == null) {
+        if (baseModel == null && !allCustom) {
             return;
         }
-        if (LegacyBridge.hasItemRenderer(item.legacyItem(), metas[0], "INVENTORY")) {
+        if (allCustom) {
             putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", customRendererItemModel());
             return;
         }
@@ -340,6 +419,27 @@ final class LegacyAssetPack implements PackResources {
             itemModel.add("overrides", overrides); // getSubItems lists subtypes in ascending order
         }
         putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", itemModel);
+    }
+
+    /** The legacy item renderer where it handles the render type, the flat model elsewhere (Forge's separate transforms). */
+    private static JsonObject mixedModel(String flatModel, boolean[] custom) {
+        String[][] contexts = {{"gui"}, {"ground", "fixed"}, {"thirdperson_righthand", "thirdperson_lefthand", "head"},
+                {"firstperson_righthand", "firstperson_lefthand"}}; // INVENTORY, ENTITY, EQUIPPED, EQUIPPED_FIRST_PERSON
+        JsonObject flat = new JsonObject();
+        flat.addProperty("parent", flatModel);
+        JsonObject model = new JsonObject();
+        model.addProperty("loader", "forge:separate_transforms");
+        model.add("base", flat);
+        JsonObject perspectives = new JsonObject();
+        for (int i = 0; i < contexts.length; i++) {
+            if (custom[i]) {
+                for (String context : contexts[i]) {
+                    perspectives.add(context, customRendererItemModel());
+                }
+            }
+        }
+        model.add("perspectives", perspectives);
+        return model;
     }
 
     // ---- Textures ----

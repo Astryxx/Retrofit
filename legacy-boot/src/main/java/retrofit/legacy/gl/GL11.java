@@ -33,6 +33,8 @@ public final class GL11 {
     private static final int GL_TEXTURE_COORD_ARRAY = 0x8078;
     private static final int GL_MODELVIEW = 0x1700;
     private static final int GL_BLEND = 0x0BE2;
+    private static final int GL_LIGHTING = 0x0B50;
+    private static final int GL_ONE = 1;
     private static final int GL_TEXTURE_2D = 0x0DE1;
     private static final int GL_VENDOR = 0x1F00;
     private static final int GL_RENDERER = 0x1F01;
@@ -47,6 +49,10 @@ public final class GL11 {
     private static boolean blend;
     /** GL_TEXTURE_2D: GUIs draw flat rectangles and gradients with texturing off. */
     private static boolean textured = true;
+    /** glBlendFunc(..., GL_ONE): glowing things add their colour. */
+    private static boolean additive;
+    /** GL_LIGHTING: off for things drawn without shading (glows, beams, flat sprites). */
+    private static boolean lighting = true;
     /** Packed lightmap coordinates set by legacy code, or -1 for the host's light. */
     private static int light = -1;
     private static final List<float[]> attribStack = new ArrayList<float[]>();
@@ -70,6 +76,30 @@ public final class GL11 {
         void run();
     }
 
+    /** The modelview matrix (column-major), for the host to follow what legacy code left on it. */
+    public static float[] modelviewMatrix() {
+        return modelview.m.clone();
+    }
+
+    /** The modelview matrix and its stack, carried from one capture to a later one (Capture.begin resets them). */
+    public static Object saveMatrices() {
+        List<Matrix4> copy = new ArrayList<Matrix4>();
+        for (Matrix4 matrix : stack) {
+            copy.add(matrix.copy());
+        }
+        return new Object[]{modelview.copy(), copy};
+    }
+
+    @SuppressWarnings("unchecked")
+    public static void restoreMatrices(Object saved) {
+        Object[] matrices = (Object[]) saved;
+        modelview = ((Matrix4) matrices[0]).copy();
+        stack.clear();
+        for (Matrix4 matrix : (List<Matrix4>) matrices[1]) {
+            stack.add(matrix.copy());
+        }
+    }
+
     static void resetState() {
         stack.clear();
         modelview = new Matrix4();
@@ -77,6 +107,8 @@ public final class GL11 {
         matrixMode = GL_MODELVIEW;
         blend = false;
         textured = true;
+        additive = false;
+        lighting = true;
         light = -1;
         attribStack.clear();
     }
@@ -474,7 +506,8 @@ public final class GL11 {
                 currentColour ? green : d[o + 9],
                 currentColour ? blue : d[o + 10],
                 currentColour ? alpha : d[o + 11],
-                texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED), light);
+                texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED)
+                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT), light);
     }
 
     // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----
@@ -642,17 +675,23 @@ public final class GL11 {
                     textured = enabled;
                 }
             });
+        } else if (cap == GL_LIGHTING) {
+            submit(new Op() {
+                public void run() {
+                    lighting = enabled;
+                }
+            });
         }
     }
 
     public static boolean glIsEnabled(int cap) {
-        return cap == GL_BLEND ? blend : cap == GL_TEXTURE_2D && textured;
+        return cap == GL_BLEND ? blend : cap == GL_LIGHTING ? lighting : cap == GL_TEXTURE_2D && textured;
     }
 
     public static void glPushAttrib(int mask) {
         submit(new Op() {
             public void run() {
-                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0});
+                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0, additive ? 1 : 0, lighting ? 1 : 0});
             }
         });
     }
@@ -670,6 +709,8 @@ public final class GL11 {
                     texture = (int) saved[5];
                     light = (int) saved[6];
                     textured = saved[7] != 0;
+                    additive = saved[8] != 0;
+                    lighting = saved[9] != 0;
                 }
             }
         });
@@ -700,7 +741,12 @@ public final class GL11 {
         glColor4ub(r, g, b, (byte) 255);
     }
 
-    public static void glBlendFunc(int sfactor, int dfactor) {
+    public static void glBlendFunc(int sfactor, final int dfactor) {
+        submit(new Op() {
+            public void run() {
+                additive = dfactor == GL_ONE;
+            }
+        });
     }
 
     public static void glAlphaFunc(int func, float ref) {

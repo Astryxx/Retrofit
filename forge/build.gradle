@@ -24,6 +24,9 @@ minecraft {
         configureEach {
             workingDirectory project.file('run')
             property 'forge.logging.console.level', 'info'
+            // 1.20.1 test mods with mixins (-PmodernMods) ship SRG refmaps; development runs use official names
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
             if (project.hasProperty('retrofitDisabled')) {
                 property 'retrofit.disabled', 'true' // compare against Forge without the legacy layer
             }
@@ -69,11 +72,18 @@ minecraft {
                 property 'retrofit.background', 'true' // test runs never take the mouse or keep the focus (retrofit.forge.test.BackgroundWindow)
             }
             if (project.hasProperty('modSweep')) {
+                args '--width', '1600', '--height', '900' // screenshots detailed enough to judge textures and lighting
                 property 'retrofit.modSweep', 'true' // retrofit.forge.test.ModSweepServer: every block, GUI, entity and item of the mods
                 property 'retrofit.debugEntities', 'true' // logs why legacy entities die
             }
+            if (project.hasProperty('perf')) {
+                property 'retrofit.perf', 'true' // the sweep measures server ticks after placing and spawning everything
+            }
             if (project.hasProperty('renderTest')) {
                 property 'retrofit.renderTest', 'true'
+            }
+            if (project.hasProperty('galleryDump')) {
+                property 'retrofit.galleryDump', project.property('galleryDump') // ItemGallery: captured vertices of these block items
             }
         }
     }
@@ -91,6 +101,8 @@ def modernMods = [
         'jei'                : 'maven.modrinth:jei:IrfJO7PN',                 // 15.59.0.212
         'mekanism'           : 'maven.modrinth:mekanism:uxe1WQp4',            // 10.4.16.80
         'mekanism-generators': 'maven.modrinth:mekanism-generators:Th4Czz4N', // 10.4.16.80
+        'moonlight'          : 'maven.modrinth:moonlight:W0ZWjZib',           // 1.20-2.16.35
+        'every-compat'       : 'maven.modrinth:every-compat:zGp4qGn5',        // 1.20-2.9.26 (needs moonlight)
 ]
 
 dependencies {

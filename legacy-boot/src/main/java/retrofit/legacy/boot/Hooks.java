@@ -39,8 +39,37 @@ public final class Hooks {
             Method reload = manager.getClass().getMethod("func_110541_a", List.class); // reloadResources
             reload.invoke(manager, packs);
             loadLanguage(game, manager);
+            notifyModListeners(game, manager);
         } catch (ReflectiveOperationException e) {
             System.out.println("[Retrofit] Could not load legacy resource packs: " + e);
+        }
+    }
+
+    /**
+     * 1.7.10's language manager was the first reload listener: translations were in place before
+     * mods' own listeners ran, and some add to them there (IC2 copies its .properties translations
+     * into the Locale). The Locale is made after the reload here, so mods' listeners run once more.
+     */
+    @SuppressWarnings("rawtypes")
+    private static void notifyModListeners(ClassLoader game, Object manager) {
+        try {
+            Field listenersField = manager.getClass().getDeclaredField("field_110546_b"); // reloadListeners
+            listenersField.setAccessible(true);
+            Class<?> listenerType = Class.forName("net.minecraft.client.resources.IResourceManagerReloadListener", true, game);
+            Class<?> managerType = Class.forName("net.minecraft.client.resources.IResourceManager", true, game);
+            Method onReload = listenerType.getMethod("func_110549_a", managerType); // onResourceManagerReload
+            for (Object listener : new ArrayList((List) listenersField.get(manager))) {
+                if (listener.getClass().getName().startsWith("net.minecraft.")) {
+                    continue; // vanilla listeners did their part in the reload
+                }
+                try {
+                    onReload.invoke(listener, manager);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    System.out.println("[Retrofit] A resource reload listener failed: " + listener.getClass().getName() + ": " + e);
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Retrofit] Could not tell mods about the loaded translations: " + e);
         }
     }
 

@@ -69,6 +69,39 @@ public final class LegacyEntityTypes {
         return NAMES.get(type);
     }
 
+    /** 1.20.1 vanilla ids whose 1.7.10 names differ from the capitalised path. */
+    private static final Map<String, String> VANILLA_LEGACY_NAMES = Map.ofEntries(
+            Map.entry("minecraft:zombified_piglin", "PigZombie"), Map.entry("minecraft:cave_spider", "CaveSpider"),
+            Map.entry("minecraft:magma_cube", "LavaSlime"), Map.entry("minecraft:snow_golem", "SnowMan"),
+            Map.entry("minecraft:iron_golem", "VillagerGolem"), Map.entry("minecraft:mooshroom", "MushroomCow"),
+            Map.entry("minecraft:ocelot", "Ozelot"), Map.entry("minecraft:horse", "EntityHorse"),
+            Map.entry("minecraft:wither", "WitherBoss"), Map.entry("minecraft:ender_dragon", "EnderDragon"),
+            Map.entry("minecraft:wither_skeleton", "Skeleton"), Map.entry("minecraft:stray", "Skeleton"),
+            Map.entry("minecraft:husk", "Zombie"), Map.entry("minecraft:drowned", "Zombie"));
+
+    /** The 1.7.10 EntityList name for a 1.20.1 entity id (legacy mods' entities, vanilla ones), or "Pig" if it has none. */
+    static String legacyNameOf(String modernId) {
+        EntityType<?> type = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getValue(ResourceLocation.tryParse(modernId));
+        String legacy = type == null ? null : NAMES.get(type);
+        if (legacy != null) {
+            return legacy;
+        }
+        String vanilla = VANILLA_LEGACY_NAMES.get(modernId);
+        if (vanilla != null) {
+            return vanilla;
+        }
+        if (modernId.startsWith("minecraft:")) {
+            StringBuilder name = new StringBuilder();
+            for (String part : modernId.substring(10).split("_")) {
+                if (!part.isEmpty()) {
+                    name.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+                }
+            }
+            return name.toString();
+        }
+        return "Pig"; // a 1.20.1 mod's mob: legacy code knows no name for it
+    }
+
     private static final Map<String, ResourceLocation> IDS = new LinkedHashMap<>();
 
     /** "modid.Name" (or a global name registered by a mod) -> "modid:name". */

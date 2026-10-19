@@ -84,6 +84,12 @@ METHODS = [
      "if (host != null && entity != null) {\n            host.lightning(entity.field_70165_t, entity.field_70163_u, entity.field_70161_v);\n        }\n        return true;"),
     ("getBiomeGenForCoords", "public BiomeGenBase func_72807_a(int x, int z)", "return WorldGlue.biome(host, x, z);"),
     ("getSeed", "public long func_72905_C()", "return host == null ? 0 : host.getSeed();"),
+    # 1.7.10 ended at y 0: these said nothing below it exists (mods check them before looking at a block).
+    ("blockExists", "public boolean func_72899_e(int x, int y, int z)", "return host != null && host.blockLoaded(x, y, z);"),
+    ("checkChunksExist", "public boolean func_72904_c(int minX, int minY, int minZ, int maxX, int maxY, int maxZ)",
+     "return WorldGlue.areaLoaded(host, minX, minY, minZ, maxX, maxY, maxZ);"),
+    ("doChunksNearChunkExist", "public boolean func_72873_a(int x, int y, int z, int range)",
+     "return WorldGlue.areaLoaded(host, x - range, y - range, z - range, x + range, y + range, z + range);"),
     ("getWorldTime", "public long func_72820_D()", "return host == null ? 0 : host.getDayTime();"),
     ("getTotalWorldTime", "public long func_82737_E()", "return host == null ? 0 : host.getTotalWorldTime();"),
     ("isRaining", "public boolean func_72896_J()", "return host != null && host.isRaining();"),

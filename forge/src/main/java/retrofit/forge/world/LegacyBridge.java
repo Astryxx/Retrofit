@@ -23,7 +23,7 @@ public final class LegacyBridge {
             "retrofit.legacy.bridge.Events", "retrofit.legacy.bridge.WorldGen", "retrofit.legacy.bridge.Entities",
             "retrofit.legacy.bridge.PlayerState", "retrofit.legacy.bridge.LivingEvents", "retrofit.legacy.bridge.Dimensions",
             "retrofit.legacy.bridge.Energy", "retrofit.legacy.bridge.HostCreatures", "retrofit.legacy.bridge.ModernContent",
-            "retrofit.legacy.bridge.Fluids", "retrofit.legacy.bridge.Achievements",
+            "retrofit.legacy.bridge.Fluids", "retrofit.legacy.bridge.Achievements", "retrofit.legacy.bridge.Villagers",
     };
     /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
     private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis", "retrofit.legacy.bridge.ClientEvents"};

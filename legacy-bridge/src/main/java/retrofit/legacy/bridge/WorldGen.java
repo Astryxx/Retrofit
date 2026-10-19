@@ -64,6 +64,46 @@ public final class WorldGen {
         }
     }
 
+    private static final java.util.Set<String> NOT_ORE_WORDS = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "core", "more", "store", "bore", "score", "shore", "chore", "adore", "snore", "spore", "explore", "ignore",
+            "restore", "before", "therefore", "sore", "pore", "fore", "lore", "tore", "wore", "swore", "gore", "yore"));
+
+    /**
+     * Whether a block is an ore, for the deep pass of world generation: BlockOre and its kin, an
+     * Ore Dictionary "ore..." entry, or "ore" as a word of its registry name ("oreCopper",
+     * "gt.blockores", "copper_ore").
+     */
+    public static boolean isOreBlock(Object legacyBlock, int meta) {
+        net.minecraft.block.Block block = (net.minecraft.block.Block) legacyBlock;
+        if (block instanceof net.minecraft.block.BlockOre || block instanceof net.minecraft.block.BlockRedstoneOre) {
+            return true;
+        }
+        net.minecraft.item.Item item = net.minecraft.item.Item.func_150898_a(block); // getItemFromBlock
+        if (item != null) {
+            try {
+                for (int id : net.minecraftforge.oredict.OreDictionary.getOreIDs(new net.minecraft.item.ItemStack(item, 1, meta))) {
+                    if (net.minecraftforge.oredict.OreDictionary.getOreName(id).startsWith("ore")) {
+                        return true;
+                    }
+                }
+            } catch (RuntimeException e) {
+                // no Ore Dictionary entry
+            }
+        }
+        String name = net.minecraft.block.Block.field_149771_c.func_148750_c(block); // blockRegistry.getNameForObject
+        if (name == null) {
+            return false;
+        }
+        String path = name.substring(name.indexOf(':') + 1).replaceAll("([a-z])([A-Z])", "$1 $2").toLowerCase(java.util.Locale.ROOT);
+        for (String word : path.split("[^a-z]+")) {
+            if (word.equals("ore") || word.equals("ores") || (word.endsWith("ore") || word.endsWith("ores")) && word.length() > 4
+                    && !NOT_ORE_WORDS.contains(word) && !NOT_ORE_WORDS.contains(word.endsWith("s") ? word.substring(0, word.length() - 1) : word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * getCanSpawnHere for the mobs 1.20.1 places while generating a chunk: checked against the
      * region being generated (the full world's view would wait for that very chunk).

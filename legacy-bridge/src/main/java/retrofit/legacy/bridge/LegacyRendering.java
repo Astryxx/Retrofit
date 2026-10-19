@@ -71,6 +71,59 @@ public final class LegacyRendering {
         return Capture.vertexCount();
     }
 
+    /**
+     * A block as 1.7.10 drew it as an item (RenderBlocks.renderBlockAsItem: custom renderers'
+     * renderInventoryBlock), centred on the origin; returns the vertex count. Hold Bridge.LOCK.
+     */
+    public static int renderBlockItem(Object block, int meta) {
+        World world = IsolatedHost.with(block, meta);
+        if (renderBlocks == null) {
+            renderBlocks = new RenderBlocks(world);
+        }
+        renderBlocks.field_147845_a = world; // blockAccess
+        Capture.begin();
+        GL11.bindLegacyTexture(BLOCK_ATLAS);
+        try {
+            renderBlocks.func_147800_a((Block) block, meta, 1.0f); // renderBlockAsItem
+        } catch (RuntimeException e) {
+            resetTessellator();
+            throw e;
+        }
+        return Capture.vertexCount();
+    }
+
+    /** Whether 1.7.10 drew a block's item as a 3D block (RenderBlocks.renderItemIn3d), not as a flat icon. */
+    public static boolean blockItemIn3d(Object block) {
+        return RenderBlocks.func_147739_a(((Block) block).func_149645_b()); // renderItemIn3d(getRenderType)
+    }
+
+    /** Which IItemRenderer helpers a renderer asks for: bit n = ItemRendererHelper.values()[n]; bit 30 isFull3D, bit 29 shouldRotateAroundWhenRendering. */
+    public static int itemRendererHelpers(Object item, int meta, String type) {
+        ItemStack stack = new ItemStack((Item) item, 1, meta);
+        IItemRenderer.ItemRenderType renderType = IItemRenderer.ItemRenderType.valueOf(type);
+        IItemRenderer renderer = MinecraftForgeClient.getItemRenderer(stack, renderType);
+        int helpers = 0;
+        if (renderer != null) {
+            for (IItemRenderer.ItemRendererHelper helper : IItemRenderer.ItemRendererHelper.values()) {
+                try {
+                    if (renderer.shouldUseRenderHelper(renderType, stack, helper)) {
+                        helpers |= 1 << helper.ordinal();
+                    }
+                } catch (RuntimeException e) {
+                    // asks nothing
+                }
+            }
+        }
+        Item legacy = (Item) item;
+        if (legacy.func_77662_d()) { // isFull3D: held like a tool
+            helpers |= 1 << 30;
+        }
+        if (legacy.func_77629_n_()) { // shouldRotateAroundWhenRendering
+            helpers |= 1 << 29;
+        }
+        return helpers;
+    }
+
     private static BridgeWorld regionWorld;
     private static Field worldRenderPass;
 
@@ -137,6 +190,47 @@ public final class LegacyRendering {
         return Capture.vertexCount();
     }
 
+    /**
+     * The colour of the block at x, y, z of a host region (colorMultiplier: biome-coloured leaves
+     * and grass), for plain blocks drawn from models with a tint. Hold Bridge.LOCK.
+     */
+    public static int blockColorAt(retrofit.api.HostWorld region, int x, int y, int z) {
+        if (regionWorld == null) {
+            regionWorld = new BridgeWorld(region, 0);
+        } else {
+            regionWorld.setHost(region);
+        }
+        try {
+            return regionWorld.func_147439_a(x, y, z).func_149720_d(regionWorld, x, y, z); // getBlock, colorMultiplier
+        } finally {
+            regionWorld.setHost(null);
+        }
+    }
+
+    /**
+     * The grass and foliage colour maps (256 x 256, as the host loaded them from its resource
+     * packs): 1.7.10 filled them in a resource reload listener of its own, and biome colours
+     * (grass, leaves, mods' biome-coloured blocks) were black without them.
+     */
+    public static void setColorizers(int[] grass, int[] foliage) {
+        net.minecraft.world.ColorizerGrass.func_77479_a(grass); // setGrassBiomeColorizer
+        net.minecraft.world.ColorizerFoliage.func_77467_a(foliage); // setFoliageBiomeColorizer
+    }
+
+    /** Whether a block has colours of its own (overrides colorMultiplier or getRenderColor, as leaves and grass do). */
+    public static boolean blockTinted(Object block) {
+        for (Class<?> type = block.getClass(); type != null && type != Block.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+                String name = method.getName();
+                if (name.equals("func_149720_d") && method.getParameterTypes().length == 4
+                        || name.equals("func_149741_i") && method.getParameterTypes().length == 1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** Whether a tile entity has a special renderer (cached per class). */
     public static boolean hasSpecialRenderer(Object tileEntity) {
         Class<?> type = tileEntity.getClass();
@@ -198,8 +292,11 @@ public final class LegacyRendering {
         if (renderBlocks == null) {
             renderBlocks = new RenderBlocks();
         }
+        // EQUIPPED renderers get the holder (the host's own holder is not known here: the local player)
+        Object holder = renderType == IItemRenderer.ItemRenderType.EQUIPPED || renderType == IItemRenderer.ItemRenderType.EQUIPPED_FIRST_PERSON
+                ? net.minecraft.client.Minecraft.func_71410_x().field_71439_g : null; // thePlayer
         Object[] data = renderType == IItemRenderer.ItemRenderType.INVENTORY
-                ? new Object[]{renderBlocks} : new Object[]{renderBlocks, null};
+                ? new Object[]{renderBlocks} : new Object[]{renderBlocks, holder};
         try {
             renderer.renderItem(renderType, stack, data);
         } catch (RuntimeException e) {

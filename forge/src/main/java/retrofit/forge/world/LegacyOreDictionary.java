@@ -119,9 +119,11 @@ public final class LegacyOreDictionary {
         return null;
     }
 
-    /** Legacy ore names as item tags (legacy mods' items only: vanilla ones are tagged by Forge already). */
+    /** Legacy ore names as item tags (legacy mods' items only: vanilla ones are tagged by Forge already), and block tags. */
     static void addTo(LegacyDataPack pack) {
         Map<String, JsonArray> tags = new TreeMap<>();
+        // tag -> legacy block -> metas (or -1: all) in that ore name: blocks get the tag when all their kinds are in it
+        Map<String, Map<LegacyBlock, java.util.Set<Integer>>> blockMetas = new TreeMap<>();
         try {
             for (Object[] entry : LegacyBridge.<Object[][]>call("oreDictionary")) {
                 String tag = tagFor((String) entry[0]);
@@ -139,6 +141,13 @@ public final class LegacyOreDictionary {
                         modern = LegacyStacks.toModern(LegacyBridge.makeStackOf(item, 1, 0, null));
                     }
                     ResourceLocation id = modern.isEmpty() ? null : ForgeRegistries.ITEMS.getKey(modern.getItem());
+                    LegacyBlock block = modern.getItem() instanceof LegacyWoodSets.AliasItem alias ? ((LegacyWoodSets.AliasBlock) alias.getBlock()).original()
+                            : modern.getItem() instanceof LegacyBlockItem blockItem ? (LegacyBlock) blockItem.getBlock() : null;
+                    if (block != null) {
+                        int damage = (Integer) read[2];
+                        blockMetas.computeIfAbsent(tag, t -> new java.util.HashMap<>()).computeIfAbsent(block, b -> new java.util.HashSet<>())
+                                .add(damage == 32767 ? -1 : damage);
+                    }
                     if (id != null) {
                         JsonArray values = tags.computeIfAbsent(tag, t -> new JsonArray());
                         if (!values.toString().contains("\"" + id + "\"")) {
@@ -158,7 +167,31 @@ public final class LegacyOreDictionary {
             json.add("values", values);
             pack.put(location.getNamespace(), "tags/items/" + location.getPath() + ".json", json.toString());
         });
-        LOGGER.info("Ore Dictionary: {} ore names as item tags", tags.size());
+        int[] blockTags = {0};
+        blockMetas.forEach((tag, blocks) -> {
+            JsonArray values = new JsonArray();
+            blocks.forEach((block, metas) -> {
+                boolean all = metas.contains(-1);
+                if (!all && block.asItem() instanceof LegacyBlockItem item) {
+                    all = true;
+                    for (int meta : item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0}) {
+                        all &= metas.contains(meta);
+                    }
+                }
+                if (all) { // every kind of the block is in the ore name: the block is one (logs, ores, planks...)
+                    values.add(ForgeRegistries.BLOCKS.getKey(block).toString());
+                }
+            });
+            if (!values.isEmpty()) {
+                ResourceLocation location = new ResourceLocation(tag);
+                JsonObject json = new JsonObject();
+                json.addProperty("replace", false);
+                json.add("values", values);
+                pack.put(location.getNamespace(), "tags/blocks/" + location.getPath() + ".json", json.toString());
+                blockTags[0]++;
+            }
+        });
+        LOGGER.info("Ore Dictionary: {} ore names as item tags, {} as block tags", tags.size(), blockTags[0]);
     }
 
     /** Tags loaded (server start, /reload): 1.20.1 items join the Ore Dictionary under their tags' names. */

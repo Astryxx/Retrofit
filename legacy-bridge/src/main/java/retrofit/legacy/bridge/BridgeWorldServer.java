@@ -356,6 +356,24 @@ public class BridgeWorldServer extends WorldServer {
         return host == null ? 0 : host.getSeed();
     }
 
+    /** blockExists */
+    @Override
+    public boolean func_72899_e(int x, int y, int z) {
+        return host != null && host.blockLoaded(x, y, z);
+    }
+
+    /** checkChunksExist */
+    @Override
+    public boolean func_72904_c(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+        return WorldGlue.areaLoaded(host, minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /** doChunksNearChunkExist */
+    @Override
+    public boolean func_72873_a(int x, int y, int z, int range) {
+        return WorldGlue.areaLoaded(host, x - range, y - range, z - range, x + range, y + range, z + range);
+    }
+
     /** getWorldTime */
     @Override
     public long func_72820_D() {

@@ -117,12 +117,18 @@ public final class LegacyContent {
                 BY_LEGACY.put(legacyBlock, block);
             }
             LOGGER.info("Registered {} legacy blocks", BLOCKS.size());
+            java.util.Set<ResourceLocation> taken = new java.util.HashSet<>();
+            for (LegacyBlock block : BLOCKS) {
+                taken.add(toResourceLocation(LEGACY_NAMES.get(block)));
+            }
+            LegacyWoodSets.registerBlocks(helper, taken);
         });
         event.register(Registries.ITEM, helper -> {
             for (LegacyBlock block : BLOCKS) {
                 helper.register(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block),
                         new LegacyBlockItem(block, LegacyBridge.item(LEGACY_NAMES.get(block))));
             }
+            LegacyWoodSets.registerItems(helper);
             for (String name : LegacyBridge.modItemNames()) {
                 if (name.equals(ModernItems.LEGACY_NAME)) {
                     continue; // carries 1.20.1 items through legacy code; never an item of its own here

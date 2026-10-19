@@ -234,12 +234,32 @@ public class LegacyBlock extends Block {
             return new LegacyBlockEntity(pos, state);
         }
 
+        /** Per metadata: 0 unknown, 1 ticks, 2 never ticks. */
+        private final byte[] ticking = new byte[16];
+
+        private boolean ticks(int meta) {
+            if (ticking[meta] == 0) {
+                boolean ticks;
+                try {
+                    ticks = LegacyBridge.<Boolean>call("tileTicks", legacyBlock(), meta);
+                } catch (RuntimeException e) {
+                    ticks = true;
+                }
+                ticking[meta] = (byte) (ticks ? 1 : 2);
+            }
+            return ticking[meta] == 1;
+        }
+
         @Override
         public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
             if (type != LegacyContent.blockEntityType()) {
                 return null;
             }
-            // 1.7.10 ticked tile entities on both sides (clients use it for animation and effects).
+            // 1.7.10 ticked tile entities on both sides (clients use it for animation and effects), but only
+            // those whose canUpdate() said so: the others (ores, decorations, cables) get no ticker at all.
+            if (!ticks(meta(state))) {
+                return null;
+            }
             return (tickLevel, pos, tickState, blockEntity) -> ((LegacyBlockEntity) blockEntity).tick();
         }
     }

@@ -31,6 +31,7 @@ import retrofit.forge.world.LegacyBlock;
 import retrofit.forge.world.LegacyBlockEntity;
 import retrofit.forge.world.LegacyBlockItem;
 import retrofit.forge.world.LegacyBridge;
+import retrofit.forge.world.LegacyStackItem;
 import retrofit.forge.world.LegacyContent;
 import retrofit.forge.world.LegacyEntityTypes;
 import retrofit.forge.world.LegacyItem;
@@ -59,7 +60,7 @@ public final class ModSweepServer {
     private static final int ACTIVATION_TICKS = 12;
     private static final int ITEM_BATCH_TICKS = 20;
 
-    public enum Phase { WAITING, BLOCKS, ACTIVATE, PLACE, ENTITIES, ITEMS, ITEM_USE, WORLDGEN, DIMENSIONS, DONE }
+    public enum Phase { WAITING, BLOCKS, ACTIVATE, PLACE, ENTITIES, PERF, ITEMS, ITEM_USE, WORLDGEN, DIMENSIONS, DONE }
 
     /** Read by the client half in singleplayer. */
     public static volatile Phase phase = Phase.WAITING;
@@ -94,8 +95,62 @@ public final class ModSweepServer {
     private ModSweepServer() {
     }
 
+    /** -Dretrofit.perf: after placing every block and spawning every creature, measure server ticks instead of the rest of the sweep. */
+    public static final boolean PERF = Boolean.getBoolean("retrofit.perf");
+    private static long tickStart;
+    private static final List<Long> TICK_NANOS = new ArrayList<>();
+
+    @SubscribeEvent
+    public static void onServerTickStart(TickEvent.ServerTickEvent event) {
+        if (ENABLED && event.phase == TickEvent.Phase.START) {
+            tickStart = System.nanoTime();
+        }
+    }
+
+    /** Tick times of the window just measured: mean, median, 95th percentile, max (ms). */
+    private static String tickReport() {
+        List<Long> sorted = new ArrayList<>(TICK_NANOS);
+        java.util.Collections.sort(sorted);
+        TICK_NANOS.clear();
+        if (sorted.isEmpty()) {
+            return "no ticks";
+        }
+        double mean = sorted.stream().mapToLong(Long::longValue).average().orElse(0) / 1e6;
+        return String.format(java.util.Locale.ROOT, "%d ticks: mean %.2f ms, median %.2f, p95 %.2f, max %.2f", sorted.size(), mean,
+                sorted.get(sorted.size() / 2) / 1e6, sorted.get((int) (sorted.size() * 0.95)) / 1e6, sorted.get(sorted.size() - 1) / 1e6);
+    }
+
+    private static boolean measuring;
+    private static jdk.jfr.Recording profile;
+
+    /** A Flight Recorder profile of the measured window: run/perf.jfr. */
+    private static void startProfile() {
+        try {
+            profile = new jdk.jfr.Recording(jdk.jfr.Configuration.getConfiguration("profile"));
+            profile.start();
+        } catch (Exception e) {
+            LOGGER.info("[ModSweep] No profile: {}", e.toString());
+        }
+    }
+
+    private static void stopProfile() {
+        if (profile == null) {
+            return;
+        }
+        try {
+            profile.stop();
+            profile.dump(java.nio.file.Path.of("perf.jfr"));
+            LOGGER.info("[ModSweep] Profile written to perf.jfr");
+        } catch (Exception e) {
+            LOGGER.info("[ModSweep] Profile not written: {}", e.toString());
+        }
+    }
+
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (ENABLED && measuring && event.phase == TickEvent.Phase.END && tickStart > 0) {
+            TICK_NANOS.add(System.nanoTime() - tickStart);
+        }
         if (!ENABLED || event.phase != TickEvent.Phase.END) {
             return;
         }
@@ -122,11 +177,19 @@ public final class ModSweepServer {
                         view(player, origin.offset(Math.min(PLACED.size(), ROW), 0, Math.min(PLACED.size() / ROW, 4)), 14, 55);
                     } else if (inPhase == 60) {
                         requestScreenshot("sweep-blocks");
+                    } else if (PERF && inPhase == 80) {
+                        measuring = true;
                     } else if (inPhase == 200) {
+                        if (PERF) {
+                            measuring = false;
+                            LOGGER.info("[ModSweep] Perf with {} legacy blocks placed: {}", PLACED.size(), tickReport());
+                        }
                         reportBlocks(level);
                         checkHostInventories(level);
                         checkEnergy(level);
                         checkCreatures(level);
+                        checkVillagerTrades(level);
+                        checkWoodTypes();
                         enter(Phase.ACTIVATE);
                     }
                 }
@@ -161,6 +224,9 @@ public final class ModSweepServer {
                         spawnEntities(player, level);
                     } else if (inPhase == 100) {
                         requestScreenshot("sweep-entities");
+                        if (PERF) {
+                            enter(Phase.PERF);
+                        }
                     } else if (inPhase > 100 && killTick < 0) {
                         interactStep(player, level, inPhase);
                     } else if (killTick >= 0 && inPhase == killTick) {
@@ -174,6 +240,23 @@ public final class ModSweepServer {
                         player.onUpdateAbilities();
                         player.teleportTo(level, origin.getX() + 1.5, origin.getY() + 1, origin.getZ() + 1.5, 0f, 20f); // beside the first block, on its floor patch
                         enter(Phase.ITEMS);
+                    }
+                }
+                case PERF -> {
+                    // Blocks placed, machines placed from items, creatures alive: 30 seconds measured after 10 to settle.
+                    if (inPhase == 200) {
+                        measuring = true;
+                        startProfile();
+                    } else if (inPhase == 800) {
+                        measuring = false;
+                        stopProfile();
+                        int entities = 0;
+                        for (Entity ignored : level.getAllEntities()) {
+                            entities++;
+                        }
+                        LOGGER.info("[ModSweep] Perf with {} legacy blocks and the creatures: {} ({} entities in the level)",
+                                PLACED.size(), tickReport(), entities);
+                        enter(Phase.DONE);
                     }
                 }
                 case ITEMS -> {
@@ -501,6 +584,73 @@ public final class ModSweepServer {
         }
         cow.discard();
         zombie.discard();
+    }
+
+    /** 1.20.1 villagers of every profession (and a wandering trader) picking offers: how many are legacy mods' trades. */
+    private static void checkVillagerTrades(ServerLevel level) {
+        Map<String, Integer> legacyOffers = new TreeMap<>();
+        Map<String, java.util.function.Supplier<net.minecraft.world.entity.npc.AbstractVillager>> traders = new TreeMap<>();
+        for (var profession : ForgeRegistries.VILLAGER_PROFESSIONS) {
+            if (profession != net.minecraft.world.entity.npc.VillagerProfession.NONE && profession != net.minecraft.world.entity.npc.VillagerProfession.NITWIT) {
+                traders.put(profession.name(), () -> {
+                    var villager = EntityType.VILLAGER.create(level);
+                    villager.setVillagerData(villager.getVillagerData().setProfession(profession).setLevel(3));
+                    return villager;
+                });
+            }
+        }
+        traders.put("wandering_trader", () -> EntityType.WANDERING_TRADER.create(level));
+        traders.forEach((name, factory) -> {
+            int count = 0;
+            for (int round = 0; round < 8; round++) { // offers are random: several traders' worth
+                var trader = factory.get();
+                try {
+                    trader.moveTo(origin.getX() + 0.5, origin.getY() + 1, origin.getZ() + 0.5, 0, 0);
+                    for (var offer : trader.getOffers()) {
+                        if (offer.getResult().getItem() instanceof LegacyStackItem || offer.getBaseCostA().getItem() instanceof LegacyStackItem
+                                || offer.getCostB().getItem() instanceof LegacyStackItem) {
+                            count++;
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    LOGGER.error("[ModSweep] Villager trades FAILED for {}", name, e);
+                }
+                trader.discard();
+            }
+            if (count > 0) {
+                legacyOffers.put(name, count);
+            }
+        });
+        Map<Integer, Integer> legacyTrades = new TreeMap<>(); // what the handlers make, without 1.20.1's picking
+        for (int profession : LegacyBridge.<int[]>call("tradeProfessions")) {
+            Object[][] rows = LegacyBridge.call("villagerTrades", LegacyContent.legacyWorld(level), profession, 1L);
+            legacyTrades.put(profession, rows.length);
+        }
+        var wandererPool = net.minecraft.world.entity.npc.VillagerTrades.WANDERING_TRADER_TRADES.get(1);
+        long inPool = wandererPool == null ? 0 : java.util.Arrays.stream(wandererPool)
+                .filter(listing -> listing.getClass().getName().startsWith("retrofit.")).count();
+        LOGGER.info("[ModSweep] Villager trades: legacy handlers' trades per profession {}, legacy offers in 8 traders per profession {}, legacy listings among {} wandering trader ones: {}",
+                legacyTrades, legacyOffers, wandererPool == null ? 0 : wandererPool.length, inPool);
+    }
+
+    /** With Moonlight (Every Compat's library) installed: which wood types it found outside vanilla. */
+    private static void checkWoodTypes() {
+        try {
+            Class<?> registry = Class.forName("net.mehvahdjukaar.moonlight.api.set.wood.WoodTypeRegistry");
+            Object instance = registry.getField("INSTANCE").get(null);
+            java.util.List<String> found = new java.util.ArrayList<>();
+            for (Object type : (Iterable<?>) registry.getMethod("getValues").invoke(instance)) {
+                String id = type.getClass().getMethod("getId").invoke(type).toString();
+                if (!id.startsWith("minecraft:")) {
+                    found.add(id);
+                }
+            }
+            LOGGER.info("[ModSweep] Moonlight wood types outside vanilla: {}", found);
+        } catch (ClassNotFoundException e) {
+            // no Moonlight
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("[ModSweep] Moonlight wood types not readable", e);
+        }
     }
 
     /** Legacy electric items (RF, IC2) as Forge Energy: charged as a 1.20.1 charger would. */
@@ -957,6 +1107,7 @@ public final class ModSweepServer {
     /** Legacy blocks in the generated chunks around the player, by block. */
     private static void reportWorldGen(ServerPlayer player, ServerLevel level) {
         Map<String, Integer> found = new TreeMap<>();
+        Map<String, Integer> deep = new TreeMap<>(); // below y 0
         int chunks = 0;
         int cx = player.chunkPosition().x;
         int cz = player.chunkPosition().z;
@@ -974,6 +1125,9 @@ public final class ModSweepServer {
                             BlockState state = chunk.getBlockState(at.set(bx, y, bz));
                             if (state.getBlock() instanceof LegacyBlock) {
                                 found.merge(String.valueOf(ForgeRegistries.BLOCKS.getKey(state.getBlock())), 1, Integer::sum);
+                                if (y < 0) {
+                                    deep.merge(modOf(ForgeRegistries.BLOCKS.getKey(state.getBlock())), 1, Integer::sum);
+                                }
                             }
                         }
                     }
@@ -984,6 +1138,7 @@ public final class ModSweepServer {
         found.forEach((block, count) -> byMod.merge(block.substring(0, block.indexOf(':')), count, Integer::sum));
         LOGGER.info("[ModSweep] World generation: {} chunks scanned; legacy blocks by mod {}", chunks, byMod);
         LOGGER.info("[ModSweep] World generation blocks: {}", found);
+        LOGGER.info("[ModSweep] World generation below y 0 (the deep pass), by mod: {}", deep);
         long entities = level.getEntitiesOfClass(Entity.class, player.getBoundingBox().inflate(96),
                 e -> LegacyEntityTypes.legacyName(e.getType()) != null).size();
         LOGGER.info("[ModSweep] Legacy entities near the new chunks (natural spawning): {}", entities);

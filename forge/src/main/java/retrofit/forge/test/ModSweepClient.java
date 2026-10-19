@@ -105,9 +105,55 @@ public final class ModSweepClient {
             minecraft.setScreen(null); // plain legacy screens pause singleplayer games, which would stop the sweep
         }
         if (ModSweepServer.phase == ModSweepServer.Phase.DONE && ++doneTicks == 40) {
+            minecraft.setScreen(ItemGallery.create(minecraft)); // every legacy item, as the inventory draws it
+        }
+        if (doneTicks > 40 && (!(minecraft.screen instanceof ItemGallery gallery) || gallery.done()) && heldDone(minecraft)) {
             LOGGER.info("[ModSweep] Client: done; quitting");
             minecraft.stop();
         }
+    }
+
+    private static java.util.List<net.minecraft.world.item.ItemStack> held;
+    private static int heldIndex;
+    private static int heldTicks;
+    private static final int MAX_HELD = 30;
+
+    /**
+     * After the gallery: items with their own in-hand renderers (IItemRenderer: OreSpawn's big
+     * swords, guns, staffs) held one by one, in first and third person. True when done.
+     */
+    private static boolean heldDone(Minecraft minecraft) {
+        if (held == null) {
+            minecraft.setScreen(null);
+            held = new java.util.ArrayList<>();
+            for (net.minecraft.world.item.Item item : net.minecraftforge.registries.ForgeRegistries.ITEMS) {
+                if (item instanceof retrofit.forge.world.LegacyStackItem legacy && legacy.legacyItem() != null && held.size() < MAX_HELD) {
+                    int[] metas = legacy.hasSubtypes() ? retrofit.forge.world.LegacyBridge.itemSubtypes(legacy.legacyItem()) : new int[]{0};
+                    if (retrofit.forge.world.LegacyBridge.hasItemRenderer(legacy.legacyItem(), metas[0], "EQUIPPED_FIRST_PERSON")) {
+                        held.add(legacy.stackOf(metas[0]));
+                    }
+                }
+            }
+            LOGGER.info("[ModSweep] Held: {} items with their own in-hand renderers", held.size());
+            minecraft.player.setXRot(10);
+        }
+        if (heldIndex >= held.size()) {
+            minecraft.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
+            return true;
+        }
+        int step = heldTicks++ % 16;
+        if (step == 0) {
+            minecraft.player.getInventory().setItem(minecraft.player.getInventory().selected, held.get(heldIndex).copy()); // client side: drawing only
+            minecraft.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
+        } else if (step == 6) {
+            shot(minecraft, "sweep-held-" + (heldIndex + 1) + "-first");
+            minecraft.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_FRONT);
+        } else if (step == 14) {
+            shot(minecraft, "sweep-held-" + (heldIndex + 1) + "-third");
+            LOGGER.info("[ModSweep] Held {}: {}", heldIndex + 1, held.get(heldIndex).getHoverName().getString());
+            heldIndex++;
+        }
+        return false;
     }
 
     private static void shot(Minecraft minecraft, String name) {

@@ -9,7 +9,12 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
+import net.minecraft.client.model.ModelBiped;
+import net.minecraft.client.model.ModelRenderer;
+import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.client.renderer.entity.RenderPlayer;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraftforge.client.event.RenderPlayerEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import retrofit.legacy.gl.Capture;
@@ -199,5 +204,79 @@ public final class ClientEvents {
             LegacyRendering.resetTessellatorIfDrawing();
         }
         return Capture.vertexCount();
+    }
+
+    // ---- RenderPlayerEvent ----
+
+    /** The GL matrices RenderPlayerEvent.Pre's listeners left, for Post (mods push in Pre and pop in Post). */
+    private static Object playerMatrices;
+
+    /** Whether any mod listens for RenderPlayerEvent (Pre, Post or Specials). */
+    public static boolean listensForPlayerRendering() {
+        return Events.listenedTo(RenderPlayerEvent.Pre.class) || Events.listenedTo(RenderPlayerEvent.Post.class)
+                || Events.listenedTo(RenderPlayerEvent.Specials.Pre.class) || Events.listenedTo(RenderPlayerEvent.Specials.Post.class);
+    }
+
+    /**
+     * RenderPlayerEvent around the host drawing the local player (Minecraft.thePlayer). Hold Bridge.LOCK.
+     * Stage 0, Pre: in camera space, as 1.7.10 fired it; returns {vertices, cancelled, the modelview
+     * matrix its listeners left (column-major, camera space)}. Stage 1, Specials.Pre and .Post: in
+     * the player model's space, with {@code parts} the host model's pose (see posePlayerModel).
+     * Stage 2, Post: in camera space with the matrices Pre left. Stages 1 and 2 return {vertices}.
+     */
+    public static Object[] renderPlayer(int stage, float partialTicks, float[] parts) {
+        LegacyRendering.ensureEnvironment();
+        Minecraft minecraft = Minecraft.func_71410_x();
+        EntityPlayer player = minecraft.field_71439_g; // thePlayer
+        if (player == null) {
+            return new Object[]{0, false, null};
+        }
+        RenderPlayer renderer = (RenderPlayer) RenderManager.field_78727_a.func_78713_a(player); // getEntityRenderObject
+        Capture.begin();
+        try {
+            if (stage == 0) {
+                RenderPlayerEvent.Pre pre = new RenderPlayerEvent.Pre(player, renderer, partialTicks);
+                boolean cancelled = MinecraftForge.EVENT_BUS.post(pre);
+                playerMatrices = retrofit.legacy.gl.GL11.saveMatrices();
+                return new Object[]{Capture.vertexCount(), cancelled, retrofit.legacy.gl.GL11.modelviewMatrix()};
+            }
+            if (stage == 1) {
+                posePlayerModel(renderer.field_77109_a, parts); // modelBipedMain
+                MinecraftForge.EVENT_BUS.post(new RenderPlayerEvent.Specials.Pre(player, renderer, partialTicks));
+                MinecraftForge.EVENT_BUS.post(new RenderPlayerEvent.Specials.Post(player, renderer, partialTicks));
+            } else {
+                if (playerMatrices != null) {
+                    retrofit.legacy.gl.GL11.restoreMatrices(playerMatrices);
+                    playerMatrices = null;
+                }
+                MinecraftForge.EVENT_BUS.post(new RenderPlayerEvent.Post(player, renderer, partialTicks));
+            }
+        } finally {
+            LegacyRendering.resetTessellatorIfDrawing();
+        }
+        return new Object[]{Capture.vertexCount()};
+    }
+
+    /**
+     * The legacy player model posed as the host's: {@code parts} holds {xRot, yRot, zRot, x, y, z}
+     * for the head, hat, body, right arm, left arm, right leg and left leg, then sneaking (1/0).
+     * Mods attach things to the parts (ModelRenderer.postRender) and read their angles.
+     */
+    private static void posePlayerModel(ModelBiped model, float[] parts) {
+        if (parts == null || parts.length < 43) {
+            return;
+        }
+        ModelRenderer[] renderers = {model.field_78116_c, model.field_78114_d, model.field_78115_e, model.field_78112_f,
+                model.field_78113_g, model.field_78123_h, model.field_78124_i}; // head, headwear, body, arms, legs
+        for (int i = 0; i < renderers.length; i++) {
+            ModelRenderer part = renderers[i];
+            part.field_78795_f = parts[i * 6];     // rotateAngleX
+            part.field_78796_g = parts[i * 6 + 1]; // rotateAngleY
+            part.field_78808_h = parts[i * 6 + 2]; // rotateAngleZ
+            part.field_78800_c = parts[i * 6 + 3]; // rotationPointX
+            part.field_78797_d = parts[i * 6 + 4]; // rotationPointY
+            part.field_78798_e = parts[i * 6 + 5]; // rotationPointZ
+        }
+        model.field_78117_n = parts[42] != 0; // isSneak
     }
 }

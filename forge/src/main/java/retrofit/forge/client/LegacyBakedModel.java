@@ -68,7 +68,7 @@ final class LegacyBakedModel implements BakedModel {
                 retrofit.forge.world.RenderRegionHost host = new retrofit.forge.world.RenderRegionHost(level,
                         net.minecraft.client.Minecraft.getInstance().level.getGameTime());
                 int vertices = LegacyBridge.call("renderBlockAt", host, pos.getX(), pos.getY(), pos.getZ());
-                placed = quads(vertices);
+                placed = quads(vertices, level, pos);
             }
             return data.derive().with(IN_WORLD, placed).build();
         } catch (Throwable t) {
@@ -105,7 +105,7 @@ final class LegacyBakedModel implements BakedModel {
     private List<BakedQuad> build() {
         synchronized (LegacyBridge.renderLock()) {
             try {
-                return quads(LegacyBridge.bakeBlock(block.legacyBlock(), meta));
+                return quads(LegacyBridge.bakeBlock(block.legacyBlock(), meta), null, null);
             } catch (Throwable t) {
                 LOGGER.error("Legacy block {} meta {} could not be rendered; it will be invisible", block.getDescriptionId(), meta, t);
                 return List.of();
@@ -113,10 +113,23 @@ final class LegacyBakedModel implements BakedModel {
         }
     }
 
-    /** The captured vertices as baked quads. Hold the render lock. */
-    private List<BakedQuad> quads(int vertices) throws Throwable {
+    /**
+     * The captured vertices as baked quads. Hold the render lock. In the world ({@code level} not
+     * null), each quad carries its light: what the legacy renderer set, or the light of the
+     * neighbour it faces. The chunk renderer only lights faces lying exactly on the block's surface
+     * from outside; legacy renderers often draw just inside or outside it, and those faces came out
+     * black (lit from inside the solid block).
+     */
+    private List<BakedQuad> quads(int vertices, net.minecraft.world.level.BlockAndTintGetter level, net.minecraft.core.BlockPos pos) throws Throwable {
         List<BakedQuad> result = new ArrayList<>();
         TextureAtlasSprite sprite = base.getParticleIcon();
+        int[] faceLight = level == null ? null : new int[6];
+        if (faceLight != null) {
+            for (Direction direction : Direction.values()) {
+                faceLight[direction.ordinal()] = net.minecraft.client.renderer.LevelRenderer.getLightColor(level, pos.relative(direction));
+            }
+        }
+        int[] lights = level == null ? null : LegacyCapture.lights();
         {
             {
                 float[] d = LegacyCapture.data();
@@ -131,11 +144,17 @@ final class LegacyBakedModel implements BakedModel {
                         packed[p + 3] = abgr(d[o + 8], d[o + 9], d[o + 10], d[o + 11]);
                         packed[p + 4] = Float.floatToRawIntBits(d[o + 3]);
                         packed[p + 5] = Float.floatToRawIntBits(d[o + 4]);
-                        packed[p + 6] = 0; // lightmap: computed by the chunk renderer
+                        packed[p + 6] = 0; // lightmap: computed by the chunk renderer (the brighter of it and this wins)
                         packed[p + 7] = normal(d[o + 5], d[o + 6], d[o + 7]);
                     }
                     int o = v * LegacyCapture.FLOATS_PER_VERTEX;
                     Direction face = Direction.getNearest(d[o + 5], d[o + 6], d[o + 7]);
+                    if (faceLight != null) {
+                        for (int corner = 0; corner < 4; corner++) {
+                            int set = lights != null && v + corner < lights.length ? lights[v + corner] : -1;
+                            packed[corner * 8 + 6] = set >= 0 ? set : faceLight[face.ordinal()];
+                        }
+                    }
                     result.add(new BakedQuad(packed, -1, face, sprite, false));
                 }
             }

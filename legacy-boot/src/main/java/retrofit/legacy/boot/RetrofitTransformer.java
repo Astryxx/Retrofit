@@ -158,7 +158,47 @@ public class RetrofitTransformer implements IClassTransformer {
         if (containsMarker(basicClass)) {
             basicClass = redirectRemovedApis(basicClass);
         }
+        if (transformedName.equals("net.minecraft.pathfinding.PathFinder")) {
+            basicClass = deepPathfinding(basicClass);
+        }
         return basicClass;
+    }
+
+    /** How far below y 0 the world goes (1.20.1's overworld: -64); legacy pathfinding may reach it. */
+    private static final int WORLD_BOTTOM = 64;
+
+    /**
+     * PathFinder.getSafePoint stops looking for ground at y 0 (1.7.10 worlds ended there): mobs
+     * could not find paths below it. Its "y > 0" checks become "y > -64".
+     */
+    private static byte[] deepPathfinding(byte[] bytes) {
+        ClassNode node = new ClassNode();
+        new ClassReader(bytes).accept(node, 0);
+        int patched = 0;
+        for (Object element : node.methods) {
+            MethodNode method = (MethodNode) element;
+            if (!method.name.equals("func_82565_a")) { // getSafePoint (SRG names: this runs after deobfuscation)
+                continue;
+            }
+            for (org.objectweb.asm.tree.AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                // iload 3 (y); ifle -> iload 3; bipush 64; iadd; ifle
+                if (insn.getOpcode() == Opcodes.ILOAD && ((VarInsnNode) insn).var == 3 && insn.getNext() != null
+                        && insn.getNext().getOpcode() == Opcodes.IFLE) {
+                    InsnList shift = new InsnList();
+                    shift.add(new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, WORLD_BOTTOM));
+                    shift.add(new InsnNode(Opcodes.IADD));
+                    method.instructions.insert(insn, shift);
+                    patched++;
+                }
+            }
+        }
+        if (patched == 0) {
+            return bytes;
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        System.out.println("[Retrofit] Pathfinding reaches y -" + WORLD_BOTTOM + " (" + patched + " checks)");
+        return writer.toByteArray();
     }
 
     /**

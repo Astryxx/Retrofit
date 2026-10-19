@@ -21,6 +21,10 @@ public final class Capture {
     public static final int FLOATS_PER_VERTEX = 12;
     public static final int BLEND = 1 << 16;
     public static final int UNTEXTURED = 1 << 17;
+    /** Blending added the colour (glBlendFunc(..., GL_ONE)): glows. */
+    public static final int ADDITIVE = 1 << 18;
+    /** Drawn with GL_LIGHTING off: no shading. */
+    public static final int UNLIT = 1 << 19;
     public static final int TEXTURE_MASK = 0xFFFF;
 
     private static float[] data = new float[FLOATS_PER_VERTEX * 1024];
@@ -119,10 +123,11 @@ public final class Capture {
         d[base + 5] = nx;
         d[base + 6] = ny;
         d[base + 7] = nz;
-        d[base + 8] = r;
-        d[base + 9] = g;
-        d[base + 10] = b;
-        d[base + 11] = a;
+        // OpenGL clamps colours to [0, 1] (Thaumcraft's crystals ask for 1.16); 1.20.1's vertex bytes would wrap
+        d[base + 8] = Math.max(0, Math.min(1, r));
+        d[base + 9] = Math.max(0, Math.min(1, g));
+        d[base + 10] = Math.max(0, Math.min(1, b));
+        d[base + 11] = Math.max(0, Math.min(1, a));
         states[vertexCount] = state;
         lights[vertexCount] = light;
         vertexCount++;

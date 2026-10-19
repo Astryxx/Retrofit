@@ -210,6 +210,36 @@ public final class Bridge {
         return LegacyRendering.renderItem(legacyItem, meta, type);
     }
 
+    /** Client: see LegacyRendering.renderBlockItem. */
+    public static int renderBlockItem(Object legacyBlock, int meta) {
+        return LegacyRendering.renderBlockItem(legacyBlock, meta);
+    }
+
+    /** Client: see LegacyRendering.blockItemIn3d. */
+    public static boolean blockItemIn3d(Object legacyBlock) {
+        return LegacyRendering.blockItemIn3d(legacyBlock);
+    }
+
+    /** Client: see LegacyRendering.setColorizers. */
+    public static void setColorizers(int[] grass, int[] foliage) {
+        LegacyRendering.setColorizers(grass, foliage);
+    }
+
+    /** Client: see LegacyRendering.blockColorAt. */
+    public static int blockColorAt(retrofit.api.HostWorld region, int x, int y, int z) {
+        return LegacyRendering.blockColorAt(region, x, y, z);
+    }
+
+    /** Client: see LegacyRendering.blockTinted. */
+    public static boolean blockTinted(Object legacyBlock) {
+        return LegacyRendering.blockTinted(legacyBlock);
+    }
+
+    /** Client: see LegacyRendering.itemRendererHelpers. */
+    public static int itemRendererHelpers(Object legacyItem, int meta, String type) {
+        return LegacyRendering.itemRendererHelpers(legacyItem, meta, type);
+    }
+
     // ---- Blocks: ids and names ----
 
     /** getBlockById; null for unused ids. */
@@ -283,6 +313,16 @@ public final class Bridge {
     /** Client only; see {@link LegacyIcons#itemTexture}. */
     public static String itemTexture(Object legacyItem, int meta) {
         return LegacyIcons.itemTexture(legacyItem, meta);
+    }
+
+    /** Client only; see {@link LegacyIcons#itemPassTextures}. */
+    public static String[] itemPassTextures(Object legacyItem, int meta, int max) {
+        return LegacyIcons.itemPassTextures(legacyItem, meta, max);
+    }
+
+    /** Client only; see {@link LegacyIcons#itemColor}. */
+    public static int itemColor(Object legacyStack, int pass) {
+        return LegacyIcons.itemColor(legacyStack, pass);
     }
 
     /** Client only; see {@link LegacyIcons#itemSubtypes}. */
@@ -427,6 +467,21 @@ public final class Bridge {
 
     public static boolean canUpdate(Object tileEntity) {
         return ((TileEntity) tileEntity).canUpdate();
+    }
+
+    /**
+     * Whether a block's tile entity (for a metadata) ever ticks: 1.7.10 asked canUpdate() once, when
+     * the tile entity joined the world, and never ticked the others (ores, decorations, cables). Asked
+     * of a sample tile entity in an empty world; true if it can't be made there.
+     */
+    public static boolean tileTicks(Object legacyBlock, int meta) {
+        try {
+            World world = IsolatedHost.with(legacyBlock, meta);
+            TileEntity tile = ((Block) legacyBlock).createTileEntity(world, meta);
+            return tile == null || tile.canUpdate();
+        } catch (Throwable t) {
+            return true;
+        }
     }
 
     /** updateEntity */

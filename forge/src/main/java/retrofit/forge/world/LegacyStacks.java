@@ -88,6 +88,11 @@ public final class LegacyStacks {
         if (!(item instanceof LegacyStackItem legacyItem)) {
             return ItemStack.EMPTY;
         }
+        Item alias = LegacyWoodSets.alias(legacyItem.legacyItem(), damage);
+        if (alias != null) { // a wood's planks or log: its 1.20.1-named item
+            item = alias;
+            legacyItem = (LegacyStackItem) alias;
+        }
         ItemStack stack = legacyItem.stackOf(damage);
         if (!legacyItem.hasSubtypes() && damage > 0 && stack.isDamageableItem()) {
             stack.setDamageValue(damage);

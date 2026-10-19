@@ -57,6 +57,16 @@ public interface HostWorld {
 
     // ---- Redstone ----
 
+    /** World.blockExists: inside the host's height (below y 0 too) and in a loaded chunk. */
+    default boolean blockLoaded(int x, int y, int z) {
+        return y >= 0 && y < 256;
+    }
+
+    /** Whether a position has a host block entity that isn't a legacy one (a quick check before the others). */
+    default boolean hasHostBlockEntity(int x, int y, int z) {
+        return true;
+    }
+
     /** The inventory of a host block entity that isn't a legacy one (vanilla chests, furnaces...), or null. */
     default HostInventory getHostInventory(int x, int y, int z) {
         return null;
@@ -124,6 +134,11 @@ public interface HostWorld {
 
     /** Legacy code changed a host item entity's stack (took part of it). */
     default void setHostItemStack(Object handle, Object legacyStack) {
+    }
+
+    /** The legacy entity name a host mob spawner at a position spawns ("Zombie"), or null if there is no spawner. */
+    default String hostSpawnerEntity(int x, int y, int z) {
+        return null;
     }
 
     /** The server's view distance in chunks (who sees a chunk, for mods that send to its watchers). */

@@ -39,9 +39,24 @@ final class LevelHostWorld implements HostWorld {
     }
 
     /** The block state at a position, or air if its chunk isn't loaded. */
+    // Legacy code reads blocks in tight loops (movement, pathfinding, AI), mostly in one chunk: the last
+    // chunk is kept for the rest of the tick (block changes go into the same chunk object).
+    private net.minecraft.world.level.chunk.LevelChunk lastChunk;
+    private long lastChunkKey = Long.MIN_VALUE;
+    private long lastChunkTime = Long.MIN_VALUE;
+
     private BlockState state(int x, int y, int z) {
-        BlockPos pos = cursor.set(x, y, z);
-        return level.isLoaded(pos) ? level.getBlockState(pos) : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+        if (y < level.getMinBuildHeight() || y >= level.getMaxBuildHeight()) {
+            return net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+        }
+        long key = net.minecraft.world.level.ChunkPos.asLong(x >> 4, z >> 4);
+        long time = level.getGameTime();
+        if (key != lastChunkKey || time != lastChunkTime) {
+            lastChunk = level.getChunkSource().getChunkNow(x >> 4, z >> 4);
+            lastChunkKey = key;
+            lastChunkTime = time;
+        }
+        return lastChunk == null ? net.minecraft.world.level.block.Blocks.AIR.defaultBlockState() : lastChunk.getBlockState(cursor.set(x, y, z));
     }
 
     /** The 1.20.1 block standing for a legacy block (mod or vanilla), or null. */
@@ -91,9 +106,35 @@ final class LevelHostWorld implements HostWorld {
     }
 
     @Override
+    public boolean blockLoaded(int x, int y, int z) {
+        return y >= level.getMinBuildHeight() && y < level.getMaxBuildHeight() && level.isLoaded(cursor.set(x, y, z));
+    }
+
+    @Override
+    public boolean hasHostBlockEntity(int x, int y, int z) {
+        BlockPos pos = cursor.set(x, y, z);
+        if (!level.isLoaded(pos)) {
+            return false;
+        }
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        return blockEntity != null && !(blockEntity instanceof LegacyBlockEntity);
+    }
+
+    @Override
     public retrofit.api.HostInventory getHostInventory(int x, int y, int z) {
         BlockPos pos = new BlockPos(x, y, z);
         return level.isLoaded(pos) ? HostContainerInventory.at(level, pos) : null;
+    }
+
+    @Override
+    public String hostSpawnerEntity(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (!level.isLoaded(pos) || !(level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.SpawnerBlockEntity spawner)) {
+            return null;
+        }
+        net.minecraft.nbt.CompoundTag data = spawner.getSpawner().save(new net.minecraft.nbt.CompoundTag());
+        String id = data.getCompound("SpawnData").getCompound("entity").getString("id");
+        return LegacyEntityTypes.legacyNameOf(id);
     }
 
     @Override

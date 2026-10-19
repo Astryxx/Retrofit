@@ -88,6 +88,10 @@ public class LegacyBlockEntity extends BlockEntity {
         pendingNbt = null;
     }
 
+    /** The tile entity canUpdate() answered for (asked once, as 1.7.10 did when it joined the world). */
+    private Object updatesAskedOf;
+    private boolean updates;
+
     void tick() {
         if (broken) {
             return;
@@ -95,7 +99,14 @@ public class LegacyBlockEntity extends BlockEntity {
         Object tile;
         try {
             tile = legacyTile();
-            if (tile == null || !LegacyBridge.canUpdate(tile)) {
+            if (tile == null) {
+                return;
+            }
+            if (tile != updatesAskedOf) {
+                updatesAskedOf = tile;
+                updates = LegacyBridge.canUpdate(tile);
+            }
+            if (!updates) {
                 return;
             }
             LegacyBridge.tick(tile);

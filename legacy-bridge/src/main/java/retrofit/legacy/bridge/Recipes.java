@@ -173,6 +173,116 @@ public final class Recipes {
         return false;
     }
 
+    /**
+     * The mods' wood types, as their recipes show them: a log (Ore Dictionary "logWood") crafted
+     * alone into planks ("plankWood"). {mod id, planks block, planks meta, log block, log meta,
+     * planks unlocalized name} each; the host gives each one 1.20.1-style "<wood>_planks" and
+     * "<wood>_log" blocks, so mods that find wood types by name (Every Compat) see them.
+     */
+    @SuppressWarnings("unchecked")
+    public static Object[][] woodTypes() {
+        List<Object[]> woods = new ArrayList<Object[]>();
+        java.util.Set<String> seen = new java.util.HashSet<String>();
+        for (Object element : CraftingManager.func_77594_a().func_77592_b()) { // getInstance().getRecipeList()
+            try {
+                Object[] recipe = describe((IRecipe) element);
+                if (recipe == null) {
+                    continue;
+                }
+                ItemStack output = (ItemStack) recipe[4];
+                ItemStack log = null;
+                int inputs = 0;
+                for (Object[] cell : (Object[][]) recipe[3]) {
+                    if (cell != null) {
+                        inputs++;
+                        if (cell.length == 1 && cell[0] instanceof ItemStack) {
+                            log = (ItemStack) cell[0];
+                        }
+                    }
+                }
+                if (inputs != 1 || log == null || output.field_77994_a < 2 || !isModItem(output) || !isModItem(log)
+                        || !hasOre(log, "logWood") || !hasOre(output, "plankWood")) {
+                    continue;
+                }
+                net.minecraft.block.Block planks = net.minecraft.block.Block.func_149634_a(output.func_77973_b()); // getBlockFromItem
+                net.minecraft.block.Block logBlock = net.minecraft.block.Block.func_149634_a(log.func_77973_b());
+                if (planks == null || logBlock == null || planks == net.minecraft.init.Blocks.field_150350_a || logBlock == net.minecraft.init.Blocks.field_150350_a) {
+                    continue;
+                }
+                int planksMeta = output.func_77960_j() & 15;
+                int logMeta = log.func_77960_j() == 32767 ? 0 : log.func_77960_j() & 15; // wildcard: the first kind
+                String seenKey = net.minecraft.block.Block.field_149771_c.func_148750_c(planks) + "@" + planksMeta;
+                if (!seen.add(seenKey)) {
+                    continue;
+                }
+                String name = net.minecraft.block.Block.field_149771_c.func_148750_c(planks);
+                String mod = name.substring(0, Math.max(0, name.indexOf(':')));
+                String key = output.func_77977_a() + ".name"; // getUnlocalizedName
+                String english = englishName(key);
+                woods.add(new Object[]{mod, planks, planksMeta, logBlock, logMeta, english != null ? english : output.func_77977_a()});
+            } catch (Throwable t) {
+                // a recipe that can't be read
+            }
+        }
+        return woods.toArray(new Object[0][]);
+    }
+
+    private static java.util.Map<String, String> english;
+
+    /**
+     * The English name for a translation key, the same on every side (a dedicated server may lack
+     * the mods' translations, and a client may be in another language): names registered in code,
+     * then the mods' own en_US.lang files.
+     */
+    static synchronized String englishName(String key) {
+        String registered = cpw.mods.fml.common.registry.LanguageRegistry.instance().getStringLocalization(key, "en_US");
+        if (registered != null && !registered.isEmpty()) {
+            return registered;
+        }
+        if (english == null) {
+            english = new java.util.HashMap<String, String>();
+            for (cpw.mods.fml.common.ModContainer mod : cpw.mods.fml.common.Loader.instance().getModList()) {
+                java.io.File source = mod.getSource();
+                if (source == null || !source.isFile()) {
+                    continue;
+                }
+                try {
+                    java.util.zip.ZipFile jar = new java.util.zip.ZipFile(source);
+                    try {
+                        java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = jar.entries();
+                        while (entries.hasMoreElements()) {
+                            java.util.zip.ZipEntry entry = entries.nextElement();
+                            if (entry.getName().matches("assets/[^/]+/lang/en_US[.]lang")) {
+                                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(jar.getInputStream(entry), "UTF-8"));
+                                for (String line; (line = reader.readLine()) != null; ) {
+                                    int equals = line.indexOf('=');
+                                    if (equals > 0 && !line.startsWith("#") && !english.containsKey(line.substring(0, equals))) {
+                                        english.put(line.substring(0, equals), line.substring(equals + 1));
+                                    }
+                                }
+                                reader.close();
+                            }
+                        }
+                    } finally {
+                        jar.close();
+                    }
+                } catch (java.io.IOException e) {
+                    // a mod source that can't be read
+                }
+            }
+        }
+        return english.get(key);
+    }
+
+    private static boolean hasOre(ItemStack stack, String ore) {
+        for (ItemStack entry : net.minecraftforge.oredict.OreDictionary.getOres(ore)) {
+            if (net.minecraftforge.oredict.OreDictionary.itemMatches(entry, stack, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Smelting recipes with a mod item on either side: {input, output, experience}. */
     @SuppressWarnings("unchecked")
     public static Object[][] smeltingRecipes() {

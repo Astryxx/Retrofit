@@ -36,6 +36,8 @@ import retrofit.forge.RetrofitMod;
 public final class LegacyWorldGen {
     private static final Logger LOGGER = LogUtils.getLogger();
     static final ResourceLocation ID = new ResourceLocation(RetrofitMod.MOD_ID, "legacy_generators");
+    /** Legacy ores also generate in the deepslate layer (-Dretrofit.deepOres=false: only above y 0, as 1.7.10 had it). */
+    static final boolean DEEP_ORES = !"false".equals(System.getProperty("retrofit.deepOres"));
 
     private LegacyWorldGen() {
     }
@@ -89,6 +91,11 @@ public final class LegacyWorldGen {
                 RegionHostWorld host = new RegionHostWorld(region, world, chunk);
                 LegacyBridge.call("generate", host, dimension, chunk.x, chunk.z);
                 host.flushTiles();
+                RegionHostWorld deep = dimension == 0 && DEEP_ORES ? RegionHostWorld.deep(region, world, chunk) : null;
+                if (deep != null) {
+                    LegacyBridge.call("generate", deep, dimension, chunk.x, chunk.z); // legacy ores below y 0 too
+                    deep.flushTiles();
+                }
             } catch (RuntimeException e) {
                 LegacyErrors.report("world generator", "generating chunk " + chunk, e);
             }

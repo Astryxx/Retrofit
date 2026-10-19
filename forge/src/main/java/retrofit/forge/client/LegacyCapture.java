@@ -44,6 +44,10 @@ public final class LegacyCapture {
     public static final int BLEND = 1 << 16;
     /** Drawn with texturing off (GUI rectangles, gradients, untextured renderer parts). */
     public static final int UNTEXTURED = 1 << 17;
+    /** See the legacy Capture: glBlendFunc(..., GL_ONE). */
+    public static final int ADDITIVE = 1 << 18;
+    /** See the legacy Capture: GL_LIGHTING off. */
+    public static final int UNLIT = 1 << 19;
     public static final int TEXTURE_MASK = 0xFFFF;
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -79,6 +83,14 @@ public final class LegacyCapture {
      * the same texture and blend state into one render type each.
      */
     public static void draw(PoseStack.Pose pose, MultiBufferSource buffers, int vertices, int packedLight, int overlay) throws Throwable {
+        draw(pose, buffers, vertices, packedLight, overlay, true);
+    }
+
+    /**
+     * As {@link #draw(PoseStack.Pose, MultiBufferSource, int, int, int)}; without {@code ownLight}
+     * the light legacy code set is ignored (1.7.10 drew GUIs with the lightmap off).
+     */
+    public static void draw(PoseStack.Pose pose, MultiBufferSource buffers, int vertices, int packedLight, int overlay, boolean ownLight) throws Throwable {
         if (vertices < 4) {
             return;
         }
@@ -102,11 +114,17 @@ public final class LegacyCapture {
                         .color(d[o + 8], d[o + 9], d[o + 10], d[o + 11])
                         .uv(d[o + 3], d[o + 4])
                         .overlayCoords(overlay)
-                        .uv2(light[i] >= 0 ? light[i] : packedLight)
+                        .uv2(ownLight && light[i] >= 0 ? light[i] : packedLight)
                         .normal(normal, d[o + 5], d[o + 6], d[o + 7])
                         .endVertex();
             }
         }
+    }
+
+    /** Per-vertex light the legacy renderer set (Tessellator.setBrightness), or -1. */
+    public static int[] lights() throws Throwable {
+        init();
+        return (int[]) lights.invokeExact();
     }
 
     /** Per-vertex states of the capture (see retrofit.legacy.gl.Capture). */
@@ -130,6 +148,12 @@ public final class LegacyCapture {
 
     private static RenderType renderType(int state) throws Throwable {
         ResourceLocation texture = (state & UNTEXTURED) != 0 ? white() : texture(state & TEXTURE_MASK);
+        if ((state & ADDITIVE) != 0) {
+            return LegacyRenderTypes.additive(texture);
+        }
+        if ((state & UNLIT) != 0) {
+            return LegacyRenderTypes.unlit(texture);
+        }
         return (state & BLEND) != 0 ? RenderType.entityTranslucent(texture) : RenderType.entityCutoutNoCull(texture);
     }
 
