@@ -97,6 +97,11 @@ final class LevelHostWorld implements HostWorld {
     }
 
     @Override
+    public int viewDistance() {
+        return level instanceof net.minecraft.server.level.ServerLevel server ? server.getServer().getPlayerList().getViewDistance() : 10;
+    }
+
+    @Override
     public Object[] hostBlockDrops(int x, int y, int z, int fortune) {
         BlockPos pos = new BlockPos(x, y, z);
         if (!(level instanceof net.minecraft.server.level.ServerLevel server) || !level.isLoaded(pos)) {

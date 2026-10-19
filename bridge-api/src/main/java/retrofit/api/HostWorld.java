@@ -126,6 +126,11 @@ public interface HostWorld {
     default void setHostItemStack(Object handle, Object legacyStack) {
     }
 
+    /** The server's view distance in chunks (who sees a chunk, for mods that send to its watchers). */
+    default int viewDistance() {
+        return 10;
+    }
+
     /** A legacy chunk-loading ticket forces (or no longer forces) a chunk to stay loaded. */
     default void forceChunk(int chunkX, int chunkZ, boolean forced) {
     }

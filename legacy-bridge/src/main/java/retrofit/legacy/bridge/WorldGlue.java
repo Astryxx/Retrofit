@@ -68,6 +68,16 @@ final class WorldGlue {
         return host != null && host.setLegacyBlock(x, y, z, getBlock(host, x, y, z), meta, flags);
     }
 
+    /** A bridged server world's PlayerManager answers from the host's players (see BridgePlayerManager). */
+    static void installPlayerManager(net.minecraft.world.WorldServer world) {
+        try {
+            java.lang.reflect.Field field = net.minecraft.world.WorldServer.class.getDeclaredField("field_73063_M"); // thePlayerManager
+            retrofit.legacy.compat.FinalFields.set(field, world, new BridgePlayerManager(world));
+        } catch (Throwable t) {
+            System.out.println("[Retrofit] Could not bridge the world's player manager: " + t);
+        }
+    }
+
     /** The host level behind a bridged world, or null for other worlds. */
     static HostWorld hostOf(World world) {
         if (world instanceof BridgeWorldServer) {

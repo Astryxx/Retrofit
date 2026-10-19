@@ -29,6 +29,7 @@ public class BridgeWorldServer extends WorldServer {
         super(LegacyWorlds.server(), BridgeSaveHandler.create(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
+        WorldGlue.installPlayerManager(this);
     }
 
     /** getEntityByID: WorldServer's id map only has entities it spawned itself; legacy entities and players are in the entity list. */

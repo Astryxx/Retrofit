@@ -39,7 +39,9 @@
   start no longer keep a stopped server running (they are daemon threads, as 1.7.10's exit made
   them in effect); `Arrays.asList(...).toArray()` keeps its array type as on Java 8 (GregTech's
   import of IC2's recipes); a deadlock when world generation placed tile entities in chunks
-  that already had them.
+  that already had them; block items with more than 16 subtypes (GregTech's machines) kept only
+  the first 16; `WorldServer.getPlayerManager()` knew no players, so packets mods send to a
+  chunk's watchers (GregTech's machine data) never left.
 - Vanilla GUIs legacy code opens (furnace, dispenser, hopper, brewing stand, beacon, crafting
   table, enchanting table, anvil) work, and mods' chat messages through `Minecraft.ingameGUI`.
 
