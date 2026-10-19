@@ -477,6 +477,11 @@ public final class Bridge {
         return "ok: chest of " + inventory.func_70302_i_() + " slots, furnace top slots " + java.util.Arrays.toString(top);
     }
 
+    /** Item.getMetadata(damage): the block metadata an item block places for a damage value. */
+    public static int itemBlockMeta(Object legacyItem, int damage) {
+        return ((Item) legacyItem).func_77647_b(damage); // getMetadata
+    }
+
     // ---- Enchantments ----
 
     /** {id, translation key, weight, max level, type name} of mods' enchantments (vanilla's are 0 to 62 and 1.20.1's own). */

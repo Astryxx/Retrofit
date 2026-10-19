@@ -27,6 +27,9 @@ def legacyGameDir = rootProject.file('run/legacy')
 tasks.named('run') {
     dependsOn ':legacy-boot:jar', ':legacy-bridge:jar', ':testmods:hello1710:jar'
     workingDir = legacyGameDir
+    if (project.hasProperty('extraJvmArg')) {
+        jvmArgs project.property('extraJvmArg').toString().split(' ') // diagnostics, e.g. -XX:AbortVMOnException=...
+    }
     doFirst {
         legacyGameDir.mkdirs()
         copy {

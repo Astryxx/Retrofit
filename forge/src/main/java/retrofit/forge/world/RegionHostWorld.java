@@ -127,7 +127,9 @@ final class RegionHostWorld implements HostWorld {
             tag.put(LegacyBlockEntity.LEGACY_TAG, LegacyStacks.fromBytes(LegacyBridge.save(tile)));
             if (region.getBlockEntity(pos) instanceof LegacyBlockEntity existing) {
                 existing.load(tag); // a live chunk already made its block entity
-                existing.setChanged();
+                // Not setChanged(): it updates comparators through the live level, which from a world
+                // generation thread waits for the server thread, which waits for world generation.
+                region.getChunk(pos).setUnsaved(true);
             } else {
                 ChunkAccess chunk = region.getChunk(pos);
                 chunk.setBlockEntityNbt(tag); // loaded by the block entity when the chunk is finished

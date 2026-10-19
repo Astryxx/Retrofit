@@ -50,6 +50,7 @@ together, in singleplayer and on a dedicated server with a client connected.
 | Chisel 2.9.5.11 | Works: all 1,373 variants including connected textures, the chisel GUI, marble and limestone generation |
 | BuildCraft 7.1.27 | Works: engines, machines, GUIs, oil and fuel; vanilla chests and furnaces are inventories to its pipes. Robots need their dock |
 | IndustrialCraft 2 2.2.828 | Works: machines with their textures, 72 machine GUIs, cables, ores, crops |
+| GregTech 5 Unofficial 5.09.31 (+ IndustrialCraft 2) | Works: machines, cables and pipes, 2,700+ items, ore veins in world generation (62,000 ore blocks in the test area), IC2's machine recipes in GregTech's machines |
 | Lycanite's Mobs 1.13.0.5 | Works: 110 creatures across all its sub-mods, natural spawning |
 | CodeChickenCore 1.4.22 + NotEnoughItems 2.8.160 (GTNH) | Loads and runs (coremods). NEI's item panel only appears on 1.7.10 screens; use JEI on 1.20.1 screens |
 

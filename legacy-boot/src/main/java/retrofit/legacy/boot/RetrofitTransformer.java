@@ -82,6 +82,8 @@ public class RetrofitTransformer implements IClassTransformer {
         "java/lang/reflect/Field".getBytes(StandardCharsets.UTF_8),
         "openStream".getBytes(StandardCharsets.UTF_8),
         "openConnection".getBytes(StandardCharsets.UTF_8),
+        "java/lang/Thread".getBytes(StandardCharsets.UTF_8),
+        "toArray".getBytes(StandardCharsets.UTF_8),
     };
 
     /**
@@ -162,7 +164,7 @@ public class RetrofitTransformer implements IClassTransformer {
     /**
      * Pack200 -> retrofit.legacy.compat.Pack200; System.setSecurityManager/setOut/setErr -> LegacySystem;
      * setAccessible and getDeclaredField -> Reflection (Java 8 behaviour for JDK members); URL connections -> LegacyNet
-     * (timeouts).
+     * (timeouts); Thread.start -> LegacyThreads (daemon threads); List.toArray() -> LegacyCollections (Java 8 array types).
      */
     private static byte[] redirectRemovedApis(byte[] bytes) {
         ClassReader reader = new ClassReader(bytes);
@@ -196,6 +198,19 @@ public class RetrofitTransformer implements IClassTransformer {
                             opcode = Opcodes.INVOKESTATIC;
                             insnDesc = "(Ljava/net/URL;" + insnDesc.substring(1);
                             owner = "retrofit/legacy/compat/LegacyNet";
+                        } else if (!retrofitClass && opcode == Opcodes.INVOKEINTERFACE && (owner.equals("java/util/List") || owner.equals("java/util/Collection"))
+                                && insnName.equals("toArray") && insnDesc.equals("()[Ljava/lang/Object;")) {
+                            // list.toArray() -> LegacyCollections.toArray(list): Arrays.asList keeps its array type, as on Java 8
+                            opcode = Opcodes.INVOKESTATIC;
+                            insnDesc = "(Ljava/util/Collection;)[Ljava/lang/Object;";
+                            owner = "retrofit/legacy/compat/LegacyCollections";
+                            itf = false;
+                        } else if (!retrofitClass && opcode == Opcodes.INVOKEVIRTUAL && owner.equals("java/lang/Thread")
+                                && insnName.equals("start") && insnDesc.equals("()V")) {
+                            // Thread.start -> LegacyThreads.start: legacy threads are daemons (1.7.10 ended with System.exit)
+                            opcode = Opcodes.INVOKESTATIC;
+                            insnDesc = "(Ljava/lang/Thread;)V";
+                            owner = "retrofit/legacy/compat/LegacyThreads";
                         } else if (!retrofitClass && opcode == Opcodes.INVOKEVIRTUAL && owner.equals("java/lang/Class")
                                 && insnName.equals("getDeclaredField")) {
                             opcode = Opcodes.INVOKESTATIC;

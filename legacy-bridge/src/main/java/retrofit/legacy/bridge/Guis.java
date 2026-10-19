@@ -90,8 +90,14 @@ public final class Guis {
             return ClientGuis.vanillaGui(player, guiId, modId, x, y, z); // modId carries the title; x the size for chests
         }
         ModContainer container = Loader.instance().getIndexedModList().get(modId);
-        return container == null ? null
+        Object gui = container == null ? null
                 : NetworkRegistry.INSTANCE.getLocalGuiContainer(container, player, guiId, player.field_70170_p, x, y, z);
+        if (gui == null) {
+            Object tile = player.field_70170_p.func_147438_o(x, y, z); // getTileEntity
+            System.out.println("[Retrofit] " + modId + " made no client GUI #" + guiId + " at " + x + "," + y + "," + z
+                    + "; the client has " + (tile == null ? "no tile entity there" : tile.getClass().getName()));
+        }
+        return gui;
     }
 
     // ---- Containers (host menus call these on both sides) ----

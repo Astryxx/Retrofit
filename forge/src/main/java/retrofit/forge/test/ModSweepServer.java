@@ -59,7 +59,7 @@ public final class ModSweepServer {
     private static final int ACTIVATION_TICKS = 12;
     private static final int ITEM_BATCH_TICKS = 20;
 
-    public enum Phase { WAITING, BLOCKS, ACTIVATE, ENTITIES, ITEMS, ITEM_USE, WORLDGEN, DIMENSIONS, DONE }
+    public enum Phase { WAITING, BLOCKS, ACTIVATE, PLACE, ENTITIES, ITEMS, ITEM_USE, WORLDGEN, DIMENSIONS, DONE }
 
     /** Read by the client half in singleplayer. */
     public static volatile Phase phase = Phase.WAITING;
@@ -138,8 +138,22 @@ public final class ModSweepServer {
                             player.closeContainer();
                             LOGGER.info("[ModSweep] GUIs: {} of {} machines opened a GUI; by mod {}", guisOpened, activation,
                                     GUIS_BY_MOD.entrySet().stream().map(e -> e.getKey() + " " + e.getValue()[0] + "/" + e.getValue()[1]).toList());
-                            enter(Phase.ENTITIES);
+                            preparePlacements(level);
+                            enter(Phase.PLACE);
                         }
+                    }
+                }
+                case PLACE -> {
+                    // All placed first (2 ticks apart), then each right-clicked 10 ticks apart once they're
+                    // 3 seconds old (GregTech ignores clicks on machines younger than 50 ticks).
+                    if (placement < PLACEMENTS.size()) {
+                        if (inPhase % 2 == 0) {
+                            placeNext(player, level);
+                        }
+                    } else if (openStart < 0) {
+                        openStart = inPhase + 60;
+                    } else if (inPhase >= openStart && (inPhase - openStart) % 10 == 0 && !openNext(player, level)) {
+                        enter(Phase.ENTITIES);
                     }
                 }
                 case ENTITIES -> {
@@ -571,6 +585,123 @@ public final class ModSweepServer {
             LOGGER.info("[ModSweep] GUI {}:{} opened: {} with {} slots", ForgeRegistries.BLOCKS.getKey(machine.block), machine.meta,
                     player.containerMenu.getClass().getSimpleName(), player.containerMenu.slots.size());
         }
+    }
+
+    /** Machines to place from their items: {stack, mod}, up to 40 per mod, spread over each block's subtypes. */
+    private static final List<Object[]> PLACEMENTS = new ArrayList<>();
+    private static final Map<String, int[]> PLACED_BY_MOD = new TreeMap<>(); // placed, opened a GUI
+    private static int placement;
+
+    /**
+     * Machines placed from their items, as a player places them: the mod's own ItemBlock runs
+     * (GregTech's machines learn what they are there; a bare block is an empty hull), then a
+     * right-click opens them.
+     */
+    private static void preparePlacements(ServerLevel level) {
+        Map<String, Integer> perMod = new TreeMap<>();
+        for (LegacyBlock block : LegacyContent.blocks()) {
+            String mod = modOf(ForgeRegistries.BLOCKS.getKey(block));
+            if (mod.equals("hello1710") || !(block.asItem() instanceof LegacyBlockItem item) || !item.hasSubtypes()) {
+                continue;
+            }
+            boolean tiles = false;
+            for (int meta = 0; meta < 16 && !tiles; meta++) {
+                tiles = LegacyBridge.hasTileEntity(block.legacyBlock(), meta);
+            }
+            if (!tiles) {
+                continue;
+            }
+            int[] subtypes = LegacyBridge.itemSubtypes(item.legacyItem());
+            int step = Math.max(1, subtypes.length / 40); // spread over the whole list (GregTech: hulls first, machines later)
+            for (int n = 0; n < subtypes.length && perMod.getOrDefault(mod, 0) < 40; n += step) {
+                PLACEMENTS.add(new Object[]{item.stackOf(subtypes[n]), mod});
+                perMod.merge(mod, 1, Integer::sum);
+            }
+        }
+    }
+
+    private static final List<BlockPos> PLACED_AT = new ArrayList<>();
+    private static int openStart = -1;
+    private static int opened;
+
+    private static BlockPos placementFloor(int index) {
+        return origin.offset(-40 + (index % 20) * 3, 0, -30 - (index / 20) * 3);
+    }
+
+    /** Places the next machine from its item. */
+    private static void placeNext(ServerPlayer player, ServerLevel level) {
+        int index = placement++;
+        ItemStack stack = (ItemStack) PLACEMENTS.get(index)[0];
+        int[] counts = PLACED_BY_MOD.computeIfAbsent((String) PLACEMENTS.get(index)[1], m -> new int[2]);
+        BlockPos floor = placementFloor(index);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                level.setBlock(floor.offset(dx, 0, dz), Blocks.SMOOTH_STONE.defaultBlockState(), 2);
+                for (int dy = 1; dy <= 3; dy++) {
+                    level.setBlock(floor.offset(dx, dy, dz), Blocks.AIR.defaultBlockState(), 2);
+                }
+            }
+        }
+        BlockPos at = floor.above();
+        player.teleportTo(level, at.getX() + 0.5, at.getY(), at.getZ() - 1.5, 0f, 30f);
+        player.getInventory().setItem(player.getInventory().selected, stack.copy());
+        try {
+            player.gameMode.useItemOn(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND,
+                    new BlockHitResult(Vec3.atCenterOf(floor).add(0, 0.5, 0), Direction.UP, floor, false));
+            if (!level.getBlockState(at).isAir()) {
+                counts[0]++;
+                PLACED_AT.add(at);
+                if (counts[0] <= 3 && level.getBlockEntity(at) instanceof LegacyBlockEntity placedTile) {
+                    Object tile = placedTile.legacyTile();
+                    LOGGER.info("[ModSweep] Placed {} from its item: {}", stack.getHoverName().getString(),
+                            tile == null ? "no legacy tile entity" : tile.getClass().getSimpleName() + " " + nbtOf(tile));
+                }
+            } else {
+                PLACED_AT.add(null); // not placeable here
+            }
+        } catch (RuntimeException e) {
+            PLACED_AT.add(null);
+            LOGGER.error("[ModSweep] Placing {} from its item FAILED", stack, e);
+        }
+        player.getInventory().setItem(player.getInventory().selected, ItemStack.EMPTY);
+    }
+
+    private static String nbtOf(Object tile) {
+        try {
+            return net.minecraft.nbt.NbtIo.read(new java.io.DataInputStream(new java.io.ByteArrayInputStream(LegacyBridge.save(tile)))).toString();
+        } catch (java.io.IOException | RuntimeException e) {
+            return "(unreadable: " + e + ")";
+        }
+    }
+
+    /** Right-clicks the next placed machine; false when all are done. */
+    private static boolean openNext(ServerPlayer player, ServerLevel level) {
+        player.closeContainer();
+        while (opened < PLACED_AT.size() && PLACED_AT.get(opened) == null) {
+            opened++;
+        }
+        if (opened >= PLACED_AT.size()) {
+            player.getInventory().clearContent();
+            LOGGER.info("[ModSweep] Machines placed from their items (placed, opened a GUI): {}",
+                    PLACED_BY_MOD.entrySet().stream().map(e -> e.getKey() + " " + e.getValue()[0] + "/" + e.getValue()[1]).toList());
+            return false;
+        }
+        int index = opened++;
+        BlockPos at = PLACED_AT.get(index);
+        ItemStack stack = (ItemStack) PLACEMENTS.get(index)[0];
+        player.teleportTo(level, at.getX() + 0.5, at.getY(), at.getZ() - 1.5, 0f, 30f);
+        player.getInventory().setItem(player.getInventory().selected, ItemStack.EMPTY);
+        try {
+            player.gameMode.useItemOn(player, level, ItemStack.EMPTY, InteractionHand.MAIN_HAND,
+                    new BlockHitResult(Vec3.atCenterOf(at).add(0, 0, -0.5), Direction.NORTH, at, false));
+            if (player.containerMenu != player.inventoryMenu) {
+                PLACED_BY_MOD.get((String) PLACEMENTS.get(index)[1])[1]++;
+                LOGGER.info("[ModSweep] Placed {} opened {}", stack.getHoverName().getString(), player.containerMenu.getClass().getSimpleName());
+            }
+        } catch (RuntimeException e) {
+            LOGGER.error("[ModSweep] Opening {} FAILED", stack, e);
+        }
+        return true;
     }
 
     /** Every legacy entity type on a fenced platform east of the block grid, 4 blocks apart. */

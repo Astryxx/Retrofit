@@ -44,10 +44,14 @@ public class LegacyBlockItem extends BlockItem implements LegacyStackItem {
         return hasSubtypes;
     }
 
+    /**
+     * The legacy item damage: the subtype, up to 32767 (GregTech's machines are thousands of
+     * subtypes of one block item). Which block metadata it places is the mod's ItemBlock's call.
+     */
     @Override
     public int meta(ItemStack stack) {
         CompoundTag tag = stack.getTag();
-        return hasSubtypes && tag != null ? tag.getInt(LegacyItem.META_TAG) & 15 : 0;
+        return hasSubtypes && tag != null ? tag.getInt(LegacyItem.META_TAG) : 0;
     }
 
     @Override
@@ -62,7 +66,7 @@ public class LegacyBlockItem extends BlockItem implements LegacyStackItem {
     @Override
     protected BlockState getPlacementState(BlockPlaceContext context) {
         BlockState state = super.getPlacementState(context);
-        return state == null || !hasSubtypes ? state : state.setValue(LegacyContent.META, meta(context.getItemInHand()));
+        return state == null || !hasSubtypes ? state : state.setValue(LegacyContent.META, meta(context.getItemInHand()) & 15);
     }
 
     @Override

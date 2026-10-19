@@ -49,7 +49,7 @@ generation), and all of them together in singleplayer and on a dedicated server:
 
 - **Works:** Thaumcraft, Witchery, Ars Magica 2, BuildCraft, BiblioCraft, Iron Chests, OreSpawn,
   Mo' Creatures, RotaryCraft (with DragonAPI), Tinkers' Construct, Pam's HarvestCraft,
-  Carpenter's Blocks, Chisel, IndustrialCraft 2, Lycanite's Mobs
+  Carpenter's Blocks, Chisel, IndustrialCraft 2, GregTech 5 Unofficial, Lycanite's Mobs
 - **Loads:** CodeChickenCore and NEI (NEI's panel only on 1.7.10 screens; use JEI)
 
 Libraries they need (Baubles, DragonAPI, AnimationAPI, Mantle, CustomMobSpawner) go in

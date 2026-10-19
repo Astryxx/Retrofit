@@ -202,6 +202,23 @@ final class LegacyBakedModel implements BakedModel {
         return item;
     }
 
+    private static final java.util.Map<Long, Integer> BLOCK_METAS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The block metadata an item block's damage places (ItemBlock.getMetadata: the mod decides). */
+    private static int blockMeta(LegacyStackItem item, int damage) {
+        if (damage >= 0 && damage < 16 || item.legacyItem() == null) {
+            return damage & 15;
+        }
+        long key = (long) System.identityHashCode(item) << 32 | damage;
+        return BLOCK_METAS.computeIfAbsent(key, k -> {
+            try {
+                return LegacyBridge.<Integer>call("itemBlockMeta", item.legacyItem(), damage) & 15;
+            } catch (RuntimeException e) {
+                return damage & 15;
+            }
+        });
+    }
+
     @Override
     public ItemOverrides getOverrides() {
         if (itemVariants == null) {
@@ -210,7 +227,7 @@ final class LegacyBakedModel implements BakedModel {
         return new ItemOverrides() {
             @Override
             public BakedModel resolve(BakedModel model, ItemStack stack, ClientLevel level, LivingEntity entity, int seed) {
-                int meta = stack.getItem() instanceof LegacyStackItem item ? item.meta(stack) & 15 : 0;
+                int meta = stack.getItem() instanceof LegacyStackItem item ? blockMeta(item, item.meta(stack)) : 0;
                 LegacyBakedModel variant = itemVariants[meta];
                 return variant != null ? variant : model;
             }

@@ -35,6 +35,11 @@
 - Mobs that 1.20.1 spawns (natural spawning, spawn eggs, /summon) get their 1.7.10 spawn setup
   (`onSpawnWithEgg`: equipment, variants, sizes); held items and armour of legacy mobs show on
   clients.
+- GregTech 5 Unofficial joins the tested mods. Fixed for it, and any mod alike: threads mods
+  start no longer keep a stopped server running (they are daemon threads, as 1.7.10's exit made
+  them in effect); `Arrays.asList(...).toArray()` keeps its array type as on Java 8 (GregTech's
+  import of IC2's recipes); a deadlock when world generation placed tile entities in chunks
+  that already had them.
 - Vanilla GUIs legacy code opens (furnace, dispenser, hopper, brewing stand, beacon, crafting
   table, enchanting table, anvil) work, and mods' chat messages through `Minecraft.ingameGUI`.
 
