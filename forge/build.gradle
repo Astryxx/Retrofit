@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.3.0-beta'
+version = '0.3.1-beta'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -68,7 +68,7 @@ minecraft {
                 property 'retrofit.debugGui', 'true'
                 property 'retrofit.debugEntities', 'true'
             }
-            if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background')) {
+            if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background') || project.hasProperty('downloadTest')) {
                 property 'retrofit.background', 'true' // test runs never take the mouse or keep the focus (retrofit.forge.test.BackgroundWindow)
             }
             if (project.hasProperty('modSweep')) {
@@ -81,6 +81,11 @@ minecraft {
             }
             if (project.hasProperty('renderTest')) {
                 property 'retrofit.renderTest', 'true'
+            }
+            if (project.hasProperty('downloadTest')) {
+                // first start without a launcher install: the download question, answered Download (LegacyDownloadScreen)
+                property 'retrofit.downloadTest', 'true'
+                property 'retrofit.minecraftHome', project.file('run/no-launcher').absolutePath
             }
             if (project.hasProperty('galleryDump')) {
                 property 'retrofit.galleryDump', project.property('galleryDump') // ItemGallery: captured vertices of these block items

@@ -23,6 +23,10 @@ public record Library(String group, String artifact, String version, String repo
     private static final String MOJANG_LIBRARIES = "https://libraries.minecraft.net/";
     private static final String MAVEN_CENTRAL = "https://repo1.maven.org/maven2/";
     private static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+    /** Nothing is downloaded unless the player (or a server's admin) agreed; see LegacyInstall.allowDownloads. */
+    static volatile boolean downloadsAllowed;
+    /** Told about each file before it is downloaded (the download screen shows it). */
+    static volatile java.util.function.Consumer<String> progress = url -> { };
 
     static Library parse(JsonObject json) {
         String[] coords = json.get("name").getAsString().split(":");
@@ -46,6 +50,11 @@ public record Library(String group, String artifact, String version, String repo
 
     String relativePath() {
         return group.replace('.', '/') + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
+    }
+
+    /** Whether the launcher or the cache already has this library (nothing is downloaded). */
+    boolean isLocal(Path launcherLibraries, Path cacheLibraries) {
+        return Files.isRegularFile(launcherLibraries.resolve(relativePath())) || Files.isRegularFile(cacheLibraries.resolve(relativePath()));
     }
 
     /** Prefers the launcher's copy; otherwise downloads into the cache and verifies it. */
@@ -115,14 +124,29 @@ public record Library(String group, String artifact, String version, String repo
         System.out.println("[Retrofit] Downloaded " + url);
     }
 
+    /** Downloads a file that has no published checksum (another mod's jar a 1.7.10 mod names as its dependency). */
+    static void downloadUnverified(String url, Path target) throws IOException {
+        byte[] data = fetch(url);
+        Files.createDirectories(target.getParent());
+        Path temp = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".part");
+        Files.write(temp, data);
+        Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        System.out.println("[Retrofit] Downloaded " + url);
+    }
+
     /** Opens a URL for reading (small metadata files such as Mojang's version manifest). */
     static InputStream open(String url) throws IOException {
         return new java.io.ByteArrayInputStream(fetch(url));
     }
 
     private static byte[] fetch(String url) throws IOException {
+        if (!downloadsAllowed) {
+            throw new IOException("Retrofit may not download " + url + " without permission (see retrofit/retrofit.properties)");
+        }
+        progress.accept(url);
         try {
-            HttpResponse<InputStream> response = HTTP.send(HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = HTTP.send(HttpRequest.newBuilder(URI.create(url)).header("User-Agent", "Retrofit (Minecraft mod)").build(),
+                    HttpResponse.BodyHandlers.ofInputStream());
             try (InputStream body = response.body()) {
                 if (response.statusCode() != 200) {
                     throw new IOException("HTTP " + response.statusCode() + " for " + url);

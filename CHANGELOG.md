@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.1-beta
+
+- **Downloads only with permission.** When the Minecraft launcher doesn't have Minecraft 1.7.10
+  and Forge 10.13.4.1614, Retrofit no longer downloads them on its own: the title screen lists
+  what it would download, from where (Mojang, Forge's Maven, Maven Central) and how much (about
+  50 MB), and asks: *Download*, *Not now* or *Don't ask again*. 1.7.10 mods load after a restart.
+  When everything is already there, nothing is asked. Dedicated servers stop with instructions
+  until `download-files=yes` is set in `retrofit/retrofit.properties` (created on first start),
+  like `eula.txt`; `never` there turns downloading and asking off.
+- **Mods that download mods.** 1.7.10 mods with CodeChicken's DepLoader (CodeChickenCore,
+  Thaumcraft, NotEnoughItems) download missing dependencies while the game starts, without
+  asking. Retrofit finds those beforehand and lists them in the same question; 1.7.10 code may no
+  longer download mods itself, and a start that fails for a missing one says which file to get.
+- `-Dretrofit.minecraftHome=<dir>` for launchers that keep `.minecraft` elsewhere.
+- Retrofit's downloads identify themselves (User-Agent "Retrofit (Minecraft mod)"); Retrofit
+  collects no data.
+
 ## 0.3.0-beta
 
 1.7.10 and 1.20.1 mods now work together, as if they were made for the same version:

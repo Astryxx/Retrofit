@@ -11,9 +11,10 @@ authors = "cdonald720396"
 logoFile = "retrofit_logo.png"
 description = '''
 Play Minecraft 1.7.10 Forge mods in 1.20.1. Put 1.7.10 mod jars in the "retrofit/mods" folder of your game
-directory; Retrofit runs them on a real 1.7.10 + Forge 10.13.4 (downloaded from Mojang and Forge on first
-start, nothing of it is shipped) and bridges their blocks, items, tile entities, GUIs, entities, recipes,
-world generation, sounds and packets into 1.20.1. Alpha: see the compatibility notes.
+directory; Retrofit runs them on a real 1.7.10 + Forge 10.13.4 (nothing of it is shipped: taken from your
+launcher, or downloaded from Mojang and Forge only if you agree when asked) and bridges their blocks,
+items, tile entities, GUIs, entities, recipes, world generation, sounds and packets into 1.20.1.
+Beta: see the compatibility notes. Not an official Minecraft product.
 '''
 
 [[dependencies.retrofit]]

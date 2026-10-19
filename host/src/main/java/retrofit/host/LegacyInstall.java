@@ -24,7 +24,8 @@ import java.util.zip.ZipFile;
  * Forge is bundled with Retrofit: files come from the player's launcher installation when it has
  * them, and are otherwise downloaded from their official sources (Mojang's version manifest,
  * Forge's Maven, Maven Central) into Retrofit's cache, checksum-verified, as launchers and server
- * hosts do. A dedicated server therefore needs nothing pre-installed.
+ * hosts do, but only once the player or the server's admin has agreed ({@link #allowDownloads});
+ * {@link #missing()} tells beforehand, without going online, whether anything is needed.
  */
 public final class LegacyInstall {
     public static final String VANILLA_VERSION = "1.7.10";
@@ -67,7 +68,86 @@ public final class LegacyInstall {
         this.server = server;
     }
 
+    /** One thing that would be downloaded: what it is, and the address it comes from. */
+    public record Missing(String what, String from) {
+    }
+
+    /** Allows downloads (the player agreed, or a server's admin did in retrofit.properties). Off until then. */
+    public static void allowDownloads(boolean allowed) {
+        Library.downloadsAllowed = allowed;
+    }
+
+    /** Is told the address of each file just before it is downloaded. */
+    public static void onDownload(java.util.function.Consumer<String> listener) {
+        Library.progress = listener == null ? url -> { } : listener;
+    }
+
+    /**
+     * What resolving the classpath would download, found without going online: empty when the
+     * launcher's installation and Retrofit's cache already have everything. Files listed by
+     * version files not on this computer yet are summed up as "and their libraries".
+     */
+    public List<Missing> missing() throws IOException {
+        List<Missing> missing = new ArrayList<>();
+        Path launcherLibraries = minecraftHome.resolve("libraries");
+        Path cacheLibraries = cacheDir.resolve("libraries");
+        // the same libraries, in the same order, as classpath(): replacements win over Forge's, Forge's over vanilla's
+        Map<String, Library> libraries = new LinkedHashMap<>();
+        for (Library library : REPLACED_LIBRARIES) {
+            libraries.put(library.group() + ":" + library.artifact(), library);
+        }
+        String[] coords = FORGE_COORDINATES.split(":");
+        Library forge = new Library(coords[0], coords[1], coords[2], FORGE_MAVEN, List.of());
+        Path forgeJar = Files.isRegularFile(launcherLibraries.resolve(forge.relativePath())) ? launcherLibraries.resolve(forge.relativePath())
+                : cacheLibraries.resolve(forge.relativePath());
+        if (Files.isRegularFile(forgeJar)) {
+            addLibraries(forgeVersion(forgeJar), libraries);
+        } else {
+            missing.add(new Missing("Minecraft Forge " + coords[2] + ", and its libraries", "Forge (maven.minecraftforge.net), Maven Central"));
+        }
+        Path vanillaJson = Files.isRegularFile(minecraftHome.resolve("versions").resolve(VANILLA_VERSION).resolve(VANILLA_VERSION + ".json"))
+                ? minecraftHome.resolve("versions").resolve(VANILLA_VERSION).resolve(VANILLA_VERSION + ".json")
+                : cacheDir.resolve("versions").resolve(VANILLA_VERSION + ".json");
+        String game = server ? "Minecraft " + VANILLA_VERSION + " server" : "Minecraft " + VANILLA_VERSION;
+        boolean vanillaKnown = Files.isRegularFile(vanillaJson);
+        if (!vanillaKnown) {
+            missing.add(new Missing(game + (server ? "" : ", and its libraries"), "Mojang (piston-meta.mojang.com, piston-data.mojang.com, libraries.minecraft.net)"));
+        } else if (!server) {
+            addLibraries(readJson(vanillaJson), libraries);
+        }
+        for (Library library : libraries.values()) {
+            if (!library.isLocal(launcherLibraries, cacheLibraries)) {
+                missing.add(new Missing("library " + library.group() + ":" + library.artifact() + " " + library.version(),
+                        "Mojang (libraries.minecraft.net), Forge (maven.minecraftforge.net) or Maven Central (repo1.maven.org)"));
+            }
+        }
+        if (!COMMONS_COMPRESS.isLocal(launcherLibraries, cacheLibraries)) {
+            missing.add(new Missing("Apache Commons Compress " + COMMONS_COMPRESS.version(), "Maven Central (repo1.maven.org)"));
+        }
+        if (vanillaKnown) {
+            Path gameJar = server ? cacheDir.resolve("versions").resolve("minecraft_server." + VANILLA_VERSION + ".jar")
+                    : Files.isRegularFile(minecraftHome.resolve("versions").resolve(VANILLA_VERSION).resolve(VANILLA_VERSION + ".jar"))
+                    ? minecraftHome.resolve("versions").resolve(VANILLA_VERSION).resolve(VANILLA_VERSION + ".jar")
+                    : cacheDir.resolve("versions").resolve(VANILLA_VERSION + ".jar");
+            if (!Files.isRegularFile(gameJar)) {
+                missing.add(new Missing(game, "Mojang (piston-data.mojang.com)"));
+            }
+        }
+        return missing;
+    }
+
+    /** Downloads everything {@link #missing()} listed (needs {@link #allowDownloads}). */
+    public void fetchAll() throws IOException {
+        classpath();
+        commonsCompress();
+    }
+
+    /** The launcher's .minecraft directory (-Dretrofit.minecraftHome=... for launchers that keep it elsewhere). */
     public static Path defaultMinecraftHome() {
+        String configured = System.getProperty("retrofit.minecraftHome");
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
         String appData = System.getenv("APPDATA");
         if (appData != null) {
             return Path.of(appData, ".minecraft");

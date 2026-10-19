@@ -32,6 +32,7 @@ public final class HarnessMain {
         if (retrofitJars.isEmpty()) {
             throw new IllegalArgumentException("--boot-jar is required");
         }
+        LegacyInstall.allowDownloads(true); // a developer tool, run on purpose: no one to ask
         LegacyRuntime runtime = LegacyHost.boot(minecraftHome, gameDir, retrofitJars, true, server);
         if (dumpSrg != null) {
             runtime.rootLoader().loadClass("retrofit.legacy.boot.SrgJarDumper").getMethod("dump", java.io.File.class)

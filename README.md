@@ -6,21 +6,23 @@ Retrofit runs a real copy of Minecraft 1.7.10 and Forge 10.13.4 inside the 1.20.
 isolated class loader, and bridges it to the 1.20.1 world, renderer and network. Legacy mods run
 their own 1.7.10 code; their blocks, items, tile entities, GUIs, entities, recipes, world
 generation, sounds, commands and packets show up as ordinary 1.20.1 content. Retrofit ships no
-Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher install or are
-downloaded from Mojang and Forge on first start (checksum-verified), and players supply their own
-1.7.10 mods. Retrofit is free, with no paid tiers.
+Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher install or, if the
+player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
+supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.3.0-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.3.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.3.0-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.3.1-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory (created on first start).
-3. Start the game. The first start downloads Minecraft 1.7.10, Forge 10.13.4.1614 and their
-   libraries (a few tens of MB) unless the launcher already has them; every start then spends about
-   5-10 seconds booting 1.7.10 during mod loading.
+3. Start the game. If the launcher doesn't have Minecraft 1.7.10 and Forge 10.13.4.1614, the title
+   screen asks whether to download them and their libraries (about 50 MB, from Mojang, Forge's
+   Maven and Maven Central; nothing is downloaded without a yes), and 1.7.10 mods load after a
+   restart. Every start spends about 5-10 seconds booting 1.7.10 during mod loading.
+   `-Dretrofit.minecraftHome=<dir>` points Retrofit at a launcher folder other than `.minecraft`.
 
 Servers: the same, on a Forge 1.20.1 server. Clients and the server need the same 1.7.10 mods;
 connecting with a different set is refused with a message. Java 17 or newer (tested with 17, 21 and 26).
@@ -86,7 +88,13 @@ DragonAPI then refuses to start until one is changed there.
 - A client sometimes stalls at "Logging in..." when connecting very soon after the game starts
   (it never answers the server's first Forge login query). It also happens without Retrofit;
   cancel and connect again.
-- The first start without a 1.7.10 launcher install needs internet access to Mojang and Forge.
+- Without a 1.7.10 launcher install, downloading needs internet access to Mojang, Forge's Maven and
+  Maven Central. Dedicated servers download only after `download-files=yes` is set in
+  `retrofit/retrofit.properties` (they stop with instructions until then); `never` there means
+  never download (and never ask).
+- 1.7.10 mods may not download other mods themselves (CodeChicken's DepLoader in CodeChickenCore,
+  Thaumcraft and NEI would): dependencies they name are listed in Retrofit's download question
+  instead, and any other such download is refused with a message naming the file.
 - Mods' own cloud and weather renderers (`WorldProvider.getCloudRenderer`/`getWeatherRenderer`)
   aren't drawn; legacy dimensions get 1.20.1's clouds and weather (their own sky renderers are drawn).
 - FML logs "missing any signature data", and some mods log signature warnings. Cosmetic.
@@ -135,7 +143,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.3.0-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.3.1-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

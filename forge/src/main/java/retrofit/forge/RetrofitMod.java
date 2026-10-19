@@ -30,6 +30,10 @@ public final class RetrofitMod {
     private static final List<String> LEGACY_JARS = List.of("legacy-boot.jar", "legacy-bridge.jar");
 
     private static volatile LegacyRuntime runtime;
+    /** Downloads the player has not been asked about yet (the title screen asks), or null. */
+    private static volatile LegacyDownloads pendingDownloads;
+    /** Mods' dependencies that are not installed and were not downloaded (to explain a failed boot). */
+    private static List<retrofit.host.LegacyDependencies.Dependency> missingDependencies = List.of();
 
     public RetrofitMod() {
         // Both sides boot the matching side of 1.7.10: a dedicated server downloads the 1.7.10 server jar.
@@ -44,6 +48,10 @@ public final class RetrofitMod {
         boolean server = FMLEnvironment.dist == Dist.DEDICATED_SERVER;
         Path legacyDir = FMLPaths.GAMEDIR.get().resolve("retrofit");
         try {
+            Files.createDirectories(legacyDir.resolve("mods")); // where players put their 1.7.10 mods, even before 1.7.10 can run
+            if (!downloadsSettled(legacyDir, server)) {
+                return; // 1.7.10 mods load once the files are there (after the next start)
+            }
             List<Path> jars = new ArrayList<>();
             for (String jar : LEGACY_JARS) {
                 jars.add(extractJar(jar, legacyDir.resolve(".retrofit")));
@@ -64,8 +72,67 @@ public final class RetrofitMod {
             LOGGER.debug("java.net.preferIPv4Stack before legacy boot: {}, after: {}", ipv4Before,
                     System.getProperty("java.net.preferIPv4Stack"));
         } catch (Exception e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                if (cause.getMessage() != null && cause.getMessage().startsWith("Retrofit does not let 1.7.10 mods download")) {
+                    throw new IllegalStateException(cause.getMessage(), e); // a mod's own download of a mod it needs, refused (LegacyNet)
+                }
+            }
+            if (!missingDependencies.isEmpty()) { // their mods' DepLoader fails without them (it may not download them)
+                StringBuilder list = new StringBuilder();
+                missingDependencies.forEach(dep -> list.append("\n  ").append(dep.file()).append(", needed by ").append(dep.wantedBy()));
+                throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10: these mods are missing:" + list
+                        + "\nDownload them from their mods' pages and put them in retrofit/mods, or set " + LegacyDownloads.SETTING
+                        + "=ask in retrofit/retrofit.properties to be asked about downloading them.", e);
+            }
             throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10. See the log above for details.", e);
         }
+    }
+
+    /**
+     * Whether everything 1.7.10 needs is on this computer, after downloading it if the player or
+     * the server's admin already allowed that. Otherwise clients ask on the title screen (this
+     * session runs without 1.7.10), and servers stop with instructions, like eula.txt.
+     */
+    private static boolean downloadsSettled(Path legacyDir, boolean server) throws IOException {
+        LegacyDownloads downloads = new LegacyDownloads(legacyDir, server);
+        if (!downloads.needed()) {
+            return true;
+        }
+        LegacyDownloads.Permission permission = LegacyDownloads.permission(legacyDir);
+        if (permission == LegacyDownloads.Permission.NEVER && downloads.files().isEmpty()) {
+            missingDependencies = downloads.dependencies();
+            return true; // only mods' dependencies are missing: 1.7.10 starts, and refuses the mods' own downloads of them
+        }
+        if (permission == LegacyDownloads.Permission.YES) {
+            LOGGER.info("Downloading what 1.7.10 needs ({} set to yes in retrofit/retrofit.properties)", LegacyDownloads.SETTING);
+            downloads.fetch(url -> LOGGER.info("Downloading {}", url));
+            return true;
+        }
+        StringBuilder list = new StringBuilder();
+        downloads.files().forEach(file -> list.append("\n  ").append(file.what()).append(" from ").append(file.from()));
+        downloads.dependencies().forEach(dep -> list.append("\n  ").append(dep.file()).append(" (wanted by ").append(dep.wantedBy())
+                .append(") from ").append(dep.url()));
+        if (server) {
+            if (!Files.isRegularFile(legacyDir.resolve("retrofit.properties"))) {
+                LegacyDownloads.setPermission(legacyDir, LegacyDownloads.Permission.ASK);
+            }
+            throw new IllegalStateException("Retrofit needs to download files to run 1.7.10 mods (" + downloads.size() + ") into "
+                    + downloads.cacheDir() + ":" + list + "\nTo allow it, set " + LegacyDownloads.SETTING + "=yes in "
+                    + legacyDir.resolve("retrofit.properties") + " and start the server again.");
+        }
+        if (permission == LegacyDownloads.Permission.ASK) {
+            pendingDownloads = downloads;
+            LOGGER.warn("Retrofit needs to download files to run 1.7.10 mods; the title screen asks first. Needed:{}", list);
+        } else {
+            LOGGER.warn("Retrofit needs to download files to run 1.7.10 mods, and {}=never in retrofit/retrofit.properties: "
+                    + "1.7.10 mods are not loaded. Needed:{}", LegacyDownloads.SETTING, list);
+        }
+        return false;
+    }
+
+    /** Downloads waiting for the player's answer (client.LegacyDownloadScreen), or null. */
+    public static LegacyDownloads pendingDownloads() {
+        return pendingDownloads;
     }
 
     /** The player's language from options.txt ("de_de"), in 1.7.10's form ("de_DE"); English if unknown. */

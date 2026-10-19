@@ -1,0 +1,22 @@
+{
+  "retrofit.download.title": "Retrofit needs Minecraft 1.7.10",
+  "retrofit.download.title.dependencies": "Your 1.7.10 mods need other mods",
+  "retrofit.download.intro": "To run 1.7.10 mods, Retrofit needs Minecraft 1.7.10 and Forge 10.13.4.1614, which it does not include and your Minecraft launcher does not have. Retrofit can download them (%s) from their official sources:",
+  "retrofit.download.dependencies": "Your 1.7.10 mods also want these mods, which they would otherwise try to download themselves (not checked by Retrofit):",
+  "retrofit.download.file": "• %s, from %s",
+  "retrofit.download.dependency": "• %s (wanted by %s), from %s",
+  "retrofit.download.libraries": "• %s libraries (%s), from Mojang (libraries.minecraft.net), Forge (maven.minecraftforge.net) or Maven Central (repo1.maven.org)",
+  "retrofit.download.more": "...and %s more",
+  "retrofit.download.where": "The files are saved in %s. Retrofit sends nothing about you. Minecraft has to restart afterwards to load your 1.7.10 mods; until then they are not loaded.",
+  "retrofit.download.where.dependencies": "They are saved in %s. Retrofit sends nothing about you. Minecraft has to restart afterwards to load your 1.7.10 mods. You can also download them from their mods' pages yourself and put them in retrofit/mods.",
+  "retrofit.download.yes": "Download",
+  "retrofit.download.later": "Not now",
+  "retrofit.download.never": "Don't ask again",
+  "retrofit.download.never.info": "Retrofit will not ask again. To change this, edit retrofit/retrofit.properties.",
+  "retrofit.download.progress": "Downloading %s",
+  "retrofit.download.done": "Downloaded. Restart Minecraft to load your 1.7.10 mods.",
+  "retrofit.download.failed": "The download failed: %s",
+  "retrofit.download.quit": "Quit Minecraft",
+  "retrofit.download.back": "Later",
+  "retrofit.download.retry": "Try again"
+}
