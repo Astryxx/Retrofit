@@ -7,6 +7,8 @@ import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureAtlas;
@@ -48,6 +50,8 @@ public final class LegacyCapture {
     public static final int ADDITIVE = 1 << 18;
     /** See the legacy Capture: GL_LIGHTING off. */
     public static final int UNLIT = 1 << 19;
+    /** See the legacy Capture: a line segment a, b as the quad a, b, b, a. */
+    public static final int LINES = 1 << 20;
     public static final int TEXTURE_MASK = 0xFFFF;
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -91,6 +95,15 @@ public final class LegacyCapture {
      * the light legacy code set is ignored (1.7.10 drew GUIs with the lightmap off).
      */
     public static void draw(PoseStack.Pose pose, MultiBufferSource buffers, int vertices, int packedLight, int overlay, boolean ownLight) throws Throwable {
+        draw(pose, buffers, vertices, packedLight, overlay, ownLight, false);
+    }
+
+    /** A sky (WorldProvider.getSkyRenderer): behind everything, unshaded. */
+    public static void drawSky(PoseStack.Pose pose, MultiBufferSource buffers, int vertices) throws Throwable {
+        draw(pose, buffers, vertices, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, false, true);
+    }
+
+    private static void draw(PoseStack.Pose pose, MultiBufferSource buffers, int vertices, int packedLight, int overlay, boolean ownLight, boolean sky) throws Throwable {
         if (vertices < 4) {
             return;
         }
@@ -105,7 +118,19 @@ public final class LegacyCapture {
         for (int v = 0; v + 3 < vertices; v += 4) {
             if (state[v] != current || out == null) {
                 current = state[v];
-                out = buffers.getBuffer(renderType(current));
+                out = buffers.getBuffer((current & LINES) != 0 ? RenderType.lines() : sky ? skyType(current) : renderType(current));
+            }
+            if ((current & LINES) != 0) { // one segment: its two ends, the normal along it (as LevelRenderer's outlines)
+                int a = v * FLOATS_PER_VERTEX, b = (v + 1) * FLOATS_PER_VERTEX;
+                float dx = d[b] - d[a], dy = d[b + 1] - d[a + 1], dz = d[b + 2] - d[a + 2];
+                float length = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (length > 0) {
+                    for (int o : new int[]{a, b}) {
+                        out.vertex(position, d[o], d[o + 1], d[o + 2]).color(d[o + 8], d[o + 9], d[o + 10], d[o + 11])
+                                .normal(normal, dx / length, dy / length, dz / length).endVertex();
+                    }
+                }
+                continue;
             }
             for (int corner = 0; corner < 4; corner++) {
                 int i = v + corner;
@@ -144,6 +169,11 @@ public final class LegacyCapture {
             Minecraft.getInstance().getTextureManager().register(white, new DynamicTexture(image));
         }
         return white;
+    }
+
+    private static RenderType skyType(int state) throws Throwable {
+        ResourceLocation texture = (state & UNTEXTURED) != 0 ? white() : texture(state & TEXTURE_MASK);
+        return LegacyRenderTypes.sky(texture, (state & ADDITIVE) != 0);
     }
 
     private static RenderType renderType(int state) throws Throwable {

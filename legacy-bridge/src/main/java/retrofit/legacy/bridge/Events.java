@@ -74,9 +74,11 @@ public final class Events {
         }
     }
 
-    /** Client only. */
+    /** Client only. Hold Bridge.LOCK (handlers draw with the shared Tessellator). */
     public static void renderTick(boolean start, float partialTicks) {
         ClientPlayers.viewFromPlayer();
+        // 1.7.10 never reached a render tick mid-draw; a mod's draw left unfinished elsewhere must not break these
+        LegacyRendering.resetTessellatorIfDrawing();
         if (start) {
             FMLCommonHandler.instance().onRenderTickStart(partialTicks);
         } else {

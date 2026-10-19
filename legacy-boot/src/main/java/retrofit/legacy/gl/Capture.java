@@ -25,6 +25,8 @@ public final class Capture {
     public static final int ADDITIVE = 1 << 18;
     /** Drawn with GL_LIGHTING off: no shading. */
     public static final int UNLIT = 1 << 19;
+    /** A line segment a, b, as the quad a, b, b, a. */
+    public static final int LINES = 1 << 20;
     public static final int TEXTURE_MASK = 0xFFFF;
 
     private static float[] data = new float[FLOATS_PER_VERTEX * 1024];

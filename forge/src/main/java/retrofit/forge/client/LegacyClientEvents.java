@@ -88,7 +88,10 @@ public final class LegacyClientEvents {
         }
         boolean start = event.phase == TickEvent.Phase.START;
         float partialTicks = event.renderTickTime;
-        run(() -> LegacyBridge.call("renderTick", start, partialTicks));
+        // render tick handlers draw (Thaumcraft's research popups) with the one legacy Tessellator chunk builders share
+        synchronized (LegacyBridge.renderLock()) {
+            run(() -> LegacyBridge.call("renderTick", start, partialTicks));
+        }
     }
 
     private static void run(Runnable call) {

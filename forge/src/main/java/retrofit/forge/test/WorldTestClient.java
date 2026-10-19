@@ -37,7 +37,7 @@ public final class WorldTestClient {
     private static final int QUIT_TICK = 560;
 
     /** Give up if no world is reached (e.g. disconnected), instead of hanging. */
-    private static final int GIVE_UP_TICK = 2400;
+    private static final int GIVE_UP_TICK = 4800; // room for reconnecting after a stalled login
 
     /** -Dretrofit.testServer=host:port: connect from the title screen like a player (instead of quick play). */
     private static final String SERVER = System.getProperty("retrofit.testServer");
@@ -48,6 +48,7 @@ public final class WorldTestClient {
     private static int ticksTotal;
     private static int ticksOnTitle;
     private static boolean connecting;
+    private static int retries;
     private static int guiTicks;
     private static Object lastScreen;
     private static int screens;
@@ -80,6 +81,15 @@ public final class WorldTestClient {
                 LOGGER.error("[WorldTest] Thread '{}' ({}){}", thread.getName(), thread.getState(), trace);
             });
             minecraft.stop();
+        }
+        if (SERVER != null && connecting && minecraft.level == null && minecraft.screen instanceof net.minecraft.client.gui.screens.DisconnectedScreen
+                && retries < 3) {
+            // the known stall at "Logging in..." (also without Retrofit): connect again, as a player would
+            retries++;
+            LOGGER.info("[WorldTest] Client: disconnected before getting in; connecting again ({})", retries);
+            connecting = false;
+            ticksOnTitle = CONNECT_TICK - 20;
+            minecraft.setScreen(new TitleScreen());
         }
         if (SERVER != null && !connecting && minecraft.screen instanceof TitleScreen && ++ticksOnTitle >= CONNECT_TICK) {
             connecting = true;

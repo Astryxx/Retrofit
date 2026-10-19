@@ -441,6 +441,37 @@ final class LevelHostWorld implements HostWorld {
         }
     }
 
+    private static String[] potionNames;
+
+    /** A 1.7.10 potion by its damage value (low bits: the potion, as the 1.9 potion fixer numbers them; 16384: splash). */
+    static net.minecraft.world.item.ItemStack legacyPotion(int damage) {
+        if (potionNames == null) {
+            potionNames = new String[0];
+            for (java.lang.reflect.Field field : net.minecraft.util.datafix.fixes.ItemPotionFix.class.getDeclaredFields()) {
+                if (field.getType() == String[].class && java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                    try {
+                        field.setAccessible(true);
+                        potionNames = (String[]) field.get(null);
+                    } catch (ReflectiveOperationException e) {
+                        // water, below
+                    }
+                }
+            }
+        }
+        int index = damage & 127;
+        String name = index < potionNames.length && potionNames[index] != null ? potionNames[index] : "minecraft:water";
+        net.minecraft.world.item.ItemStack stack = new net.minecraft.world.item.ItemStack((damage & 16384) != 0
+                ? net.minecraft.world.item.Items.SPLASH_POTION : net.minecraft.world.item.Items.POTION);
+        return net.minecraft.world.item.alchemy.PotionUtils.setPotion(stack, net.minecraft.world.item.alchemy.Potion.byName(name));
+    }
+
+    /** 1.7.10 data (as of data version 99, the oldest the fixers know) brought up to date. */
+    private static net.minecraft.nbt.CompoundTag fixLegacy(com.mojang.datafixers.DSL.TypeReference type, net.minecraft.nbt.CompoundTag tag) {
+        return (net.minecraft.nbt.CompoundTag) net.minecraft.util.datafix.DataFixers.getDataFixer().update(type,
+                new com.mojang.serialization.Dynamic<net.minecraft.nbt.Tag>(net.minecraft.nbt.NbtOps.INSTANCE, tag), 99,
+                net.minecraft.SharedConstants.getCurrentVersion().getDataVersion().getVersion()).getValue();
+    }
+
     @Override
     public boolean spawnVanillaEntity(byte[] legacyNbt, String ownerUuid) {
         if (level.isClientSide) {
@@ -450,10 +481,29 @@ final class LevelHostWorld implements HostWorld {
             net.minecraft.nbt.CompoundTag legacy = LegacyStacks.fromBytes(legacyNbt);
             legacy.remove("UUIDMost");
             legacy.remove("UUIDLeast");
-            com.mojang.serialization.Dynamic<net.minecraft.nbt.Tag> fixed = net.minecraft.util.datafix.DataFixers.getDataFixer().update(
-                    net.minecraft.util.datafix.fixes.References.ENTITY, new com.mojang.serialization.Dynamic<>(net.minecraft.nbt.NbtOps.INSTANCE, legacy),
-                    99, net.minecraft.SharedConstants.getCurrentVersion().getDataVersion().getVersion());
-            net.minecraft.world.entity.Entity entity = net.minecraft.world.entity.EntityType.create((net.minecraft.nbt.CompoundTag) fixed.getValue(), level).orElse(null);
+            net.minecraft.world.item.ItemStack thrownPotion = legacy.getCompound("Potion").getShort("id") == 373 // 1.7.10's potion item
+                    ? legacyPotion(legacy.getCompound("Potion").getShort("Damage")) : null;
+            net.minecraft.nbt.CompoundTag fixed;
+            try {
+                fixed = fixLegacy(net.minecraft.util.datafix.fixes.References.ENTITY, legacy.copy());
+            } catch (RuntimeException e) {
+                // the fixers choke on 1.7.10 throwables (thrown potions from Witchery's witches): their block id where the
+                // oldest schema has a block name (inTile, meaningless in flight), and their item (converted above)
+                legacy.remove("Potion");
+                legacy.remove("potionValue");
+                legacy.remove("inTile");
+                try {
+                    fixed = fixLegacy(net.minecraft.util.datafix.fixes.References.ENTITY, legacy);
+                } catch (RuntimeException again) {
+                    again.addSuppressed(e);
+                    throw new IllegalStateException("1.7.10 entity data the fixers can't read: " + legacy.getAllKeys(), again);
+                }
+
+            }
+            if (thrownPotion != null) {
+                fixed.put("Item", thrownPotion.save(new net.minecraft.nbt.CompoundTag()));
+            }
+            net.minecraft.world.entity.Entity entity = net.minecraft.world.entity.EntityType.create(fixed, level).orElse(null);
             if (entity == null) {
                 return false;
             }

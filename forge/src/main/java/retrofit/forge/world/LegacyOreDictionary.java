@@ -168,17 +168,13 @@ public final class LegacyOreDictionary {
             pack.put(location.getNamespace(), "tags/items/" + location.getPath() + ".json", json.toString());
         });
         int[] blockTags = {0};
+        // every kind of a block the Ore Dictionary knows (a block's subtypes themselves are only listed on clients)
+        Map<LegacyBlock, java.util.Set<Integer>> known = new java.util.HashMap<>();
+        blockMetas.values().forEach(blocks -> blocks.forEach((block, metas) -> known.computeIfAbsent(block, b -> new java.util.HashSet<>()).addAll(metas)));
         blockMetas.forEach((tag, blocks) -> {
             JsonArray values = new JsonArray();
             blocks.forEach((block, metas) -> {
-                boolean all = metas.contains(-1);
-                if (!all && block.asItem() instanceof LegacyBlockItem item) {
-                    all = true;
-                    for (int meta : item.hasSubtypes() ? LegacyBridge.itemSubtypes(item.legacyItem()) : new int[]{0}) {
-                        all &= metas.contains(meta);
-                    }
-                }
-                if (all) { // every kind of the block is in the ore name: the block is one (logs, ores, planks...)
+                if (metas.contains(-1) || metas.containsAll(known.get(block))) { // every kind of the block is in the ore name: the block is one (logs, ores, planks...)
                     values.add(ForgeRegistries.BLOCKS.getKey(block).toString());
                 }
             });

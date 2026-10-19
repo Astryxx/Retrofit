@@ -35,6 +35,22 @@ final class LegacyRenderTypes extends RenderType {
                     .setWriteMaskState(COLOR_WRITE)
                     .createCompositeState(false)));
 
+    /** Skies (WorldProvider.getSkyRenderer): behind everything, unshaded; blended or added (stars, glows). */
+    private static final Function<ResourceLocation, RenderType> SKY = Util.memoize(texture -> sky("retrofit_legacy_sky", texture, TRANSLUCENT_TRANSPARENCY));
+    private static final Function<ResourceLocation, RenderType> SKY_ADDITIVE = Util.memoize(texture -> sky("retrofit_legacy_sky_additive", texture, LIGHTNING_TRANSPARENCY));
+
+    private static RenderType sky(String name, ResourceLocation texture, TransparencyStateShard transparency) {
+        return create(name, DefaultVertexFormat.POSITION_COLOR_TEX, VertexFormat.Mode.QUADS, 256, false, false,
+                CompositeState.builder()
+                        .setShaderState(POSITION_COLOR_TEX_SHADER)
+                        .setTextureState(new TextureStateShard(texture, false, false))
+                        .setTransparencyState(transparency)
+                        .setDepthTestState(NO_DEPTH_TEST)
+                        .setCullState(NO_CULL)
+                        .setWriteMaskState(COLOR_WRITE)
+                        .createCompositeState(false));
+    }
+
     private LegacyRenderTypes() {
         super("retrofit_legacy", DefaultVertexFormat.NEW_ENTITY, VertexFormat.Mode.QUADS, 256, false, false, () -> { }, () -> { });
     }
@@ -45,5 +61,9 @@ final class LegacyRenderTypes extends RenderType {
 
     static RenderType additive(ResourceLocation texture) {
         return ADDITIVE.apply(texture);
+    }
+
+    static RenderType sky(ResourceLocation texture, boolean additive) {
+        return (additive ? SKY_ADDITIVE : SKY).apply(texture);
     }
 }

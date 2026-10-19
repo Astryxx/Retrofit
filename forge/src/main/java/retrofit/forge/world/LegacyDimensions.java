@@ -149,7 +149,9 @@ public final class LegacyDimensions {
             type.addProperty("height", 256);
             type.addProperty("logical_height", 256);
             type.addProperty("infiniburn", "#minecraft:infiniburn_overworld");
-            type.addProperty("effects", noSky ? "minecraft:the_nether" : "minecraft:overworld");
+            // the overworld's or the nether's looks, with the mod's own sky renderer if it has one (client: LegacySkyEffects);
+            // clients without Retrofit's effects fall back to the overworld's
+            type.addProperty("effects", RetrofitMod.MOD_ID + (noSky ? ":legacy_nether" : ":legacy_overworld"));
             JsonObject light = new JsonObject();
             light.addProperty("type", "minecraft:uniform");
             JsonObject range = new JsonObject();

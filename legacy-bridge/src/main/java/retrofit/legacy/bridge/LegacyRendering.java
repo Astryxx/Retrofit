@@ -208,6 +208,30 @@ public final class LegacyRendering {
     }
 
     /**
+     * The sky of a legacy client world's own renderer (WorldProvider.getSkyRenderer), drawn as
+     * 1.7.10 drew it, around the camera; -1 if the world has none. Hold Bridge.LOCK.
+     */
+    public static int renderSky(Object legacyWorld, float partialTicks) {
+        if (!(legacyWorld instanceof net.minecraft.client.multiplayer.WorldClient)) {
+            return -1;
+        }
+        net.minecraft.client.multiplayer.WorldClient world = (net.minecraft.client.multiplayer.WorldClient) legacyWorld;
+        net.minecraftforge.client.IRenderHandler sky = world.field_73011_w.getSkyRenderer(); // provider
+        if (sky == null) {
+            return -1;
+        }
+        environment();
+        Capture.begin();
+        try {
+            sky.render(partialTicks, world, Minecraft.func_71410_x());
+        } catch (RuntimeException e) {
+            resetTessellator();
+            throw e;
+        }
+        return Capture.vertexCount();
+    }
+
+    /**
      * The grass and foliage colour maps (256 x 256, as the host loaded them from its resource
      * packs): 1.7.10 filled them in a resource reload listener of its own, and biome colours
      * (grass, leaves, mods' biome-coloured blocks) were black without them.

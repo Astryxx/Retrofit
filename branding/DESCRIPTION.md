@@ -7,8 +7,8 @@ to the 1.20.1 world. Your 1.7.10 mods run their own code, so their blocks, items
 creatures, recipes, world generation and sounds work as they were made, alongside your 1.20.1
 mods.
 
-> **Alpha.** A lot works; a lot is untested. Read the compatibility list below before building a
-> world around it, and keep backups.
+> **Beta.** The tested mods below work; others are untested. Keep backups of worlds you care
+> about, and please report what breaks.
 
 ## Getting started
 
@@ -21,7 +21,8 @@ On first start Retrofit downloads Minecraft 1.7.10 and Forge 10.13.4.1614 from M
 Every start spends about 5-10 seconds booting 1.7.10 while mods load.
 
 **Servers** work the same way: install it on a Forge 1.20.1 server and put the 1.7.10 mods in the
-server's `retrofit/mods`. Players need the same 1.7.10 mods.
+server's `retrofit/mods`. Players need the same 1.7.10 mods, and the same configs from
+`retrofit/config` (as in any 1.7.10 pack).
 
 ## What works
 
@@ -41,6 +42,16 @@ server's `retrofit/mods`. Players need the same 1.7.10 mods.
 - **World generation**: mod ores, plants and structures in new chunks
 - **Commands, key bindings, HUD overlays, sounds, mod packets**
 - **Multiplayer**: dedicated servers (LAN not tested yet)
+- **With 1.20.1 mods**: energy (RF and EU <-> Forge Energy), items, fluids and tanks, the Ore
+  Dictionary as tags, creatures that fight each other, recipes in JEI, REI and EMI, villager
+  trades, and wood types that Every Compat and other Moonlight-based mods pick up
+- **The full world height**: legacy ores generate below y=0 too, and legacy creatures path find
+  down there
+- **Looks**: items in hand and in inventories placed as in 1.7.10 (OreSpawn's giant swords too),
+  biome-coloured leaves and grass, coloured items, mods' glowing effects, mods' own skies, and
+  `RenderPlayerEvent` for capes, wings and transformations
+- **Performance**: legacy machines that never tick cost nothing; a heavy pack runs at about
+  10 ms per server tick
 
 ## Tested mods
 
@@ -57,11 +68,10 @@ Libraries they need (Baubles, DragonAPI, AnimationAPI, Mantle, CustomMobSpawner)
 
 ## Not yet
 
-- Mods' own sky renderers in their dimensions (the colours are used)
-- Leashes on legacy creatures
-- Some Forge events (block highlight, player rendering)
-- Legacy crafting recipes in the recipe book and JEI (they still craft)
-- 1.7.10 code expects the world to start at y=0: creatures below y=0 can't find paths
+- Player render events for other players
+- Recipes of mods' own recipe classes (IC2's, Tinkers' tools) in the recipe book and JEI (they
+  still craft)
+- Mods' own cloud and weather renderers
 
 ## Known issues
 

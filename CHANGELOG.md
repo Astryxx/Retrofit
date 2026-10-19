@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0-beta
 
 1.7.10 and 1.20.1 mods now work together, as if they were made for the same version:
 
@@ -54,8 +54,10 @@
   one places the legacy block. Ore Dictionary names whose blocks all belong become block tags
   too (`#forge:ores/copper`, `#minecraft:logs`).
 - **Performance**: tile entities that never update (`canUpdate()` false, like GregTech's ore
-  blocks) are no longer ticked, and legacy reads of the world are cheaper; in a heavy pack the
-  server tick went from 43 to 28 ms.
+  blocks) are no longer ticked, and legacy reads of the world are cheaper. In a heavy test pack
+  (IC2, GregTech, BuildCraft, Thaumcraft, Witchery, with Mekanism and JEI) the server tick with
+  574 legacy machines placed went from 37 to 10 ms (8 ms without any legacy blocks), and from 43
+  to 16 ms with about 400 legacy creatures around as well.
 - **Rendering**: blocks drawn by mods' renderers are lit like 1.20.1 blocks (their sides were
   dark); items with custom renderers and blocks with custom models are drawn in inventories and
   hands where 1.7.10 drew them (they were too big, misplaced or missing), including renderers
@@ -64,6 +66,18 @@
   (`getColorFromItemStack`: Thaumcraft's phials and wisps, spawn eggs, potions) and blocks'
   colours (`colorMultiplier`: leaves and grass in their biome's colour) were missing. Text of
   mods that reload their translations themselves (IC2's GUIs) is no longer raw keys.
+- **Lines and block highlights**: lines legacy code draws (outlines, selection boxes, area
+  previews) show, and `DrawBlockHighlightEvent` fires for the block the player looks at, so mods'
+  own outlines replace the vanilla one.
+- **Skies**: mods' dimensions with their own sky renderer (`WorldProvider.getSkyRenderer`) show
+  that sky instead of the overworld's.
+- **Leashes**: leads work on legacy creatures as in 1.7.10 (the creature follows, lets go
+  beyond 10 blocks, drops the lead), and show on clients.
+- Fixed: legacy render tick handlers (Thaumcraft's research popups) drew with the Tessellator
+  that chunk building uses at the same time ("Already tesselating!"); one failing part of the
+  legacy data pack no longer takes the rest (recipes, dimensions) with it.
+- Fixed: potions legacy code throws (Witchery's coven witches) failed to convert or arrived as
+  water; they arrive as the 1.20.1 splash potion of the same effect.
 - **Villager trades**: mods' trade handlers (`VillagerRegistry`) give 1.20.1 villagers their
   trades, by the profession each grew out of; trades for mods' own professions go to wandering
   traders.

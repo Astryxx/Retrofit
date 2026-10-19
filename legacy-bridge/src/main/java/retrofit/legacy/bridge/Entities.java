@@ -447,6 +447,33 @@ public final class Entities {
         return DamageSource.field_76377_j; // generic
     }
 
+    /** {can be leashed (allowLeashing), leashed, leashed to a player} of a legacy creature. */
+    public static boolean[] leashState(Object entity) {
+        if (!(entity instanceof net.minecraft.entity.EntityLiving)) {
+            return new boolean[3];
+        }
+        net.minecraft.entity.EntityLiving living = (net.minecraft.entity.EntityLiving) entity;
+        return new boolean[]{living.func_110164_bC(), living.func_110167_bD(), living.func_110166_bE() instanceof EntityPlayer}; // allowLeashing, getLeashed, getLeashedToEntity
+    }
+
+    /** Development: legacy code throwing a splash potion (as Witchery's witches do); whether the world took it. */
+    public static boolean testThrowPotion(Object world, double x, double y, double z, int damage) {
+        net.minecraft.entity.projectile.EntityPotion potion = new net.minecraft.entity.projectile.EntityPotion((net.minecraft.world.World) world, x, y, z, damage);
+        return ((net.minecraft.world.World) world).func_72838_d(potion); // spawnEntityInWorld
+    }
+
+    /** What a legacy creature is leashed to (getLeashedToEntity), or null. */
+    public static Object leashHolder(Object entity) {
+        return entity instanceof net.minecraft.entity.EntityLiving ? ((net.minecraft.entity.EntityLiving) entity).func_110166_bE() : null;
+    }
+
+    /** Lets a legacy creature go, as 1.7.10 did when its holder right-clicked it (clearLeashed: tells clients, maybe drops a lead). */
+    public static void clearLeash(Object entity, boolean dropLead) {
+        if (entity instanceof net.minecraft.entity.EntityLiving && ((net.minecraft.entity.EntityLiving) entity).func_110167_bD()) {
+            ((net.minecraft.entity.EntityLiving) entity).func_110160_i(true, dropLead);
+        }
+    }
+
     /** interactFirst (right-click on the entity) */
     public static boolean entityInteract(Object entity, Object player) {
         return ((Entity) entity).func_130002_c((EntityPlayer) player);

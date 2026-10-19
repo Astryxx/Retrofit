@@ -190,6 +190,7 @@ public final class ModSweepServer {
                         checkCreatures(level);
                         checkVillagerTrades(level);
                         checkWoodTypes();
+                        checkThrownPotion(level);
                         enter(Phase.ACTIVATE);
                     }
                 }
@@ -222,6 +223,11 @@ public final class ModSweepServer {
                 case ENTITIES -> {
                     if (inPhase == 1) {
                         spawnEntities(player, level);
+                    } else if (inPhase == 90) {
+                        checkLeash(player);
+                    } else if (inPhase == 99 && leashed != null) {
+                        LOGGER.info("[ModSweep] Leash on the 1.20.1 creature: {}", leashed.isLeashed() && leashed.getLeashHolder() == player ? "OK" : "FAILED");
+                        player.teleportTo(leashFrom.x, leashFrom.y, leashFrom.z);
                     } else if (inPhase == 100) {
                         requestScreenshot("sweep-entities");
                         if (PERF) {
@@ -330,6 +336,10 @@ public final class ModSweepServer {
                             LegacyBridge.call("testTravel", mirror, legacyId);
                         } else if (step == 200) {
                             requestScreenshot("sweep-dim" + legacyId);
+                        } else if (step == 220) {
+                            player.connection.teleport(player.getX(), player.getY(), player.getZ(), player.getYRot(), -45f); // the sky
+                        } else if (step == 240) {
+                            requestScreenshot("sweep-dim" + legacyId + "-sky");
                         } else if (step == 260) {
                             reportDimension(player, key, legacyId);
                         }
@@ -633,6 +643,17 @@ public final class ModSweepServer {
                 legacyTrades, legacyOffers, wandererPool == null ? 0 : wandererPool.length, inPool);
     }
 
+    /** A 1.7.10 splash potion (poison, damage 16388) legacy code throws arrives as a 1.20.1 one with its potion. */
+    private static void checkThrownPotion(ServerLevel level) {
+        double x = origin.getX() + 0.5, y = origin.getY() + 40, z = origin.getZ() + 0.5;
+        boolean taken = LegacyBridge.call("testThrowPotion", LegacyContent.legacyWorld(level), x, y, z, 16388);
+        var potions = level.getEntitiesOfClass(net.minecraft.world.entity.projectile.ThrownPotion.class, new net.minecraft.world.phys.AABB(x - 2, y - 2, z - 2, x + 2, y + 2, z + 2));
+        String potion = potions.isEmpty() ? "none" : net.minecraft.world.item.alchemy.PotionUtils.getPotion(potions.get(0).getItem()).getName("");
+        LOGGER.info("[ModSweep] Thrown legacy potion: taken {}, arrived as {} ({}): {}", taken, potion,
+                potions.isEmpty() ? "-" : potions.get(0).getItem().save(new net.minecraft.nbt.CompoundTag()), potion.equals("poison") ? "OK" : "FAILED");
+        potions.forEach(Entity::discard);
+    }
+
     /** With Moonlight (Every Compat's library) installed: which wood types it found outside vanilla. */
     private static void checkWoodTypes() {
         try {
@@ -852,6 +873,39 @@ public final class ModSweepServer {
             LOGGER.error("[ModSweep] Opening {} FAILED", stack, e);
         }
         return true;
+    }
+
+    private static retrofit.forge.world.LegacyMob leashed;
+    private static net.minecraft.world.phys.Vec3 leashFrom;
+
+    /** A lead used on the first legacy creature that can be leashed, as a player would (1.20.1's interaction). */
+    private static void checkLeash(ServerPlayer player) {
+        for (Entity entity : SPAWNED) {
+            if (!(entity instanceof retrofit.forge.world.LegacyMob mob) || !mob.isAlive()
+                    || !LegacyBridge.<boolean[]>call("leashState", mob.core().legacy())[0]) {
+                continue;
+            }
+            leashFrom = player.position();
+            player.teleportTo(mob.getX() + 1.5, mob.getY(), mob.getZ() + 0.5); // 1.7.10 leashes break beyond 10 blocks
+            ItemStack held = player.getMainHandItem();
+            player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, new ItemStack(net.minecraft.world.item.Items.LEAD));
+            try {
+                var result = player.interactOn(mob, net.minecraft.world.InteractionHand.MAIN_HAND);
+                boolean[] state = LegacyBridge.call("leashState", mob.core().legacy());
+                if (state[1] && state[2]) {
+                    leashed = mob;
+                    LOGGER.info("[ModSweep] Leash: {} leashed to the player ({}), lead used: {}: OK", LegacyEntityTypes.legacyName(mob.getType()), result,
+                            player.getMainHandItem().isEmpty());
+                } else {
+                    LOGGER.error("[ModSweep] Leash FAILED: {} not leashed ({}, leashed {}, to a player {})", LegacyEntityTypes.legacyName(mob.getType()), result, state[1], state[2]);
+                }
+            } catch (RuntimeException e) {
+                LOGGER.error("[ModSweep] Leash FAILED", e);
+            }
+            player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, held);
+            return;
+        }
+        LOGGER.info("[ModSweep] Leash: no legacy creature can be leashed");
     }
 
     /** Every legacy entity type on a fenced platform east of the block grid, 4 blocks apart. */

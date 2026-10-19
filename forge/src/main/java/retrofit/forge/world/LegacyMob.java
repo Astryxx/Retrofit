@@ -39,8 +39,70 @@ public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, Legacy
         if (level().isClientSide) {
             super.tick(); // interpolation towards the server's positions
             core.clientTick();
+            if (tickCount % 5 == 0) {
+                clientLeash();
+            }
         } else {
             core.serverTick();
+            if (tickCount % 5 == 0) {
+                syncLeash();
+            }
+        }
+    }
+
+    // ---- Leashes: 1.7.10's own (EntityLiving: leads, pulling, letting go); the host entity shows them ----
+
+    /** Leads go to the legacy creature (its interactFirst), which 1.7.10 leashes and pulls itself. */
+    @Override
+    public boolean canBeLeashed(Player player) {
+        return false;
+    }
+
+    private boolean syncingLeash;
+
+    /** The host's leash follows the legacy creature's (to a player), so clients see and save it. */
+    private void syncLeash() {
+        Object legacy = core.legacy();
+        if (legacy == null) {
+            return;
+        }
+        Object holder = LegacyBridge.call("leashHolder", legacy);
+        Player hostHolder = null;
+        if (holder != null) {
+            for (Player player : level().players()) {
+                if (player instanceof net.minecraft.server.level.ServerPlayer && LegacyPlayers.mirror(player, false) == holder) {
+                    hostHolder = player;
+                }
+            }
+        }
+        if (hostHolder != getLeashHolder()) {
+            syncingLeash = true;
+            try {
+                if (hostHolder != null) {
+                    setLeashedTo(hostHolder, true);
+                } else if (isLeashed()) {
+                    dropLeash(true, false); // the legacy creature dropped its own lead
+                }
+            } finally {
+                syncingLeash = false;
+            }
+        }
+    }
+
+    /** Letting go from the host (the holder right-clicking, a lead cut): the legacy creature lets go, and drops the lead itself. */
+    @Override
+    public void dropLeash(boolean broadcast, boolean dropLead) {
+        super.dropLeash(broadcast, false);
+        if (!syncingLeash && !level().isClientSide && core.legacy() != null) {
+            LegacyBridge.call("clearLeash", core.legacy(), dropLead);
+        }
+    }
+
+    /** Clients: the legacy copy is leashed to the local player when the host one is, so its renderer draws the lead. */
+    private void clientLeash() {
+        Object legacy = clientLegacy();
+        if (legacy != null) {
+            LegacyBridge.call("setClientLeash", legacy, isLeashed() && getLeashHolder() == LegacyPlayers.localPlayerOrNull());
         }
     }
 

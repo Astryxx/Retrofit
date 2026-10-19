@@ -220,6 +220,11 @@ public final class Bridge {
         return LegacyRendering.blockItemIn3d(legacyBlock);
     }
 
+    /** Client: see LegacyRendering.renderSky. */
+    public static int renderSky(Object legacyWorld, float partialTicks) {
+        return LegacyRendering.renderSky(legacyWorld, partialTicks);
+    }
+
     /** Client: see LegacyRendering.setColorizers. */
     public static void setColorizers(int[] grass, int[] foliage) {
         LegacyRendering.setColorizers(grass, foliage);

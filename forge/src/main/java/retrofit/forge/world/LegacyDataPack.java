@@ -89,12 +89,21 @@ public final class LegacyDataPack implements PackResources {
             json.add("values", values);
             put("minecraft", "tags/blocks/" + tag + ".json", json.toString());
         });
-        LegacyRecipes.addTo(this);
-        LegacyOreDictionary.addTo(this);
-        LegacyAchievements.addTo(this);
-        LegacyWorldGen.addTo(this);
-        LegacyEntityTypes.addTo(this);
-        LegacyDimensions.addTo(this);
+        // each part on its own: one failing must not take the others (dimensions, recipes) with it
+        section("recipes", LegacyRecipes::addTo);
+        section("Ore Dictionary tags", LegacyOreDictionary::addTo);
+        section("achievements", LegacyAchievements::addTo);
+        section("world generation", LegacyWorldGen::addTo);
+        section("entity types", LegacyEntityTypes::addTo);
+        section("dimensions", LegacyDimensions::addTo);
+    }
+
+    private void section(String what, java.util.function.Consumer<LegacyDataPack> part) {
+        try {
+            part.accept(this);
+        } catch (RuntimeException e) {
+            LegacyErrors.report("data pack", "making the legacy " + what, e);
+        }
     }
 
     void put(String namespace, String path, String contents) {

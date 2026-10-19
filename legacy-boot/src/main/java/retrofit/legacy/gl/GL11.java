@@ -26,6 +26,9 @@ import java.util.Map;
 public final class GL11 {
     private static final int GL_COMPILE_AND_EXECUTE = 0x1301;
     private static final int GL_TRIANGLES = 0x0004;
+    private static final int GL_LINES = 0x0001;
+    private static final int GL_LINE_LOOP = 0x0002;
+    private static final int GL_LINE_STRIP = 0x0003;
     private static final int GL_QUADS = 0x0007;
     private static final int GL_VERTEX_ARRAY = 0x8074;
     private static final int GL_NORMAL_ARRAY = 0x8075;
@@ -427,7 +430,7 @@ public final class GL11 {
     }
 
     public static void glDrawArrays(int mode, int first, int count) {
-        if (!vertexArray || (mode != GL_QUADS && mode != GL_TRIANGLES)) {
+        if (!vertexArray || (mode != GL_QUADS && mode != GL_TRIANGLES && !isLines(mode))) {
             return;
         }
         // Copy the vertices now: the arrays are reused by the caller as soon as this returns.
@@ -461,6 +464,10 @@ public final class GL11 {
                 local[o + 8] = Float.NaN; // use the current colour at execution time
             }
         }
+        if (isLines(mode)) {
+            submitLines(local, count, mode);
+            return;
+        }
         final boolean triangles = mode == GL_TRIANGLES;
         submit(new Op() {
             public void run() {
@@ -468,6 +475,38 @@ public final class GL11 {
             }
         });
     }
+
+    private static boolean isLines(int mode) {
+        return mode == GL_LINES || mode == GL_LINE_STRIP || mode == GL_LINE_LOOP;
+    }
+
+    /** Lines (outlines, selection boxes, previews): each segment a, b is captured as the quad a, b, b, a with Capture.LINES. */
+    private static void submitLines(float[] vertices, int count, int mode) {
+        int segments = mode == GL_LINES ? count / 2 : mode == GL_LINE_STRIP ? Math.max(0, count - 1) : count >= 2 ? count : 0;
+        int f = Capture.FLOATS_PER_VERTEX;
+        final float[] local = new float[segments * 4 * f];
+        for (int i = 0; i < segments; i++) {
+            int a = mode == GL_LINES ? i * 2 : i;
+            int b = mode == GL_LINES ? i * 2 + 1 : (i + 1) % count;
+            int[] corners = {a, b, b, a};
+            for (int c = 0; c < 4; c++) {
+                System.arraycopy(vertices, corners[c] * f, local, (i * 4 + c) * f, f);
+            }
+        }
+        submit(new Op() {
+            public void run() {
+                lines = true;
+                try {
+                    emit(local, false);
+                } finally {
+                    lines = false;
+                }
+            }
+        });
+    }
+
+    /** Set while line segments are emitted. */
+    private static boolean lines;
 
     private static void emit(float[] local, boolean triangles) {
         int count = local.length / Capture.FLOATS_PER_VERTEX;
@@ -507,7 +546,7 @@ public final class GL11 {
                 currentColour ? blue : d[o + 10],
                 currentColour ? alpha : d[o + 11],
                 texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED)
-                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT), light);
+                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT) | (lines ? Capture.LINES : 0), light);
     }
 
     // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----
@@ -589,12 +628,18 @@ public final class GL11 {
         glVertex3f(x, y, z);
     }
 
-    /** Converts what was drawn since glBegin into quads (strips and fans included); lines and points are skipped. */
+    /** Converts what was drawn since glBegin into quads (strips and fans included) or line segments; points are skipped. */
     public static void glEnd() {
         int mode = immediateMode;
         immediateMode = -1;
         int n = immediateCount;
         int[] order;
+        if (isLines(mode)) {
+            float[] vertices = new float[n * Capture.FLOATS_PER_VERTEX];
+            System.arraycopy(immediate, 0, vertices, 0, vertices.length);
+            submitLines(vertices, n, mode);
+            return;
+        }
         if (mode == GL_QUADS) {
             order = sequence(n - n % 4);
         } else if (mode == GL_TRIANGLES) {

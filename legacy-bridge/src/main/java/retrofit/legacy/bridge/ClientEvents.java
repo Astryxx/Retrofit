@@ -206,6 +206,59 @@ public final class ClientEvents {
         return Capture.vertexCount();
     }
 
+    // ---- DrawBlockHighlightEvent ----
+
+    /** Whether any mod listens for DrawBlockHighlightEvent. */
+    public static boolean listensForBlockHighlight() {
+        return Events.listenedTo(net.minecraftforge.client.event.DrawBlockHighlightEvent.class);
+    }
+
+    /**
+     * DrawBlockHighlightEvent for the block the player looks at, in camera space as 1.7.10 fired it
+     * (mods draw their own outlines and cancel the vanilla one). Returns {vertices, cancelled}.
+     * Hold Bridge.LOCK.
+     */
+    public static Object[] drawBlockHighlight(int x, int y, int z, int side, double hitX, double hitY, double hitZ, float partialTicks) {
+        LegacyRendering.ensureEnvironment();
+        Minecraft minecraft = Minecraft.func_71410_x();
+        EntityPlayer player = minecraft.field_71439_g; // thePlayer
+        if (player == null) {
+            return new Object[]{0, false};
+        }
+        net.minecraft.util.MovingObjectPosition target = new net.minecraft.util.MovingObjectPosition(x, y, z, side,
+                net.minecraft.util.Vec3.func_72443_a(hitX, hitY, hitZ)); // createVectorHelper
+        Capture.begin();
+        boolean cancelled;
+        try {
+            cancelled = MinecraftForge.EVENT_BUS.post(new net.minecraftforge.client.event.DrawBlockHighlightEvent(
+                    minecraft.field_71438_f, player, target, 0, player.func_71045_bC(), partialTicks)); // renderGlobal, getCurrentEquippedItem
+        } finally {
+            LegacyRendering.resetTessellatorIfDrawing();
+        }
+        return new Object[]{Capture.vertexCount(), cancelled};
+    }
+
+    // ---- Leashes ----
+
+    /**
+     * A client's copy of a legacy creature leashed to the local player or let go (the host tracks
+     * leashes; the legacy renderer draws the lead from its own leash state).
+     */
+    public static void setClientLeash(Object entity, boolean toLocalPlayer) {
+        if (!(entity instanceof net.minecraft.entity.EntityLiving)) {
+            return;
+        }
+        net.minecraft.entity.EntityLiving living = (net.minecraft.entity.EntityLiving) entity;
+        EntityPlayer player = Minecraft.func_71410_x().field_71439_g; // thePlayer
+        if (toLocalPlayer && player != null) {
+            if (living.func_110166_bE() != player) { // getLeashedToEntity
+                living.func_110162_b(player, false); // setLeashedToEntity, no packet
+            }
+        } else if (living.func_110167_bD()) { // getLeashed
+            living.func_110160_i(false, false); // clearLeashed: no packet, no lead
+        }
+    }
+
     // ---- RenderPlayerEvent ----
 
     /** The GL matrices RenderPlayerEvent.Pre's listeners left, for Post (mods push in Pre and pop in Post). */
