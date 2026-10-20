@@ -1,0 +1,32 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+# Placeholder until the author picks a license.
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "retrofit"
+version = "${file.jarVersion}"
+displayName = "Retrofit"
+authors = "cdonald720396"
+logoFile = "retrofit_logo.png"
+description = '''
+Play Minecraft 1.7.10 Forge mods in 1.20.1. Put 1.7.10 mod jars in the "retrofit/mods" folder of your game
+directory; Retrofit runs them on a real 1.7.10 + Forge 10.13.4 (nothing of it is shipped: taken from your
+launcher, or downloaded from Mojang and Forge only if you agree when asked) and bridges their blocks,
+items, tile entities, GUIs, entities, recipes, world generation, sounds and packets into 1.20.1.
+Beta: see the compatibility notes. Not an official Minecraft product.
+'''
+
+[[dependencies.retrofit]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.retrofit]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.20.2)"
+ordering = "NONE"
+side = "BOTH"

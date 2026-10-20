@@ -1,0 +1,184 @@
+// The Forge 1.20.1 mod. It contains the host code (shared with the harness) and carries the
+// legacy-side code as a nested jar, which is extracted at runtime and loaded only into the
+// isolated 1.7.10 class loader.
+plugins {
+    id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
+}
+
+version = '0.3.1-beta'
+group = 'retrofit'
+base {
+    archivesName = 'retrofit-forge'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+sourceSets.main.java.srcDir project(':host').file('src/main/java')
+sourceSets.main.java.srcDir project(':bridge-api').file('src/main/java')
+
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    copyIdeResources = true
+
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'info'
+            // 1.20.1 test mods with mixins (-PmodernMods) ship SRG refmaps; development runs use official names
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
+            if (project.hasProperty('retrofitDisabled')) {
+                property 'retrofit.disabled', 'true' // compare against Forge without the legacy layer
+            }
+            if (project.hasProperty('extraJvmArg')) {
+                jvmArg project.property('extraJvmArg') // e.g. a flag a legacy mod reads from the JVM arguments
+            }
+            if (project.hasProperty('netDebug')) {
+                property 'forge.logging.markers', 'NETWORK' // log every packet (debug.log)
+            }
+            mods {
+                retrofit {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            // A separate directory, so a dev client and a dev server can run at the same time.
+            workingDirectory project.file('run-server')
+            args '--nogui'
+            if (project.hasProperty('worldTest')) {
+                property 'retrofit.worldTest', 'true'
+                property 'retrofit.debugEntities', 'true'
+            }
+        }
+        client {
+            // -PquickPlay="World Name" joins that singleplayer world on launch, -PquickPlayServer=host:port joins a
+            // server; -PworldTest runs the world test (retrofit.forge.test), -PrenderTest LegacyModelTestRenderer.
+            if (project.hasProperty('quickPlay')) {
+                args '--quickPlaySingleplayer', project.property('quickPlay')
+            }
+            if (project.hasProperty('quickPlayServer')) {
+                args '--quickPlayMultiplayer', project.property('quickPlayServer')
+            }
+            if (project.hasProperty('testServer')) {
+                property 'retrofit.testServer', project.property('testServer') // world test connects from the title screen
+            }
+            if (project.hasProperty('worldTest')) {
+                property 'retrofit.worldTest', 'true'
+                property 'retrofit.debugGui', 'true'
+                property 'retrofit.debugEntities', 'true'
+            }
+            if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background') || project.hasProperty('downloadTest')) {
+                property 'retrofit.background', 'true' // test runs never take the mouse or keep the focus (retrofit.forge.test.BackgroundWindow)
+            }
+            if (project.hasProperty('modSweep')) {
+                args '--width', '1600', '--height', '900' // screenshots detailed enough to judge textures and lighting
+                property 'retrofit.modSweep', 'true' // retrofit.forge.test.ModSweepServer: every block, GUI, entity and item of the mods
+                property 'retrofit.debugEntities', 'true' // logs why legacy entities die
+            }
+            if (project.hasProperty('perf')) {
+                property 'retrofit.perf', 'true' // the sweep measures server ticks after placing and spawning everything
+            }
+            if (project.hasProperty('renderTest')) {
+                property 'retrofit.renderTest', 'true'
+            }
+            if (project.hasProperty('downloadTest')) {
+                // first start without a launcher install: the download question, answered Download (LegacyDownloadScreen)
+                property 'retrofit.downloadTest', 'true'
+                property 'retrofit.minecraftHome', project.file('run/no-launcher').absolutePath
+            }
+            if (project.hasProperty('galleryDump')) {
+                property 'retrofit.galleryDump', project.property('galleryDump') // ItemGallery: captured vertices of these block items
+            }
+        }
+    }
+}
+
+// 1.20.1 mods for interop tests in development runs only (-PmodernMods=jei,mekanism,mekanism-generators),
+// from Modrinth's Maven, remapped for the development environment.
+repositories {
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+def modernMods = [
+        'jei'                : 'maven.modrinth:jei:IrfJO7PN',                 // 15.59.0.212
+        'mekanism'           : 'maven.modrinth:mekanism:uxe1WQp4',            // 10.4.16.80
+        'mekanism-generators': 'maven.modrinth:mekanism-generators:Th4Czz4N', // 10.4.16.80
+        'moonlight'          : 'maven.modrinth:moonlight:W0ZWjZib',           // 1.20-2.16.35
+        'every-compat'       : 'maven.modrinth:every-compat:zGp4qGn5',        // 1.20-2.9.26 (needs moonlight)
+]
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.26'
+    if (project.hasProperty('modernMods')) {
+        project.property('modernMods').toString().split(',').each { name ->
+            if (!modernMods.containsKey(name)) {
+                throw new GradleException("Unknown 1.20.1 test mod ${name}; known: ${modernMods.keySet()}")
+            }
+            runtimeOnly fg.deobf(modernMods[name])
+        }
+    }
+}
+
+def legacyBootJar = project(':legacy-boot').tasks.named('jar')
+def legacyBridgeJar = project(':legacy-bridge').tasks.named('jar')
+
+tasks.named('processResources', ProcessResources) {
+    from(legacyBootJar.flatMap { it.archiveFile }) {
+        into 'retrofit'
+        rename { 'legacy-boot.jar' }
+    }
+    from(legacyBridgeJar.flatMap { it.archiveFile }) {
+        into 'retrofit'
+        rename { 'legacy-bridge.jar' }
+    }
+}
+
+tasks.named('jar', Jar) {
+    exclude 'retrofit/forge/test/**' // the automated world test is for development runs only
+    manifest {
+        attributes([
+            'Specification-Title'   : 'retrofit',
+            'Implementation-Title'  : 'Retrofit',
+            'Implementation-Version': project.version,
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+// The legacy layer reads 1.7.10 mods from <game dir>/retrofit/mods; put the test mod there for dev runs.
+tasks.matching { it.name == 'runClient' }.configureEach {
+    dependsOn ':testmods:hello1710:jar'
+    doFirst {
+        copy {
+            from project(':testmods:hello1710').tasks.jar.archiveFile
+            into file('run/retrofit/mods')
+        }
+        rootProject.syncCorpus(file('run/retrofit/mods')) // real 1.7.10 mods under test (not in git)
+    }
+}
+
+// Dev server: same test mod, and a local-only setup (offline mode for the dev account, flat world).
+tasks.matching { it.name == 'runServer' }.configureEach {
+    dependsOn ':testmods:hello1710:jar'
+    doFirst {
+        def serverDir = file('run-server')
+        copy {
+            from project(':testmods:hello1710').tasks.jar.archiveFile
+            into new File(serverDir, 'retrofit/mods')
+        }
+        rootProject.syncCorpus(new File(serverDir, 'retrofit/mods')) // real 1.7.10 mods under test (not in git)
+        // Local development server only: accepts Mojang's EULA (https://aka.ms/MinecraftEULA) for it.
+        def eula = new File(serverDir, 'eula.txt')
+        if (!eula.exists()) {
+            eula.text = 'eula=true\n'
+        }
+        def properties = new File(serverDir, 'server.properties')
+        if (!properties.exists()) {
+            properties.text = ['online-mode=false', 'level-type=minecraft\\:flat', 'spawn-protection=0',
+                               'motd=Retrofit dev server'].join('\n') + '\n'
+        }
+    }
+}
