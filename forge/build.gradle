@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.3.1-beta'
+version = '0.4.0-beta'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -68,7 +68,14 @@ minecraft {
                 property 'retrofit.debugGui', 'true'
                 property 'retrofit.debugEntities', 'true'
             }
-            if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background') || project.hasProperty('downloadTest')) {
+            if (project.hasProperty('playTest')) {
+                args '--width', '1600', '--height', '900'
+                property 'retrofit.playTest', 'true' // retrofit.forge.test.PlayTest: the corpus mods played through the client
+                property 'retrofit.debugInteractions', 'true'
+                property 'retrofit.debugEntities', 'true'
+            }
+            if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background') || project.hasProperty('downloadTest')
+                    || project.hasProperty('playTest')) {
                 property 'retrofit.background', 'true' // test runs never take the mouse or keep the focus (retrofit.forge.test.BackgroundWindow)
             }
             if (project.hasProperty('modSweep')) {
@@ -137,7 +144,9 @@ tasks.named('processResources', ProcessResources) {
 }
 
 tasks.named('jar', Jar) {
-    exclude 'retrofit/forge/test/**' // the automated world test is for development runs only
+    if (!project.hasProperty('withTests')) {
+        exclude 'retrofit/forge/test/**' // the automated world test is for development runs only (-PwithTests: production test builds)
+    }
     manifest {
         attributes([
             'Specification-Title'   : 'retrofit',
