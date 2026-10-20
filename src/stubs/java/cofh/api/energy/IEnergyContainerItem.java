@@ -1,2 +1,0 @@
-// Compile-time stand-in for an API that 1.7.10 mods ship (not packaged with Retrofit; see build.gradle).
-package cofh.api.energy; public interface IEnergyContainerItem { int receiveEnergy(net.minecraft.item.ItemStack container, int maxReceive, boolean simulate); int extractEnergy(net.minecraft.item.ItemStack container, int maxExtract, boolean simulate); int getEnergyStored(net.minecraft.item.ItemStack container); int getMaxEnergyStored(net.minecraft.item.ItemStack container); }
