@@ -185,4 +185,7 @@ committed or published. Real 1.7.10 mods for testing go in `corpus/` (not in git
 
 ## License
 
-All Rights Reserved for now; the author will choose a license.
+Retrofit is free and open source software, licensed under the GNU General Public License,
+version 2 (see [LICENSE](LICENSE)). The license covers Retrofit's own code only: Minecraft, Forge
+and 1.7.10 mods keep their own terms, and none of them are part of this repository or its
+releases.

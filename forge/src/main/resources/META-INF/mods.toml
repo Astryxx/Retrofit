@@ -1,7 +1,6 @@
 modLoader = "javafml"
 loaderVersion = "[47,)"
-# Placeholder until the author picks a license.
-license = "All Rights Reserved"
+license = "GPL-2.0"
 
 [[mods]]
 modId = "retrofit"

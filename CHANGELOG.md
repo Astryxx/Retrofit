@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Retrofit is open source, under the GNU General Public License, version 2 (`LICENSE`); the mod
+  metadata (`mods.toml`) says so too.
+
 ## 0.4.0-beta
 
 Played through the client the way players do (new client-driven play test), which showed most of
