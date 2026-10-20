@@ -13,16 +13,19 @@ mods.
 ## Getting started
 
 1. Install **Forge 1.20.1** (47.x) and put Retrofit in your `mods` folder.
-2. Start the game once. Retrofit creates a `retrofit/mods` folder in your game directory, and if
-   your launcher doesn't have Minecraft 1.7.10 and Forge 10.13.4.1614, asks whether to download
-   them (see *Downloads* below).
-3. Put your **1.7.10 Forge mod jars** in `retrofit/mods` and start again.
+2. Put your **1.7.10 Forge mod jars** in the `mods` folder with your other mods (or in
+   `retrofit/mods`).
+3. Start the game. If your launcher doesn't have Minecraft 1.7.10 and Forge 10.13.4.1614, Retrofit
+   asks whether to download them (see *Downloads* below).
+
+Retrofit runs **1.7.10** mods only: mods for other old versions (Galacticraft Legacy is for
+1.12.2) are not loaded, and the title screen says so.
 
 Retrofit itself contains no Mojang code and no mods. Every start spends about 5-10 seconds booting
 1.7.10 while mods load.
 
 **Servers** work the same way: install it on a Forge 1.20.1 server and put the 1.7.10 mods in the
-server's `retrofit/mods`. Players need the same 1.7.10 mods, and the same configs from
+server's `mods` folder (or `retrofit/mods`). Players need the same 1.7.10 mods, and the same configs from
 `retrofit/config` (as in any 1.7.10 pack).
 
 ## Downloads: only if you agree
@@ -91,7 +94,7 @@ generation), and all of them together in singleplayer and on a dedicated server:
 - **Loads:** CodeChickenCore and NEI (NEI's panel only on 1.7.10 screens; use JEI)
 
 Libraries they need (Baubles, DragonAPI, AnimationAPI, Mantle, CustomMobSpawner) go in
-`retrofit/mods` too. Other mods are untested; reports are very welcome.
+the `mods` folder too. Other mods are untested; reports are very welcome.
 
 ## Not yet
 

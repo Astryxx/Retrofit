@@ -52,8 +52,27 @@ public final class LegacyDownloadScreen extends Screen {
         private Show() {
         }
 
+        private static boolean noticed;
+
         @SubscribeEvent
         public static void onScreenOpening(ScreenEvent.Opening event) {
+            if (!noticed && !RetrofitMod.otherVersions().isEmpty() && event.getNewScreen() instanceof TitleScreen) {
+                var other = RetrofitMod.otherVersions();
+                String files = String.join(", ", other.stream().limit(3).map(o -> o.file() + " (" + o.minecraftVersion() + ")").toList())
+                        + (other.size() > 3 ? ", ..." : "");
+                Minecraft.getInstance().getToasts().addToast(net.minecraft.client.gui.components.toasts.SystemToast.multiline(Minecraft.getInstance(),
+                        net.minecraft.client.gui.components.toasts.SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+                        Component.translatable("retrofit.otherversions.title"), Component.translatable("retrofit.otherversions.text", files)));
+            }
+            if (!noticed && RetrofitMod.legacyModFiles() == 0 && event.getNewScreen() instanceof TitleScreen) {
+                // Retrofit without any 1.7.10 mod: say where they go, rather than nothing happening
+                Minecraft.getInstance().getToasts().addToast(net.minecraft.client.gui.components.toasts.SystemToast.multiline(Minecraft.getInstance(),
+                        net.minecraft.client.gui.components.toasts.SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+                        Component.translatable("retrofit.nomods.title"), Component.translatable("retrofit.nomods.text")));
+            }
+            if (event.getNewScreen() instanceof TitleScreen) {
+                noticed = true;
+            }
             LegacyDownloads downloads = RetrofitMod.pendingDownloads();
             if (!shown && downloads != null && event.getNewScreen() instanceof TitleScreen title) {
                 shown = true;

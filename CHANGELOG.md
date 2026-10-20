@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2-beta
+
+- **Fixed: 1.7.10 mods in the `mods` folder did nothing.** Launchers (CurseForge, the Minecraft
+  Launcher) install mods into `mods/`, where Forge 1.20.1 silently skips 1.7.10 mods and Retrofit
+  didn't look: the game started with none of them. Retrofit now loads 1.7.10 mods from `mods/` too
+  (linked into `retrofit/mods`, where 1.7.10 and its mods' dependency checks look), and
+  `retrofit/mods` keeps working.
+- Mods for other old Minecraft versions (1.12.2, 1.8.9...: their `mcmod.info` says) are not loaded,
+  and the title screen says which; with no 1.7.10 mods at all, it says where they go.
+
 ## 0.3.1-beta
 
 - **Downloads only with permission.** When the Minecraft launcher doesn't have Minecraft 1.7.10

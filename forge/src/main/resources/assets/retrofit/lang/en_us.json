@@ -1,4 +1,8 @@
 {
+  "retrofit.nomods.title": "Retrofit: no 1.7.10 mods found",
+  "retrofit.nomods.text": "Put 1.7.10 Forge mods in the mods folder (or retrofit/mods) and restart Minecraft.",
+  "retrofit.otherversions.title": "Retrofit runs 1.7.10 mods only",
+  "retrofit.otherversions.text": "Not loaded, made for other Minecraft versions: %s",
   "retrofit.download.title": "Retrofit needs Minecraft 1.7.10",
   "retrofit.download.title.dependencies": "Your 1.7.10 mods need other mods",
   "retrofit.download.intro": "To run 1.7.10 mods, Retrofit needs Minecraft 1.7.10 and Forge 10.13.4.1614, which it does not include and your Minecraft launcher does not have. Retrofit can download them (%s) from their official sources:",

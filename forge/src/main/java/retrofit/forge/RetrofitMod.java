@@ -49,6 +49,15 @@ public final class RetrofitMod {
         Path legacyDir = FMLPaths.GAMEDIR.get().resolve("retrofit");
         try {
             Files.createDirectories(legacyDir.resolve("mods")); // where players put their 1.7.10 mods, even before 1.7.10 can run
+            // launchers install mods into mods/: 1.7.10 ones there are linked into retrofit/mods (Forge 1.20.1 skips them)
+            List<String> fromModsFolder = retrofit.host.LegacyModFiles.linkFromModsFolder(FMLPaths.MODSDIR.get(), legacyDir.resolve("mods"));
+            if (!fromModsFolder.isEmpty()) {
+                LOGGER.info("1.7.10 mods in the mods folder, loaded by Retrofit: {}", fromModsFolder);
+            }
+            legacyModFiles = countLegacyModFiles(legacyDir.resolve("mods"));
+            otherVersions = retrofit.host.LegacyModFiles.otherVersions(FMLPaths.MODSDIR.get(), legacyDir.resolve("mods"));
+            otherVersions.forEach(other -> LOGGER.warn("{} is a mod for Minecraft {}: Retrofit runs 1.7.10 mods only, so it is not loaded",
+                    other.file(), other.minecraftVersion()));
             if (!downloadsSettled(legacyDir, server)) {
                 return; // 1.7.10 mods load once the files are there (after the next start)
             }
@@ -128,6 +137,34 @@ public final class RetrofitMod {
                     + "1.7.10 mods are not loaded. Needed:{}", LegacyDownloads.SETTING, list);
         }
         return false;
+    }
+
+    private static int legacyModFiles = -1;
+    private static List<retrofit.host.LegacyModFiles.OtherVersion> otherVersions = List.of();
+
+    /** Old Forge mods for other Minecraft versions than 1.7.10 that players put in (told on the title screen). */
+    public static List<retrofit.host.LegacyModFiles.OtherVersion> otherVersions() {
+        return otherVersions;
+    }
+
+    /** Mod files (jars and zips) 1.7.10 loads from retrofit/mods (including those linked from mods/), or -1 if not looked at. */
+    public static int legacyModFiles() {
+        return legacyModFiles;
+    }
+
+    private static int countLegacyModFiles(Path legacyMods) {
+        int count = 0;
+        for (Path dir : new Path[]{legacyMods, legacyMods.resolve("1.7.10")}) {
+            try (java.util.stream.Stream<Path> files = Files.list(dir)) {
+                count += (int) files.filter(file -> {
+                    String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    return Files.isRegularFile(file) && (name.endsWith(".jar") || name.endsWith(".zip"));
+                }).count();
+            } catch (IOException e) {
+                // no such folder
+            }
+        }
+        return count;
     }
 
     /** Downloads waiting for the player's answer (client.LegacyDownloadScreen), or null. */

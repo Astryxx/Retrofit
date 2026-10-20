@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.3.1-beta'
+version = '0.3.2-beta'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -137,7 +137,9 @@ tasks.named('processResources', ProcessResources) {
 }
 
 tasks.named('jar', Jar) {
-    exclude 'retrofit/forge/test/**' // the automated world test is for development runs only
+    if (!project.hasProperty('withTests')) {
+        exclude 'retrofit/forge/test/**' // the automated world test is for development runs only (-PwithTests: production test builds)
+    }
     manifest {
         attributes([
             'Specification-Title'   : 'retrofit',

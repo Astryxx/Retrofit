@@ -10,14 +10,17 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.3.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.3.2-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.3.1-beta.jar` in `mods/`.
-2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory (created on first start).
+1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.3.2-beta.jar` in `mods/`.
+2. Put 1.7.10 Forge mod jars in `mods/` with your other mods (as launchers like CurseForge do), or in
+   `retrofit/mods/` inside the game directory. 1.7.10 mods in `mods/` are linked into `retrofit/mods`
+   (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
+   title screen says so.
 3. Start the game. If the launcher doesn't have Minecraft 1.7.10 and Forge 10.13.4.1614, the title
    screen asks whether to download them and their libraries (about 50 MB, from Mojang, Forge's
    Maven and Maven Central; nothing is downloaded without a yes), and 1.7.10 mods load after a
@@ -143,7 +146,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.3.1-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.3.2-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...
