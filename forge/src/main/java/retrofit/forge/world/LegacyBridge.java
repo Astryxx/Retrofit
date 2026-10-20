@@ -59,7 +59,8 @@ public final class LegacyBridge {
         }
         tick = lookup.findStatic(bridge, "tick", MethodType.methodType(void.class, Object.class));
         canUpdate = lookup.findStatic(bridge, "canUpdate", MethodType.methodType(boolean.class, Object.class));
-        renderTileEntity = lookup.findStatic(bridge, "renderTileEntity", MethodType.methodType(int.class, Object.class, float.class));
+        renderTileEntity = lookup.findStatic(bridge, "renderTileEntity", MethodType.methodType(int.class, Object.class, float.class,
+                double.class, double.class, double.class));
         prepareFrame = lookup.findStatic(bridge, "prepareFrame", MethodType.methodType(void.class, Object.class,
                 double.class, double.class, double.class, float.class, float.class, float.class));
         lock = bridge.getField("LOCK").get(null);
@@ -250,10 +251,13 @@ public final class LegacyBridge {
         return call("hasSpecialRenderer", tileEntity);
     }
 
-    /** Runs a tile entity's special renderer into the capture; returns the vertex count. Hold {@link #renderLock()}. */
-    public static int renderTileEntity(Object tileEntity, float partialTicks) {
+    /**
+     * Runs a tile entity's special renderer into the capture, given where it is relative to the
+     * camera; returns the vertex count. Hold {@link #renderLock()}.
+     */
+    public static int renderTileEntity(Object tileEntity, float partialTicks, double x, double y, double z) {
         try {
-            return (int) renderTileEntity.invokeExact(tileEntity, partialTicks);
+            return (int) renderTileEntity.invokeExact(tileEntity, partialTicks, x, y, z);
         } catch (Throwable t) {
             throw new IllegalStateException("Retrofit's legacy bridge failed in renderTileEntity", t);
         }

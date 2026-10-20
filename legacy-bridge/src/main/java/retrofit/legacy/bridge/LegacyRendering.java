@@ -269,7 +269,7 @@ public final class LegacyRendering {
     }
 
     /** Runs a tile entity's special renderer at the origin; returns the number of captured vertices. */
-    public static int renderTileEntity(Object tileEntity, float partialTicks) {
+    public static int renderTileEntity(Object tileEntity, float partialTicks, double x, double y, double z) {
         TileEntitySpecialRenderer renderer = dispatcher().func_147547_b((TileEntity) tileEntity);
         Capture.begin();
         if (renderer == null) {
@@ -277,7 +277,9 @@ public final class LegacyRendering {
         }
         GL11.bindLegacyTexture(BLOCK_ATLAS);
         try {
-            renderer.func_147500_a((TileEntity) tileEntity, 0, 0, 0, partialTicks); // renderTileEntityAt
+            // at its place relative to the camera, as 1.7.10 drew it: some renderers draw in world
+            // coordinates around the viewer instead (Thaumcraft's aura nodes)
+            renderer.func_147500_a((TileEntity) tileEntity, x, y, z, partialTicks); // renderTileEntityAt
         } catch (RuntimeException e) {
             resetTessellator();
             throw e;
@@ -396,9 +398,51 @@ public final class LegacyRendering {
         camera.func_70012_b(x, y, z, yaw, pitch); // setLocationAndAngles
         camera.field_70126_B = yaw;   // prevRotationYaw
         camera.field_70127_C = pitch; // prevRotationPitch
-        Minecraft.func_71410_x().field_71451_h = camera; // getMinecraft().renderViewEntity
-        RenderManager.field_78727_a.func_147938_a(world, textures, font, camera, null, settings, partialTicks); // cacheActiveRenderInfo
-        TileEntityRendererDispatcher.field_147556_a.func_147542_a(world, textures, font, camera, partialTicks);
+        net.minecraft.entity.EntityLivingBase viewer = firstPersonPlayer(world, x, y, z, yaw, pitch);
+        if (viewer == null) {
+            viewer = camera;
+        }
+        Minecraft.func_71410_x().field_71451_h = viewer; // getMinecraft().renderViewEntity
+        RenderManager.field_78727_a.func_147938_a(world, textures, font, viewer, null, settings, partialTicks); // cacheActiveRenderInfo
+        TileEntityRendererDispatcher.field_147556_a.func_147542_a(world, textures, font, viewer, partialTicks);
+        cameraAngles(yaw, pitch);
+    }
+
+    /**
+     * The local player, when the camera is at its eyes (first person): on 1.7.10 the viewer was the
+     * player, and renderers ask it what it wears and holds (Thaumcraft shows aura nodes only to a
+     * player with goggles or a thaumometer). Its view turns with the camera for this frame. Null in
+     * other views, where the camera stands in.
+     */
+    private static net.minecraft.entity.EntityLivingBase firstPersonPlayer(World world, double x, double y, double z, float yaw, float pitch) {
+        net.minecraft.entity.player.EntityPlayer player = Minecraft.func_71410_x().field_71439_g; // thePlayer
+        if (player == null || player.field_70170_p != world) { // worldObj
+            return null;
+        }
+        double dx = player.field_70165_t - x, dy = player.field_70163_u - y, dz = player.field_70161_v - z; // client players stand at eye height
+        if (dx * dx + dy * dy + dz * dz > 0.25) {
+            return null;
+        }
+        player.field_70177_z = player.field_70126_B = yaw; // rotationYaw, prevRotationYaw
+        player.field_70125_A = player.field_70127_C = pitch; // rotationPitch, prevRotationPitch
+        return player;
+    }
+
+    /**
+     * ActiveRenderInfo's camera angles, as its updateRenderInfo set them each frame: renderers turn
+     * sprites to face the viewer with them (Thaumcraft's aura nodes, wisps, beams); left at 0 they
+     * draw nothing.
+     */
+    private static void cameraAngles(float yaw, float pitch) {
+        float yawRadians = yaw * (float) Math.PI / 180.0F;
+        float pitchRadians = pitch * (float) Math.PI / 180.0F;
+        net.minecraft.client.renderer.ActiveRenderInfo.field_74588_d = (float) Math.cos(yawRadians);  // rotationX
+        net.minecraft.client.renderer.ActiveRenderInfo.field_74586_f = (float) Math.sin(yawRadians);  // rotationZ
+        net.minecraft.client.renderer.ActiveRenderInfo.field_74587_g = -net.minecraft.client.renderer.ActiveRenderInfo.field_74586_f
+                * (float) Math.sin(pitchRadians); // rotationYZ
+        net.minecraft.client.renderer.ActiveRenderInfo.field_74596_h = net.minecraft.client.renderer.ActiveRenderInfo.field_74588_d
+                * (float) Math.sin(pitchRadians); // rotationXY
+        net.minecraft.client.renderer.ActiveRenderInfo.field_74589_e = (float) Math.cos(pitchRadians); // rotationXZ
     }
 
     /** For GUIs: the same environment renderers get. */

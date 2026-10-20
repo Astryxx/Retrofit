@@ -10,13 +10,13 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.4.0-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.4.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.4.0-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.4.1-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `mods/` with your other mods (as launchers like CurseForge do), or in
    `retrofit/mods/` inside the game directory. 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -43,7 +43,7 @@ together, in singleplayer and on a dedicated server with a client connected.
 |---|---|
 | BiblioCraft 1.11.7 | Works: all 246 block variants with their models, 49 GUIs, sounds, paintings |
 | Iron Chests 6.0.62 | Works: all chests with their renderers and GUIs, upgrades |
-| Thaumcraft 4.2.3.5 (+ Baubles 1.0.1.10) | Works: blocks and their models, 50 creatures, items, wands, ores and trees in world generation, the Outer Lands dimension with its eldritch maze |
+| Thaumcraft 4.2.3.5 (+ Baubles 1.0.1.10) | Works: blocks and their models, 50 creatures, items, wands, ores and trees in world generation, the Outer Lands dimension with its eldritch maze, glowing infused ores, aura nodes (with goggles or a thaumometer), scanning |
 | Witchery 0.24.1 | Works: blocks, 55 creatures, brews, items, brooms and other mounts, world generation, the Spirit World, Torment and Mirror dimensions |
 | OreSpawn 1.7.10-20.3 | Works: 134 creature types, items, ores and structures, natural spawning |
 | Mo' Creatures 6.3.1 (+ CustomMobSpawner 3.3.0) | Works: 61 creatures with their models, riding, natural spawning, the Wyvern Lair dimension |
@@ -58,6 +58,7 @@ together, in singleplayer and on a dedicated server with a client connected.
 | GregTech 5 Unofficial 5.09.31 (+ IndustrialCraft 2) | Works: machines placed from their items with their GUIs (steam and electric machines, multiblock controllers, battery buffers), cables and pipes, 2,700+ items, ore veins in world generation (62,000 ore blocks in the test area), IC2's machine recipes in GregTech's machines |
 | Lycanite's Mobs 1.13.0.5 | Works: 110 creatures across all its sub-mods, natural spawning |
 | Galacticraft 3.0.12 (Core and Planets) | Works: launch pads, rockets placed, boarded and launched, the Moon, Mars and Asteroids as dimensions. Space stations don't work yet |
+| Rival Rebels 1.7.10Z1 | Loads; both creative tabs |
 | Fisk's Superheroes 2.4.0 | Loads and runs (its JavaScript heroes through the Nashorn engine Retrofit provides); suits draw with their own models |
 | CodeChickenCore 1.4.22 + NotEnoughItems 2.8.160 (GTNH) | Loads and runs (coremods). NEI's item panel only appears on 1.7.10 screens; use JEI on 1.20.1 screens |
 
@@ -148,7 +149,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.4.0-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.4.1-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

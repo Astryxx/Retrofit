@@ -355,6 +355,7 @@ public final class PlayerState {
 
     /** LivingUpdateEvent for the local client player (1.7.10 fired it on both sides). */
     public static void tickClientPlayer(Object legacyPlayer) {
+        ClientPlayers.tickArm((EntityPlayer) legacyPlayer);
         fireLivingUpdate((EntityPlayer) legacyPlayer);
     }
 

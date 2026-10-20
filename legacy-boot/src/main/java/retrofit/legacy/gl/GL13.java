@@ -11,6 +11,10 @@ public final class GL13 {
     private GL13() {
     }
 
+    public static void glClientActiveTexture(int texture) {
+        GL11.clientActiveTexture(texture - GL_TEXTURE0);
+    }
+
     public static void glMultiTexCoord2f(int target, float s, float t) {
         if (target != GL_TEXTURE0) {
             GL11.setLightmap(s, t);

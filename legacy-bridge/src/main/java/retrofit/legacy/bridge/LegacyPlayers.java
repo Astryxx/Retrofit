@@ -223,7 +223,7 @@ public final class LegacyPlayers {
         InventoryPlayer inventory = player.field_71071_by;
         ItemStack[] given = new ItemStack[SLOTS];
         for (int i = 0; i < SLOTS; i++) {
-            ItemStack stack = (ItemStack) stacks[i];
+            ItemStack stack = ItemStack.func_77944_b((ItemStack) stacks[i]); // a copy: the host reuses the stacks it converted
             if (i < 36) {
                 inventory.field_70462_a[i] = stack; // mainInventory
             } else {

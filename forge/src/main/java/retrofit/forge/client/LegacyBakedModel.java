@@ -68,6 +68,9 @@ final class LegacyBakedModel implements BakedModel {
                 retrofit.forge.world.RenderRegionHost host = new retrofit.forge.world.RenderRegionHost(level,
                         net.minecraft.client.Minecraft.getInstance().level.getGameTime());
                 int vertices = LegacyBridge.call("renderBlockAt", host, pos.getX(), pos.getY(), pos.getZ());
+                if (DEBUG_BLOCK != null && block.getDescriptionId().contains(DEBUG_BLOCK)) {
+                    debugDump(vertices, pos);
+                }
                 placed = quads(vertices, level, pos);
             }
             return data.derive().with(IN_WORLD, placed).build();
@@ -79,6 +82,21 @@ final class LegacyBakedModel implements BakedModel {
     }
 
     private volatile boolean failedInWorld;
+
+    /** -Dretrofit.debugBlock=<part of a description id>: logs what the legacy renderer drew in place for such blocks. */
+    private static final String DEBUG_BLOCK = System.getProperty("retrofit.debugBlock");
+
+    private void debugDump(int vertices, net.minecraft.core.BlockPos pos) throws Throwable {
+        float[] d = LegacyCapture.data();
+        int[] lights = LegacyCapture.lights();
+        StringBuilder out = new StringBuilder();
+        for (int v = 0; v < Math.min(vertices, 48); v += 4) {
+            int o = v * LegacyCapture.FLOATS_PER_VERTEX;
+            out.append(String.format(" [n %.0f %.0f %.0f rgba %.2f %.2f %.2f %.2f light %x]", d[o + 5], d[o + 6], d[o + 7], d[o + 8], d[o + 9], d[o + 10],
+                    d[o + 11], lights[v]));
+        }
+        LOGGER.info("[Debug] {} meta {} at {}: {} vertices{}", block.getDescriptionId(), meta, pos, vertices, out);
+    }
 
     @Override
     public List<BakedQuad> getQuads(BlockState state, Direction side, RandomSource random, ModelData data, RenderType renderType) {
@@ -134,6 +152,8 @@ final class LegacyBakedModel implements BakedModel {
             {
                 float[] d = LegacyCapture.data();
                 for (int v = 0; v + 3 < vertices; v += 4) {
+                    // 1.7.10's block renderers set no normals: a quad faces where its corners say
+                    float[] normal = faceNormal(d, v);
                     int[] packed = new int[32];
                     for (int corner = 0; corner < 4; corner++) {
                         int o = (v + corner) * LegacyCapture.FLOATS_PER_VERTEX;
@@ -145,10 +165,9 @@ final class LegacyBakedModel implements BakedModel {
                         packed[p + 4] = Float.floatToRawIntBits(d[o + 3]);
                         packed[p + 5] = Float.floatToRawIntBits(d[o + 4]);
                         packed[p + 6] = 0; // lightmap: computed by the chunk renderer (the brighter of it and this wins)
-                        packed[p + 7] = normal(d[o + 5], d[o + 6], d[o + 7]);
+                        packed[p + 7] = normal(normal[0], normal[1], normal[2]);
                     }
-                    int o = v * LegacyCapture.FLOATS_PER_VERTEX;
-                    Direction face = Direction.getNearest(d[o + 5], d[o + 6], d[o + 7]);
+                    Direction face = Direction.getNearest(normal[0], normal[1], normal[2]);
                     if (faceLight != null) {
                         for (int corner = 0; corner < 4; corner++) {
                             int set = lights != null && v + corner < lights.length ? lights[v + corner] : -1;
@@ -160,6 +179,34 @@ final class LegacyBakedModel implements BakedModel {
             }
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * The normal of the quad starting at vertex {@code v}, from its corners (1.7.10 wound them
+     * counter-clockwise seen from the front); the captured normal when the corners don't span a
+     * plane (a degenerate quad).
+     */
+    private static float[] faceNormal(float[] d, int v) {
+        int stride = LegacyCapture.FLOATS_PER_VERTEX;
+        int a = v * stride, b = (v + 1) * stride, c = (v + 2) * stride;
+        float e1x = d[b] - d[a], e1y = d[b + 1] - d[a + 1], e1z = d[b + 2] - d[a + 2];
+        float e2x = d[c] - d[b], e2y = d[c + 1] - d[b + 1], e2z = d[c + 2] - d[b + 2];
+        float nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+        float length = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (length < 1e-6f) {
+            c = (v + 3) * stride; // a triangle drawn as a quad repeats its last corner: try the other corner
+            e2x = d[c] - d[b];
+            e2y = d[c + 1] - d[b + 1];
+            e2z = d[c + 2] - d[b + 2];
+            nx = e1y * e2z - e1z * e2y;
+            ny = e1z * e2x - e1x * e2z;
+            nz = e1x * e2y - e1y * e2x;
+            length = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+        }
+        if (length < 1e-6f) {
+            return new float[]{d[a + 5], d[a + 6], d[a + 7]};
+        }
+        return new float[]{nx / length, ny / length, nz / length};
     }
 
     private static int abgr(float r, float g, float b, float a) {

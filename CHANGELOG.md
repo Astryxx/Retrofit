@@ -1,9 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.4.1-beta
 
+From players' reports (Thaumcraft 4, Rival Rebels, a large modpack):
+
+- **Blocks keep their renderers' own light.** 1.7.10 renderers give each vertex a brightness
+  (Thaumcraft's infused ores glow with it), which was lost, and quads were lit as if they faced up:
+  blocks drawn by their mods' renderers came out dark, black in walls. Both are fixed for every
+  block drawn by a mod's renderer.
+- **Tile entity renderers draw where 1.7.10 drew them**: relative to the camera, so renderers
+  that draw in world coordinates around the viewer work (Thaumcraft's aura nodes).
+- **Camera-facing sprites show**: 1.7.10's view angles (ActiveRenderInfo) are set each frame.
+- **In first person the viewer is the player**, as on 1.7.10: renderers that ask what the player
+  wears or holds work (nodes show with Goggles of Revealing or a Thaumometer), and the client's
+  1.7.10 player always has the current inventory.
+- **Held items sway as on 1.7.10** (the arm's lag behind the view): Thaumcraft's Thaumometer no
+  longer snaps around as the player turns.
+- **Your skin on 1.7.10 models**: first-person arms (the Thaumometer) and other player models use
+  the player's skin, in 1.7.10's 64x32 layout, instead of Steve.
+- **Render tick drawing shows**: what mods draw at the end of a frame (Thaumcraft's aspects
+  flying to the corner, research popups) is drawn over the HUD and screens.
+- Two creative tabs with one name both appear (Rival Rebels' weapons tab was missing).
+- Resource Loader (and mods that add resource packs in preInit) no longer stop 1.7.10 from
+  starting.
 - Retrofit is open source, under the GNU General Public License, version 2 (`LICENSE`); the mod
   metadata (`mods.toml`) says so too.
+- `-Dretrofit.debugBlock=<name>` logs what legacy block and tile entity renderers draw.
 
 ## 0.4.0-beta
 

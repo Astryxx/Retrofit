@@ -176,6 +176,9 @@ public final class PlayTest {
             machineGui("GregTech steam macerator", "gregtech:gt.blockmachines", 101);
         }
         deepCreature();
+        if (item("thaumcraft:itemthaumometer") != null) {
+            thaumcraft();
+        }
         if (findItem("fiskheroes", path -> path.startsWith("superhero_"), ArmorItem.class) != null) {
             heroSuit("fiskheroes:arrow");
         }
@@ -306,6 +309,8 @@ public final class PlayTest {
             for (BlockPos pos : BlockPos.betweenClosed(cave.offset(-2, 0, -2), cave.offset(2, 3, 2))) {
                 level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
             }
+            // the player close by: 1.7.10 despawns monsters with no player within 128 blocks
+            player.teleportTo(level, cave.getX() + 2.5, cave.getY(), cave.getZ() + 2.5, 135, 0);
             for (var candidate : ForgeRegistries.ENTITY_TYPES) {
                 // a land creature (water creatures suffocate on land, as on 1.7.10)
                 Entity made = ForgeRegistries.ENTITY_TYPES.getKey(candidate).getNamespace().equals("minecraft")
@@ -332,6 +337,70 @@ public final class PlayTest {
             result("legacy creature below y 0 (" + ForgeRegistries.ENTITY_TYPES.getKey(type[0]) + ")", found[0] != null && found[0].isAlive(),
                     found[0] == null ? "gone" : "at " + found[0].blockPosition());
         });
+    }
+
+    /**
+     * Thaumcraft: infused ores in a dark cave pocket (their crystals glow) and by a torch, an aura
+     * node made by Thaumcraft's own world generator seen through Goggles of Revealing, and the
+     * Thaumometer held in first person facing four ways.
+     */
+    private static void thaumcraft() {
+        BlockPos cave = new BlockPos(-80, -40, 200);
+        Block ore = block("thaumcraft:blockcustomore");
+        do_("thaumcraft: cave", 20, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            for (BlockPos pos : BlockPos.betweenClosed(cave.offset(-5, -1, -5), cave.offset(5, 5, 5))) {
+                level.setBlock(pos, Blocks.STONE.defaultBlockState(), 2);
+            }
+            for (BlockPos pos : BlockPos.betweenClosed(cave.offset(-4, 0, -4), cave.offset(4, 4, 4))) {
+                level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
+            }
+            for (int meta = 1; meta <= 6; meta++) { // the six infused ores, on the far wall
+                level.setBlock(cave.offset(5, 1, meta - 4), ore.defaultBlockState().setValue(retrofit.forge.world.LegacyContent.META, meta), 2);
+            }
+            level.setBlock(cave.offset(4, 1, 2), Blocks.TORCH.defaultBlockState(), 2); // lights the southern ores
+            player.getInventory().clearContent();
+            player.teleportTo(level, cave.getX() + 0.5, cave.getY(), cave.getZ() + 0.5, -90, 10);
+        }));
+        do_("thaumcraft: ores screenshot", 5, () -> grab("play-thaumcraft-ores"));
+        do_("thaumcraft: node", 20, () -> server(player -> {
+            try {
+                ClassLoader legacy = RetrofitMod.runtime().gameLoader();
+                Class<?> world = Class.forName("net.minecraft.world.World", false, legacy);
+                Class.forName("thaumcraft.common.lib.world.ThaumcraftWorldGenerator", true, legacy)
+                        .getMethod("createRandomNodeAt", world, int.class, int.class, int.class, java.util.Random.class, boolean.class, boolean.class, boolean.class)
+                        .invoke(null, retrofit.forge.world.LegacyContent.legacyWorld(player.serverLevel()), cave.getX() + 3, cave.getY() + 2, cave.getZ(),
+                                new java.util.Random(1710), false, false, false);
+            } catch (ReflectiveOperationException e) {
+                LOGGER.error("[PlayTest] Could not make a Thaumcraft node", e);
+            }
+            player.setItemSlot(EquipmentSlot.HEAD, new ItemStack(item("thaumcraft:itemgoggles")));
+        }));
+        do_("thaumcraft: node screenshot", 5, () -> {
+            result("Thaumcraft node made", serverBlock(cave.offset(3, 2, 0)) == block("thaumcraft:blockairy"), "block " + serverBlock(cave.offset(3, 2, 0)));
+            grab("play-thaumcraft-node");
+        });
+        float[] yaws = {-90, 0, 90, 180};
+        for (int i = 0; i < yaws.length; i++) {
+            float yaw = yaws[i];
+            int n = i;
+            do_("thaumcraft: thaumometer " + n, 15, () -> {
+                server(player -> player.getInventory().setItem(0, new ItemStack(item("thaumcraft:itemthaumometer"))));
+                select(0);
+                Minecraft.getInstance().player.setYRot(yaw);
+                Minecraft.getInstance().player.setXRot(10);
+            });
+            do_("thaumcraft: thaumometer shot " + n, 2, () -> grab("play-thaumcraft-thaumometer-" + n));
+        }
+        // scanning an ore with the thaumometer (held use): the aspects it gives fly to the screen's corner
+        do_("thaumcraft: aim at an ore", 10, () -> {
+            Minecraft.getInstance().player.setYRot(-90);
+            Minecraft.getInstance().player.setXRot(8);
+        });
+        do_("thaumcraft: scan", 30, () -> KeyMapping.set(Minecraft.getInstance().options.keyUse.getKey(), true));
+        do_("thaumcraft: scanning shot", 15, () -> grab("play-thaumcraft-scanning"));
+        do_("thaumcraft: scan done", 4, () -> KeyMapping.set(Minecraft.getInstance().options.keyUse.getKey(), false));
+        do_("thaumcraft: scanned shot", 2, () -> grab("play-thaumcraft-scanned"));
     }
 
     /** A FiskHeroes suit (its armor pieces, tagged with the hero), worn and seen from the front: its own 3D model must draw. */

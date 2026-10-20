@@ -204,8 +204,8 @@ public final class Bridge {
         return LegacyRendering.hasSpecialRenderer(tileEntity);
     }
 
-    public static int renderTileEntity(Object tileEntity, float partialTicks) {
-        return LegacyRendering.renderTileEntity(tileEntity, partialTicks);
+    public static int renderTileEntity(Object tileEntity, float partialTicks, double x, double y, double z) {
+        return LegacyRendering.renderTileEntity(tileEntity, partialTicks, x, y, z);
     }
 
     public static boolean hasItemRenderer(Object legacyItem, int meta, String type) {

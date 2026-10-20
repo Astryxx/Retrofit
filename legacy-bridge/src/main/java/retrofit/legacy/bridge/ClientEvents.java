@@ -233,6 +233,26 @@ public final class ClientEvents {
         return Capture.vertexCount();
     }
 
+    /**
+     * FML's RenderTickEvent end, captured: on 1.7.10 it came after the HUD and screens were drawn,
+     * in their screen space, and mods draw there (Thaumcraft's aspect animations and research
+     * popups). Returns the captured vertex count; the host draws it as it draws the HUD. Hold Bridge.LOCK.
+     */
+    public static int drawRenderTickEnd(float partialTicks, int windowWidth, int windowHeight, int guiScale) {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        LegacyRendering.ensureEnvironment();
+        minecraft.field_71443_c = windowWidth;
+        minecraft.field_71440_d = windowHeight;
+        minecraft.field_71474_y.field_74335_Z = guiScale; // guiScale: ScaledResolution matches the host
+        Capture.begin();
+        try {
+            Events.renderTick(false, partialTicks);
+        } finally {
+            LegacyRendering.resetTessellatorIfDrawing();
+        }
+        return Capture.vertexCount();
+    }
+
     /** RenderWorldLastEvent, camera-relative as 1.7.10 drew it; returns the captured vertex count. Hold Bridge.LOCK. */
     public static int drawWorldLast(float partialTicks) {
         LegacyRendering.ensureEnvironment();

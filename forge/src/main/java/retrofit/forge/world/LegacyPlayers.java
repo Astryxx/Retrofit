@@ -52,12 +52,7 @@ public final class LegacyPlayers {
         Object mirror = LegacyBridge.call("player", world, host, player.getUUID().toString(), player.getGameProfile().getName());
         sync(player, mirror);
         if (withInventory) {
-            Inventory inventory = player.getInventory();
-            Object[] stacks = new Object[SLOTS];
-            for (int i = 0; i < SLOTS; i++) {
-                stacks[i] = LegacyStacks.toLegacy(inventory.getItem(i));
-            }
-            LegacyBridge.call("setInventory", mirror, stacks);
+            LegacyBridge.call("setInventory", mirror, (Object) host.legacyInventory(player.getInventory()));
         }
         if (level.isClientSide) {
             LegacyBridge.call("makeCurrent", mirror);
@@ -400,6 +395,21 @@ public final class LegacyPlayers {
     /** What the legacy mirror asks of the real player. */
     private static final class Host implements HostPlayer {
         volatile Player player;
+        /** The inventory last converted, slot by slot, and its legacy stacks: only changed slots are converted again. */
+        private final ItemStack[] convertedFrom = new ItemStack[SLOTS];
+        private final Object[] converted = new Object[SLOTS];
+
+        Object[] legacyInventory(Inventory inventory) {
+            for (int i = 0; i < SLOTS; i++) {
+                ItemStack stack = inventory.getItem(i);
+                ItemStack before = convertedFrom[i];
+                if (before == null || !ItemStack.matches(before, stack)) {
+                    convertedFrom[i] = stack.copy();
+                    converted[i] = LegacyStacks.toLegacy(stack);
+                }
+            }
+            return converted.clone();
+        }
 
         @Override
         public Object hostEntity() {

@@ -66,6 +66,12 @@ public final class GL11 {
     private static boolean executeWhileRecording;
 
     private static boolean vertexArray, normalArray, colorArray, texCoordArray;
+    /** The lightmap unit's texture coordinate array: the Tessellator's per-vertex brightness (setBrightness). */
+    private static boolean lightArray;
+    private static java.nio.ShortBuffer lightPointer;
+    private static int lightBase, lightStride;
+    /** glClientActiveTexture: 0 for the texture unit, anything else the lightmap unit. */
+    private static int clientUnit;
     private static FloatBuffer vertexPointer, texCoordPointer;
     private static ByteBuffer colorPointer, normalPointer;
     private static int vertexBase, vertexStride, vertexSize, texCoordBase, texCoordStride;
@@ -395,7 +401,13 @@ public final class GL11 {
             case GL_VERTEX_ARRAY: vertexArray = enabled; break;
             case GL_NORMAL_ARRAY: normalArray = enabled; break;
             case GL_COLOR_ARRAY: colorArray = enabled; break;
-            case GL_TEXTURE_COORD_ARRAY: texCoordArray = enabled; break;
+            case GL_TEXTURE_COORD_ARRAY:
+                if (clientUnit == 0) {
+                    texCoordArray = enabled;
+                } else {
+                    lightArray = enabled;
+                }
+                break;
             default: break;
         }
     }
@@ -413,8 +425,19 @@ public final class GL11 {
         texCoordStride = stride == 0 ? size : stride / 4;
     }
 
-    /** Lightmap coordinates; the host supplies its own lighting. */
+    /**
+     * The lightmap unit's coordinates (Tessellator.draw with setBrightness): block light in the
+     * low and sky light in the high half of each packed light, as 1.20.1 packs them too.
+     */
     public static void glTexCoordPointer(int size, int stride, ShortBuffer pointer) {
+        lightPointer = pointer;
+        lightBase = pointer.position();
+        lightStride = stride == 0 ? size : stride / 2;
+    }
+
+    /** OpenGlHelper.setClientActiveTexture (see GL13, ARBMultitexture). */
+    static void clientActiveTexture(int unit) {
+        clientUnit = unit;
     }
 
     public static void glColorPointer(int size, boolean unsigned, int stride, ByteBuffer pointer) {
@@ -435,6 +458,7 @@ public final class GL11 {
         }
         // Copy the vertices now: the arrays are reused by the caller as soon as this returns.
         final float[] local = new float[count * Capture.FLOATS_PER_VERTEX];
+        final int[] lights = lightArray && lightPointer != null ? new int[count] : null;
         for (int i = 0; i < count; i++) {
             int v = first + i;
             int o = i * Capture.FLOATS_PER_VERTEX;
@@ -455,6 +479,10 @@ public final class GL11 {
             } else {
                 local[o + 6] = 1;
             }
+            if (lights != null) {
+                int l = lightBase + v * lightStride;
+                lights[i] = (lightPointer.get(l + 1) & 0xFFFF) << 16 | (lightPointer.get(l) & 0xFFFF);
+            }
             if (colorArray && colorPointer != null) {
                 int c = colorBase + v * colorStride;
                 for (int k = 0; k < 4; k++) {
@@ -471,7 +499,7 @@ public final class GL11 {
         final boolean triangles = mode == GL_TRIANGLES;
         submit(new Op() {
             public void run() {
-                emit(local, triangles);
+                emit(local, lights, triangles);
             }
         });
     }
@@ -509,18 +537,27 @@ public final class GL11 {
     private static boolean lines;
 
     private static void emit(float[] local, boolean triangles) {
+        emit(local, null, triangles);
+    }
+
+    /** {@code lights}: each vertex's own packed light (the Tessellator's), or null for the current one. */
+    private static void emit(float[] local, int[] lights, boolean triangles) {
         int count = local.length / Capture.FLOATS_PER_VERTEX;
         int perPrimitive = triangles ? 3 : 4;
         for (int start = 0; start + perPrimitive <= count; start += perPrimitive) {
             for (int corner = 0; corner < 4; corner++) {
                 // Triangles become quads with a repeated last vertex.
                 int v = start + Math.min(corner, perPrimitive - 1);
-                emitVertex(local, v * Capture.FLOATS_PER_VERTEX);
+                emitVertex(local, v * Capture.FLOATS_PER_VERTEX, lights != null ? lights[v] : light);
             }
         }
     }
 
     private static void emitVertex(float[] d, int o) {
+        emitVertex(d, o, light);
+    }
+
+    private static void emitVertex(float[] d, int o, int vertexLight) {
         float[] m = modelview.m;
         float x = d[o], y = d[o + 1], z = d[o + 2];
         float nx = d[o + 5], ny = d[o + 6], nz = d[o + 7];
@@ -546,7 +583,7 @@ public final class GL11 {
                 currentColour ? blue : d[o + 10],
                 currentColour ? alpha : d[o + 11],
                 texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED)
-                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT) | (lines ? Capture.LINES : 0), light);
+                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT) | (lines ? Capture.LINES : 0), vertexLight);
     }
 
     // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----

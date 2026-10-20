@@ -27,6 +27,8 @@ public final class HeadlessClient {
         Class<?> minecraftClass = Class.forName("net.minecraft.client.Minecraft", true, lcl);
         Object minecraft = allocate(minecraftClass);
         setField(minecraftClass, minecraft, "field_71412_D", gameDir); // mcDataDir
+        // defaultResourcePacks: mods add packs of their own in preInit (Resource Loader); loaded with the rest (Hooks.refreshResources)
+        setField(minecraftClass, minecraft, "field_110449_ao", new ArrayList<Object>());
         setField(minecraftClass, null, "field_71432_P", minecraft);    // theMinecraft
 
         Class<?> gameSettingsClass = Class.forName("net.minecraft.client.settings.GameSettings", true, lcl);

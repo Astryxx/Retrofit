@@ -33,6 +33,16 @@ public final class Hooks {
             if (modPacks != null) {
                 packs.addAll(modPacks);
             }
+            Field defaultPacks = minecraft.getClass().getDeclaredField("field_110449_ao"); // defaultResourcePacks: packs mods added
+            defaultPacks.setAccessible(true);
+            List added = (List) defaultPacks.get(minecraft);
+            if (added != null) {
+                for (Object pack : added) {
+                    if (!packs.contains(pack)) {
+                        packs.add(pack);
+                    }
+                }
+            }
             Field managerField = minecraft.getClass().getDeclaredField("field_110451_am"); // mcResourceManager
             managerField.setAccessible(true);
             Object manager = managerField.get(minecraft);

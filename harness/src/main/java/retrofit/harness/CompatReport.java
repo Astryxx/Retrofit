@@ -113,7 +113,7 @@ final class CompatReport {
                     if (tile != null && (boolean) call("hasSpecialRenderer", tile)) {
                         check("tile entity renderer", name, () -> {
                             synchronized (call("lock")) {
-                                return call("renderTileEntity", tile, 0f);
+                                return call("renderTileEntity", tile, 0f, 0d, 0d, 0d);
                             }
                         });
                     }

@@ -189,10 +189,16 @@ public final class LegacyContent {
                 LOGGER.error("Could not list the legacy creative tabs", e);
                 return;
             }
+            java.util.Set<String> used = new java.util.HashSet<>();
             for (Object[] tab : tabs) {
                 int index = (Integer) tab[0];
                 String label = (String) tab[1];
-                helper.register(new ResourceLocation(RetrofitMod.MOD_ID, "tab_" + toResourceLocation(label).getPath().replace('.', '_')),
+                String path = "tab_" + toResourceLocation(label).getPath().replace('.', '_');
+                if (!used.add(path)) {
+                    path += "_" + index; // mods may give two tabs one label (Rival Rebels' blocks and its armor and weapons)
+                    used.add(path);
+                }
+                helper.register(new ResourceLocation(RetrofitMod.MOD_ID, path),
                         net.minecraft.world.item.CreativeModeTab.builder()
                                 .title(net.minecraft.network.chat.Component.translatable("itemGroup." + label))
                                 .icon(() -> creativeTabIcon(index))

@@ -187,6 +187,41 @@ public final class LegacyCapture {
         return (state & BLEND) != 0 ? RenderType.entityTranslucent(texture) : RenderType.entityCutoutNoCull(texture);
     }
 
+    private static final String HOST_SKIN = "retrofit:host_skin";
+    private static ResourceLocation legacySkinOf;
+    private static ResourceLocation legacySkin;
+
+    /**
+     * A skin in 1.7.10's 64x32 layout: 1.20.1 skins are 64x64, and their top half is the old layout
+     * that 1.7.10's models map (otherwise their arms and legs come out stretched). Copied from the
+     * skin texture once it has loaded; the skin itself until then.
+     */
+    private static ResourceLocation legacySkin(ResourceLocation skin) {
+        if (skin.equals(legacySkinOf)) {
+            return legacySkin;
+        }
+        var texture = Minecraft.getInstance().getTextureManager().getTexture(skin, null);
+        if (texture == null) {
+            return skin;
+        }
+        com.mojang.blaze3d.systems.RenderSystem.bindTexture(texture.getId());
+        int width = org.lwjgl.opengl.GL11.glGetTexLevelParameteri(org.lwjgl.opengl.GL11.GL_TEXTURE_2D, 0, org.lwjgl.opengl.GL11.GL_TEXTURE_WIDTH);
+        int height = org.lwjgl.opengl.GL11.glGetTexLevelParameteri(org.lwjgl.opengl.GL11.GL_TEXTURE_2D, 0, org.lwjgl.opengl.GL11.GL_TEXTURE_HEIGHT);
+        if (width <= 0 || height != width) {
+            return skin; // not loaded yet, or already the old layout
+        }
+        NativeImage full = new NativeImage(width, height, false);
+        full.downloadTexture(0, false);
+        NativeImage half = new NativeImage(width, height / 2, false);
+        full.copyRect(half, 0, 0, 0, 0, width, height / 2, false, false);
+        full.close();
+        ResourceLocation id = new ResourceLocation(RetrofitMod.MOD_ID, "legacy_skin/" + skin.getNamespace() + "/" + skin.getPath());
+        Minecraft.getInstance().getTextureManager().register(id, new DynamicTexture(half));
+        legacySkinOf = skin;
+        legacySkin = id;
+        return id;
+    }
+
     /** The 1.20.1 texture for a captured legacy texture index (render thread). */
     public static ResourceLocation texture(int index) throws Throwable {
         init();
@@ -195,6 +230,11 @@ public final class LegacyCapture {
             return known;
         }
         String legacy = (String) textureName.invokeExact(index);
+        if (legacy.equals(HOST_SKIN)) {
+            // the local player's skin (BridgeClientPlayer.getLocationSkin): looked up each time, as it may still be loading
+            var player = Minecraft.getInstance().player;
+            return legacySkin(player != null ? player.getSkinTextureLocation() : net.minecraft.client.resources.DefaultPlayerSkin.getDefaultSkin());
+        }
         ResourceLocation texture = load(legacy);
         TEXTURES.put(index, texture);
         return texture;

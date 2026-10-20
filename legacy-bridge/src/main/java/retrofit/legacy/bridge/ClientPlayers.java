@@ -25,6 +25,27 @@ final class ClientPlayers {
         return player;
     }
 
+    /**
+     * The arm's lag behind the view, as EntityPlayerSP.onLivingUpdate moved it each tick: renderers
+     * of held items sway by the difference (Thaumcraft's thaumometer). Left at 0 the item swung by
+     * the whole yaw, and jumped as it grew.
+     */
+    static void tickArm(EntityPlayer player) {
+        if (!(player instanceof BridgeClientPlayer)) {
+            return;
+        }
+        BridgeClientPlayer client = (BridgeClientPlayer) player;
+        if (!client.armTicked) {
+            client.armTicked = true;
+            client.field_71154_f = client.field_70177_z; // renderArmYaw = rotationYaw
+            client.field_71155_g = client.field_70125_A; // renderArmPitch = rotationPitch
+        }
+        client.field_71163_h = client.field_71154_f; // prevRenderArmYaw
+        client.field_71164_i = client.field_71155_g; // prevRenderArmPitch
+        client.field_71155_g += (client.field_70125_A - client.field_71155_g) * 0.5F;
+        client.field_71154_f += (client.field_70177_z - client.field_71154_f) * 0.5F;
+    }
+
     /** The mirror's movementInput.sneak (EntityPlayerSP.isSneaking reads it). */
     static void setSneaking(EntityPlayer player, boolean sneaking) {
         if (player instanceof BridgeClientPlayer && ((BridgeClientPlayer) player).field_71158_b != null) {

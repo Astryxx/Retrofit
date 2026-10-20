@@ -24,6 +24,10 @@ public final class LegacyBlockEntityRenderer implements BlockEntityRenderer<Lega
     private static final Set<Class<?>> BROKEN = Collections.newSetFromMap(new IdentityHashMap<>());
     private static final Map<Class<?>, Boolean> HAS_RENDERER = new IdentityHashMap<>();
 
+    /** -Dretrofit.debugBlock=<part of a tile entity class name>: logs what such renderers draw, now and then. */
+    private static final String DEBUG_BLOCK = System.getProperty("retrofit.debugBlock");
+    private static int debugged;
+
     public LegacyBlockEntityRenderer(BlockEntityRendererProvider.Context context) {
     }
 
@@ -39,8 +43,19 @@ public final class LegacyBlockEntityRenderer implements BlockEntityRenderer<Lega
         }
         synchronized (LegacyBridge.renderLock()) {
             try {
-                int vertices = LegacyBridge.renderTileEntity(tile, partialTick);
+                // drawn camera-relative, as 1.7.10 did, so the pose goes back from the block to the camera
+                net.minecraft.world.phys.Vec3 camera = net.minecraft.client.Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+                double x = blockEntity.getBlockPos().getX() - camera.x;
+                double y = blockEntity.getBlockPos().getY() - camera.y;
+                double z = blockEntity.getBlockPos().getZ() - camera.z;
+                int vertices = LegacyBridge.renderTileEntity(tile, partialTick, x, y, z);
+                if (DEBUG_BLOCK != null && tile.getClass().getName().contains(DEBUG_BLOCK) && debugged++ % 200 == 0) {
+                    LOGGER.info("[Debug] {} at {} drew {} vertices", tile.getClass().getName(), blockEntity.getBlockPos(), vertices);
+                }
+                pose.pushPose();
+                pose.translate(-x, -y, -z);
                 LegacyCapture.draw(pose.last(), buffers, vertices, light, overlay);
+                pose.popPose();
             } catch (Throwable t) {
                 BROKEN.add(tile.getClass());
                 LOGGER.error("Legacy tile entity renderer for {} failed and has been disabled", tile.getClass().getName(), t);

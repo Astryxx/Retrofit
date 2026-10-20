@@ -27,7 +27,8 @@ public final class LegacyClientEvents {
         boolean start = event.phase == TickEvent.Phase.START;
         run(() -> {
             if (start && Minecraft.getInstance().player != null) {
-                Object mirror = LegacyPlayers.mirror(Minecraft.getInstance().player, false);
+                // with the inventory: client renderers and HUDs read what the player holds and wears (Thaumcraft's goggles)
+                Object mirror = LegacyPlayers.mirror(Minecraft.getInstance().player, true);
                 LegacyPlayers.syncClientRiding(Minecraft.getInstance().player, mirror);
                 syncMouseOver(Minecraft.getInstance());
             }
@@ -88,10 +89,52 @@ public final class LegacyClientEvents {
         }
         boolean start = event.phase == TickEvent.Phase.START;
         float partialTicks = event.renderTickTime;
+        if (start) {
+            renderTickEnded = false;
+        } else if (renderTickEnded) {
+            return; // the end ran already, drawn over the HUD or screen (see drawRenderTickEnd)
+        }
         // render tick handlers draw (Thaumcraft's research popups) with the one legacy Tessellator chunk builders share
         synchronized (LegacyBridge.renderLock()) {
             run(() -> LegacyBridge.call("renderTick", start, partialTicks));
         }
+    }
+
+    /** Whether this frame's render tick end has run (once per frame, as on 1.7.10). */
+    private static boolean renderTickEnded;
+
+    /**
+     * The render tick end, when the HUD or a screen has just been drawn: what mods draw there is
+     * shown on top, in screen space, as on 1.7.10 (Thaumcraft's aspects flying to the corner).
+     */
+    private static void drawRenderTickEnd(net.minecraft.client.gui.GuiGraphics graphics, float partialTicks) {
+        if (RetrofitMod.runtime() == null || renderTickEnded || Minecraft.getInstance().player == null) {
+            return;
+        }
+        renderTickEnded = true;
+        var window = Minecraft.getInstance().getWindow();
+        try {
+            synchronized (LegacyBridge.renderLock()) {
+                int vertices = LegacyBridge.call("drawRenderTickEnd", partialTicks, window.getWidth(), window.getHeight(), (int) window.getGuiScale());
+                if (vertices > 0) {
+                    LegacyGuiRenderer.draw(graphics, vertices, LegacyBridge.call("guiMarkers"), null);
+                }
+            }
+        } catch (Throwable e) {
+            retrofit.forge.world.LegacyBridge.reportClientFailure("render tick drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
+        }
+    }
+
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public static void onHudDrawn(net.minecraftforge.client.event.RenderGuiEvent.Post event) {
+        if (Minecraft.getInstance().screen == null) {
+            drawRenderTickEnd(event.getGuiGraphics(), event.getPartialTick());
+        }
+    }
+
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public static void onScreenDrawn(net.minecraftforge.client.event.ScreenEvent.Render.Post event) {
+        drawRenderTickEnd(event.getGuiGraphics(), event.getPartialTick());
     }
 
     private static void run(Runnable call) {
