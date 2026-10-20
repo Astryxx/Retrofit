@@ -1,40 +1,41 @@
-// Legacy-side half of the world bridge. Loaded by the LaunchClassLoader, so it runs as part
-// of the 1.7.10 world and compiles against its classes (SRG names), like a 1.7.10 mod.
-tasks.withType(JavaCompile).configureEach {
-    options.release = 8
-    options.compilerArgs << '-Xlint:-options'
-}
+subprojects {
+    apply plugin: 'java'
 
-dependencies {
-    compileOnly project(':bridge-api')
-    compileOnly project(':legacy-boot') // GL emulation (retrofit.legacy.gl)
-    compileOnly('net.minecraft:launchwrapper:1.12') { transitive = false }
-    // The Netty version 1.7.10 ships (PacketBuffer wraps its ByteBuf).
-    compileOnly 'io.netty:netty-all:4.0.10.Final'
-    // Libraries of the 1.7.10 classpath that legacy APIs expose.
-    compileOnly('com.mojang:authlib:1.5.21') { transitive = false }
-    compileOnly 'com.google.guava:guava:17.0'
-    compileOnly 'com.google.code.gson:gson:2.2.4'
-    compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
-}
+    repositories {
+        mavenCentral()
+        maven {
+            url 'https://libraries.minecraft.net/'
+            content { includeGroup 'net.minecraft'; includeGroup 'com.mojang' }
+        }
+        maven {
+            url 'https://maven.minecraftforge.net/'
+            content { includeGroup 'net.minecraftforge' }
+            // Old Forge builds (1.7.10) were published without POMs.
+            metadataSources {
+                mavenPom()
+                artifact()
+            }
+        }
+    }
 
-tasks.named('compileJava') {
-    dependsOn ':harness:dumpSrgJar'
-}
-
-// Stand-ins for APIs 1.7.10 mods ship themselves (CoFH's RF, IC2's energy net): the bridge compiles
-// against them, and at run time they resolve to the copies in the installed mods. Classes that use
-// them load only when a mod provides the API (see Energy). Not packaged.
-sourceSets {
-    stubs {
-        java.srcDir 'src/stubs/java'
-        compileClasspath += files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
     }
 }
-tasks.named('compileStubsJava') {
-    dependsOn ':harness:dumpSrgJar'
-    options.release = 8
-}
-dependencies {
-    compileOnly sourceSets.stubs.output
+
+// Real 1.7.10 mods under test (corpus/, not in git) for dev runs. -Pcorpus=name1,name2 picks the jars
+// whose file names contain one of the (case-insensitive) parts; -Pcorpus=none runs only the test mod.
+// The mods folder is replaced each run, so mods from an earlier selection don't linger.
+ext.syncCorpus = { File modsDir ->
+    modsDir.mkdirs()
+    // Also the 1.7.10 subfolder, where some mods' dependency loaders move libraries.
+    [modsDir, new File(modsDir, '1.7.10')].each { dir ->
+        dir.listFiles()?.each { if (it.isFile() && (it.name.endsWith('.jar') || it.name.endsWith('.zip')) && it.name != 'hello1710.jar') it.delete() }
+    }
+    def parts = rootProject.findProperty('corpus')?.toString()?.toLowerCase()?.split(',')?.collect { it.trim() }?.findAll { it }
+    rootProject.file('corpus').listFiles().findAll { it.isFile() && (it.name.endsWith('.jar') || it.name.endsWith('.zip')) }.each { mod ->
+        if (parts == null || parts.any { mod.name.toLowerCase().contains(it) }) {
+            java.nio.file.Files.copy(mod.toPath(), new File(modsDir, mod.name).toPath())
+        }
+    }
 }
