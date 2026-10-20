@@ -1,0 +1,19 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+        }
+    }
+}
+
+rootProject.name = 'Retrofit'
+
+include 'bridge-api'
+include 'host'
+include 'harness'
+include 'legacy-boot'
+include 'legacy-bridge'
+include 'testmods:hello1710'
+include 'forge'
