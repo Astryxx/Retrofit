@@ -34,6 +34,11 @@ what made 0.3.x unplayable; all of these are fixed:
   model on 1.20.1 players and creatures.
 - **Armor textures**: textures at the top of a mod's assets (OreSpawn's armor) and armor textures for
   mods' own render prefixes are served; they were missing.
+- **GregTech's machine items** draw in inventories and hands: block items were drawn with their
+  block metadata (0-15) instead of the item damage 1.7.10 passed on, and blocks without icons got
+  no item model at all.
+- Mods' own negative GUI ids (Galacticraft's) no longer collide with Retrofit's: those GUIs open.
+- Invisible blocks (render type -1: Galacticraft's lit air) no longer show as missing-texture cubes.
 - 1.7.10 code sees the whole JDK again: javax.script, java.sql and the rest of Java's platform
   modules were invisible to it since Java 9.
 - Mods' own texture maps stitch, and every resource reload listener runs even when one fails.
