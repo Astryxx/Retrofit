@@ -22,6 +22,24 @@ public final class ClientTextures {
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * The texture of worn armor, as RenderBiped.getArmorResource named it: Forge's getArmorTexture
+     * (asked with the local player, as mods expect an entity), else the render index's prefix,
+     * which mods add to (RenderingRegistry.addNewArmourRendererPrefix).
+     */
+    public static String armorTexture(Object legacyStack, int slot, String type) {
+        net.minecraft.item.ItemStack stack = (net.minecraft.item.ItemStack) legacyStack;
+        net.minecraft.entity.Entity wearer = net.minecraft.client.Minecraft.func_71410_x().field_71439_g; // thePlayer
+        String texture = stack.func_77973_b().getArmorTexture(stack, wearer, slot, type);
+        if (texture == null && stack.func_77973_b() instanceof net.minecraft.item.ItemArmor) {
+            String[] prefixes = net.minecraft.client.renderer.entity.RenderBiped.field_82424_k; // bipedArmorFilenamePrefix
+            int index = ((net.minecraft.item.ItemArmor) stack.func_77973_b()).field_77880_c; // renderIndex
+            String prefix = prefixes[Math.max(0, Math.min(index, prefixes.length - 1))];
+            texture = "minecraft:textures/models/armor/" + prefix + "_layer_" + (slot == 2 ? 2 : 1) + (type == null ? "" : "_" + type) + ".png";
+        }
+        return texture;
+    }
+
     public static boolean loadTexture(TextureManager manager, ResourceLocation location, ITextureObject texture) {
         try {
             if (textures == null) {

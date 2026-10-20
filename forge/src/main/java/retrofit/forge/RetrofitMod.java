@@ -77,6 +77,8 @@ public final class RetrofitMod {
             }
             String ipv4Before = System.getProperty("java.net.preferIPv4Stack");
             runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true, server);
+            leftOut = leftOutMods(runtime);
+            leftOut.forEach(line -> LOGGER.warn("1.7.10 mod not loaded, the others are: {}", line));
             // Legacy code must not change JVM-wide settings (see LegacySystem); check the one FML 1.7.10 sets.
             LOGGER.debug("java.net.preferIPv4Stack before legacy boot: {}, after: {}", ipv4Before,
                     System.getProperty("java.net.preferIPv4Stack"));
@@ -140,6 +142,23 @@ public final class RetrofitMod {
     }
 
     private static int legacyModFiles = -1;
+    private static List<String> leftOut = List.of();
+
+    /** 1.7.10 mods left out because they lack a mod they need or failed to load, with why (told on the title screen). */
+    public static List<String> leftOut() {
+        return leftOut;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> leftOutMods(LegacyRuntime runtime) {
+        try {
+            return List.copyOf((List<String>) Class.forName("retrofit.legacy.boot.ModFailures", true, runtime.gameLoader())
+                    .getMethod("report").invoke(null));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.debug("Could not ask which 1.7.10 mods were left out", e);
+            return List.of();
+        }
+    }
     private static List<retrofit.host.LegacyModFiles.OtherVersion> otherVersions = List.of();
 
     /** Old Forge mods for other Minecraft versions than 1.7.10 that players put in (told on the title screen). */

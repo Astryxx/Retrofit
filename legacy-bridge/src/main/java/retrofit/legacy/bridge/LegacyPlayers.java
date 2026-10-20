@@ -132,10 +132,16 @@ public final class LegacyPlayers {
         return mirrors;
     }
 
-    /** Copies the host player's position (feet), rotation, flags, held slot, food and health in. */
-    public static void sync(Object legacyPlayer, double x, double y, double z, float yaw, float pitch, int flags,
-                            int slot, int food, float saturation, float health) {
+    /** Copies the host player's position (feet), rotation, motion, fall distance, flags, held slot, food and health in. */
+    public static void sync(Object legacyPlayer, double x, double y, double z, float yaw, float pitch, double motionX, double motionY,
+                            double motionZ, float fallDistance, int flags, int slot, int food, float saturation, float health) {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
+        player.field_70159_w = motionX; // motionX
+        player.field_70181_x = motionY;
+        player.field_70179_y = motionZ;
+        player.field_70143_R = fallDistance; // fallDistance
+        player.field_70133_I = false; // velocityChanged
+        GIVEN_MOTION.put(player, new double[]{motionX, motionY, motionZ, fallDistance});
         double legacyY = y + player.field_70129_M; // yOffset: client players stand at eye height
         player.func_70080_a(x, legacyY, z, yaw, pitch); // setPositionAndRotation
         player.field_70169_q = player.field_70142_S = x;  // prevPosX, lastTickPosX
@@ -167,6 +173,24 @@ public final class LegacyPlayers {
     }
 
     private static final Map<EntityPlayer, Integer> GIVEN_ABILITIES = new WeakHashMap<EntityPlayer, Integer>();
+    private static final Map<EntityPlayer, double[]> GIVEN_MOTION = new WeakHashMap<EntityPlayer, double[]>();
+
+    /**
+     * {motionX, motionY, motionZ, fallDistance, velocityChanged (0/1)} if legacy code changed the
+     * player's motion or fall distance since {@link #sync} (jetpacks, flying armor, leaps, knockback,
+     * boots that soften falls), else null.
+     */
+    public static double[] changedMotion(Object legacyPlayer) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        double[] given = GIVEN_MOTION.get(player);
+        double[] now = {player.field_70159_w, player.field_70181_x, player.field_70179_y, player.field_70143_R, player.field_70133_I ? 1 : 0};
+        if (given == null || given[0] == now[0] && given[1] == now[1] && given[2] == now[2] && (float) given[3] == (float) now[3] && now[4] == 0) {
+            return null;
+        }
+        GIVEN_MOTION.put(player, new double[]{now[0], now[1], now[2], now[3]});
+        player.field_70133_I = false;
+        return now;
+    }
 
     /** MAY_FLY and FLYING if legacy code changed them since {@link #sync} (flight buffs, brooms), else -1. */
     public static int changedAbilities(Object legacyPlayer) {

@@ -36,9 +36,28 @@ public final class Hooks {
             Field managerField = minecraft.getClass().getDeclaredField("field_110451_am"); // mcResourceManager
             managerField.setAccessible(true);
             Object manager = managerField.get(minecraft);
+            // Mods' reload listeners are told afterwards, one by one (notifyModListeners): during the
+            // reload itself one that threw (FiskHeroes' texture map) kept the rest from ever being told.
+            Field listenersField = manager.getClass().getDeclaredField("field_110546_b"); // reloadListeners
+            listenersField.setAccessible(true);
+            List listeners = (List) listenersField.get(manager);
+            List all = new ArrayList(listeners);
+            List modListeners = new ArrayList();
+            for (Object listener : all) {
+                if (!listener.getClass().getName().startsWith("net.minecraft.")) {
+                    modListeners.add(listener);
+                }
+            }
+            listeners.removeAll(modListeners);
             Method reload = manager.getClass().getMethod("func_110541_a", List.class); // reloadResources
-            reload.invoke(manager, packs);
+            try {
+                reload.invoke(manager, packs);
+            } finally {
+                listeners.clear();
+                listeners.addAll(all);
+            }
             loadLanguage(game, manager);
+            registerIcons(game);
             notifyModListeners(game, manager);
         } catch (ReflectiveOperationException e) {
             System.out.println("[Retrofit] Could not load legacy resource packs: " + e);
@@ -46,9 +65,34 @@ public final class Hooks {
     }
 
     /**
+     * On 1.7.10 the texture maps were reloaded (every block and item registering its icons) before
+     * mods' own reload listeners ran, and those read icons (FiskHeroes reads water's). Once mods
+     * are loaded, the bridge's icon registration runs here (see retrofit.legacy.bridge.LegacyIcons).
+     */
+    private static void registerIcons(ClassLoader game) {
+        try {
+            Class<?> loader = Class.forName("cpw.mods.fml.common.Loader", true, game);
+            Class<?> state = Class.forName("cpw.mods.fml.common.LoaderState", true, game);
+            Object postInit = state.getField("POSTINITIALIZATION").get(null);
+            Object instance = loader.getMethod("instance").invoke(null);
+            if (!(Boolean) loader.getMethod("hasReachedState", state).invoke(instance, postInit)) {
+                return;
+            }
+            Object failed = Class.forName("retrofit.legacy.bridge.LegacyIcons", true, game).getMethod("registerAll").invoke(null);
+            if (((Integer) failed) > 0) {
+                System.out.println("[Retrofit] " + failed + " blocks and items could not register their icons");
+            }
+        } catch (ClassNotFoundException noBridge) {
+            // booting without the bridge (dumping the SRG jar)
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            System.out.println("[Retrofit] Could not register legacy icons: " + e);
+        }
+    }
+
+    /**
      * 1.7.10's language manager was the first reload listener: translations were in place before
      * mods' own listeners ran, and some add to them there (IC2 copies its .properties translations
-     * into the Locale). The Locale is made after the reload here, so mods' listeners run once more.
+     * into the Locale). The Locale is made after the reload here, so mods' listeners run after it, each on its own.
      */
     @SuppressWarnings("rawtypes")
     private static void notifyModListeners(ClassLoader game, Object manager) {
@@ -65,7 +109,8 @@ public final class Hooks {
                 try {
                     onReload.invoke(listener, manager);
                 } catch (ReflectiveOperationException | RuntimeException e) {
-                    System.out.println("[Retrofit] A resource reload listener failed: " + listener.getClass().getName() + ": " + e);
+                    Throwable cause = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null ? e.getCause() : e;
+                    System.out.println("[Retrofit] A resource reload listener failed: " + listener.getClass().getName() + ": " + cause);
                 }
             }
         } catch (ReflectiveOperationException e) {

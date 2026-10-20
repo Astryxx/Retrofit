@@ -64,6 +64,13 @@ public final class LegacyDownloadScreen extends Screen {
                         net.minecraft.client.gui.components.toasts.SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
                         Component.translatable("retrofit.otherversions.title"), Component.translatable("retrofit.otherversions.text", files)));
             }
+            if (!noticed && !RetrofitMod.leftOut().isEmpty() && event.getNewScreen() instanceof TitleScreen) {
+                var leftOut = RetrofitMod.leftOut();
+                String mods = String.join("; ", leftOut.stream().limit(2).toList()) + (leftOut.size() > 2 ? "; ..." : "");
+                Minecraft.getInstance().getToasts().addToast(net.minecraft.client.gui.components.toasts.SystemToast.multiline(Minecraft.getInstance(),
+                        net.minecraft.client.gui.components.toasts.SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+                        Component.translatable("retrofit.leftout.title", leftOut.size()), Component.translatable("retrofit.leftout.text", mods)));
+            }
             if (!noticed && RetrofitMod.legacyModFiles() == 0 && event.getNewScreen() instanceof TitleScreen) {
                 // Retrofit without any 1.7.10 mod: say where they go, rather than nothing happening
                 Minecraft.getInstance().getToasts().addToast(net.minecraft.client.gui.components.toasts.SystemToast.multiline(Minecraft.getInstance(),

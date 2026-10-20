@@ -62,6 +62,9 @@ public class RetrofitTransformer implements IClassTransformer {
     private static final String LOG4J_HELPERS = "org/apache/logging/log4j/core/helpers/";
     /** Legacy code must get SLF4J loggers from the host; see LegacyLoggerFactory. */
     private static final String SLF4J_FACTORY = "org/slf4j/LoggerFactory";
+    /** Java 8's JavaScript engine, gone since Java 15: the standalone Nashorn under its own package (see LegacyInstall.JAVASCRIPT). */
+    private static final String JDK_NASHORN = "jdk/nashorn/";
+    private static final String STANDALONE_NASHORN = "org/openjdk/nashorn/";
     /** LWJGL 2 classes, replaced by generated stand-ins (see LwjglShims). */
     private static final String LWJGL = "org/lwjgl/";
 
@@ -84,6 +87,8 @@ public class RetrofitTransformer implements IClassTransformer {
         "openConnection".getBytes(StandardCharsets.UTF_8),
         "java/lang/Thread".getBytes(StandardCharsets.UTF_8),
         "toArray".getBytes(StandardCharsets.UTF_8),
+        "jdk/nashorn".getBytes(StandardCharsets.UTF_8),
+        "jdk.nashorn".getBytes(StandardCharsets.UTF_8),
     };
 
     /**
@@ -114,6 +119,9 @@ public class RetrofitTransformer implements IClassTransformer {
             }
             if (typeName.startsWith(LOG4J_HELPERS)) {
                 return "retrofit/legacy/compat/log4j/" + typeName.substring(LOG4J_HELPERS.length());
+            }
+            if (typeName.startsWith(JDK_NASHORN)) {
+                return STANDALONE_NASHORN + typeName.substring(JDK_NASHORN.length());
             }
             return typeName;
         }
@@ -161,7 +169,59 @@ public class RetrofitTransformer implements IClassTransformer {
         if (transformedName.equals("net.minecraft.pathfinding.PathFinder")) {
             basicClass = deepPathfinding(basicClass);
         }
+        if (transformedName.startsWith("cpw.mods.fml.common.")) {
+            basicClass = FmlFixes.apply(transformedName, basicClass);
+        }
+        if (indexOf(basicClass, LAMBDA_FACTORY) >= 0 && (new ClassReader(basicClass).getAccess() & Opcodes.ACC_INTERFACE) != 0) {
+            basicClass = interfaceSelfReferences(basicClass);
+        }
         return basicClass;
+    }
+
+    private static final byte[] LAMBDA_FACTORY = "java/lang/invoke/LambdaMetafactory".getBytes(StandardCharsets.UTF_8);
+
+    /**
+     * An interface's lambdas (and other calls to its own methods) must name it as an interface
+     * (InterfaceMethodref): Java 9+ refuses the class otherwise, where Java 8 let it pass. Older
+     * ASM versions in mods' and coremods' transformers drop that flag on method handles when they
+     * rewrite a class (FiskHeroes' ScoreFunction: "Inconsistent constant pool data"), so it is set
+     * again on the final bytes.
+     */
+    private static byte[] interfaceSelfReferences(byte[] bytes) {
+        ClassReader reader = new ClassReader(bytes);
+        final String self = reader.getClassName();
+        final boolean[] fixed = {false};
+        ClassWriter writer = new ClassWriter(0);
+        reader.accept(new ClassVisitor(Opcodes.ASM5, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String methodName, String desc, String signature, String[] exceptions) {
+                return new MethodVisitor(Opcodes.ASM5, super.visitMethod(access, methodName, desc, signature, exceptions)) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String insnName, String insnDesc, boolean itf) {
+                        if (owner.equals(self) && !itf) {
+                            itf = true;
+                            fixed[0] = true;
+                        }
+                        super.visitMethodInsn(opcode, owner, insnName, insnDesc, itf);
+                    }
+
+                    @Override
+                    public void visitInvokeDynamicInsn(String indyName, String indyDesc, org.objectweb.asm.Handle bsm, Object... args) {
+                        for (int i = 0; i < args.length; i++) {
+                            if (args[i] instanceof org.objectweb.asm.Handle) {
+                                org.objectweb.asm.Handle handle = (org.objectweb.asm.Handle) args[i];
+                                if (handle.getOwner().equals(self) && !handle.isInterface() && handle.getTag() >= Opcodes.H_INVOKEVIRTUAL) {
+                                    args[i] = new org.objectweb.asm.Handle(handle.getTag(), handle.getOwner(), handle.getName(), handle.getDesc(), true);
+                                    fixed[0] = true;
+                                }
+                            }
+                        }
+                        super.visitInvokeDynamicInsn(indyName, indyDesc, bsm, args);
+                    }
+                };
+            }
+        }, 0);
+        return fixed[0] ? writer.toByteArray() : bytes;
     }
 
     /** How far below y 0 the world goes (1.20.1's overworld: -64); legacy pathfinding may reach it. */
@@ -214,6 +274,15 @@ public class RetrofitTransformer implements IClassTransformer {
             @Override
             public MethodVisitor visitMethod(int access, String methodName, String desc, String signature, String[] exceptions) {
                 return new MethodVisitor(Opcodes.ASM5, super.visitMethod(access, methodName, desc, signature, exceptions)) {
+                    @Override
+                    public void visitLdcInsn(Object constant) {
+                        // Class.forName("jdk.nashorn.api.scripting.NashornScriptEngineFactory") and the like
+                        if (!retrofitClass && constant instanceof String && ((String) constant).startsWith("jdk.nashorn.")) {
+                            constant = "org.openjdk.nashorn." + ((String) constant).substring("jdk.nashorn.".length());
+                        }
+                        super.visitLdcInsn(constant);
+                    }
+
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String insnName, String insnDesc, boolean itf) {
                         if (opcode == Opcodes.INVOKESTATIC && (owner.equals("java/lang/System") && isSystemRedirect(insnName)

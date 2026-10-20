@@ -33,6 +33,8 @@ public final class LegacyPlayers {
     private static final int ON_GROUND = 16;
     private static final int SPRINTING = 32;
     private static final int SLOTS = 40;
+    private static final boolean DEBUG_MOTION = Boolean.getBoolean("retrofit.debugInteractions");
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     /** One per player and side; the Player object changes on respawn, so it's updated on each sync. */
     private static final Map<UUID, Host> SERVER_HOSTS = new ConcurrentHashMap<>();
@@ -67,7 +69,9 @@ public final class LegacyPlayers {
         int flags = (player.isShiftKeyDown() ? SNEAKING : 0) | (player.getAbilities().instabuild ? CREATIVE : 0)
                 | (player.getAbilities().flying ? FLYING : 0) | (player.getAbilities().mayfly ? MAY_FLY : 0)
                 | (player.onGround() ? ON_GROUND : 0) | (player.isSprinting() ? SPRINTING : 0);
-        LegacyBridge.call("sync", mirror, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot(), flags,
+        net.minecraft.world.phys.Vec3 motion = player.getDeltaMovement();
+        LegacyBridge.call("sync", mirror, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot(),
+                motion.x, motion.y, motion.z, player.fallDistance, flags,
                 player.getInventory().selected, player.getFoodData().getFoodLevel(), player.getFoodData().getSaturationLevel(),
                 player.getHealth());
         LegacyBridge.call("setHostEffects", mirror, (Object) vanillaEffects(player));
@@ -295,10 +299,36 @@ public final class LegacyPlayers {
         }
     }
 
-    /** Applies what legacy code changed in the mirror (server only; clients wait for the server). */
+    /** Applies what legacy code changed in the mirror (server only; clients wait for the server, except for motion). */
     public static void writeBack(Player player, Object mirror) {
         if (!player.level().isClientSide) {
             applyChanges(player, mirror, false);
+        }
+        applyMotion(player, mirror);
+    }
+
+    /**
+     * Motion and fall distance legacy code gave the mirror. As on 1.7.10, the client moves its own
+     * player (a jetpack's push on the client is the one that counts), while the server's changes
+     * reach the player only when legacy code marked them (velocityChanged: knockback, leaps).
+     */
+    public static void applyMotion(Player player, Object mirror) {
+        double[] motion = LegacyBridge.call("changedMotion", mirror);
+        if (motion == null) {
+            return;
+        }
+        if (DEBUG_MOTION) {
+            LOGGER.info("[Interactions] legacy motion for {} on the {}: {}", player.getName().getString(), player.level().isClientSide ? "client" : "server",
+                    java.util.Arrays.toString(motion));
+        }
+        if ((float) motion[3] != player.fallDistance) {
+            player.fallDistance = (float) motion[3];
+        }
+        if (player.level().isClientSide || motion[4] != 0) {
+            player.setDeltaMovement(motion[0], motion[1], motion[2]);
+            if (!player.level().isClientSide) {
+                player.hurtMarked = true; // sends the motion to the client
+            }
         }
     }
 

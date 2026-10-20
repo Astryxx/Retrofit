@@ -53,6 +53,15 @@ final class ClientPlayers {
         if (minecraft.field_71456_v == null) { // ingameGUI: mods print chat through it
             minecraft.field_71456_v = new BridgeGuiIngame(minecraft);
         }
+        if (minecraft.field_71442_b == null) { // playerController: mods read the game mode and reach from it (HUDs, tools)
+            minecraft.field_71442_b = new net.minecraft.client.multiplayer.PlayerControllerMP(minecraft, LegacyWorlds.clientNetHandler());
+        }
+        // its game mode follows the player's (LegacyPlayers.sync sets the capabilities from the host)
+        net.minecraft.world.WorldSettings.GameType mode = player.field_71075_bZ.field_75098_d ? net.minecraft.world.WorldSettings.GameType.CREATIVE
+                : net.minecraft.world.WorldSettings.GameType.SURVIVAL; // capabilities.isCreativeMode
+        if (minecraft.field_71442_b.func_78758_h() != (mode == net.minecraft.world.WorldSettings.GameType.CREATIVE)) { // isInCreativeMode
+            minecraft.field_71442_b.func_78746_a(mode); // setGameType
+        }
         if (player.field_70170_p instanceof WorldClient) { // worldObj
             minecraft.field_71441_e = (WorldClient) player.field_70170_p; // theWorld
         }

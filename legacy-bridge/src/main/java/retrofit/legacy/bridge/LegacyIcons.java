@@ -89,6 +89,7 @@ public final class LegacyIcons {
             }
         }
         for (Recorder atlas : new Recorder[]{BLOCKS, ITEMS}) {
+            atlas.adoptRegisteredSprites();
             try {
                 net.minecraftforge.client.ForgeHooksClient.onTextureStitchedPost(atlas); // TextureStitchEvent.Post, and the water and lava fluid icons
             } catch (Throwable t) {
@@ -290,9 +291,43 @@ public final class LegacyIcons {
                 recorder.icons = new LinkedHashMap<String, RecordedIcon>();
                 recorder.custom = new LinkedHashMap<String, TextureAtlasSprite>();
                 recorder.type = type;
+                // TextureMap's own fields, as its constructor sets them: mods reach into them (FiskHeroes
+                // puts sprites in mapRegisteredSprites through reflection)
+                setMapField(recorder, "field_94258_i", new java.util.ArrayList<Object>()); // listAnimatedSprites
+                setMapField(recorder, "field_110574_e", new java.util.HashMap<Object, Object>()); // mapRegisteredSprites
+                setMapField(recorder, "field_94252_e", new java.util.HashMap<Object, Object>()); // mapUploadedSprites
+                setMapField(recorder, "field_94255_a", type); // textureType
+                setMapField(recorder, "field_94254_c", type == 0 ? "textures/blocks" : "textures/items"); // basePath
+                setMapField(recorder, "field_147637_k", 1); // anisotropicFiltering
+                java.lang.reflect.Constructor<TextureAtlasSprite> sprite = TextureAtlasSprite.class.getDeclaredConstructor(String.class);
+                sprite.setAccessible(true);
+                setMapField(recorder, "field_94249_f", sprite.newInstance("missingno")); // missingImage
                 return recorder;
-            } catch (ReflectiveOperationException e) {
+            } catch (Exception e) {
                 throw new IllegalStateException("Retrofit: cannot create the legacy icon recorder", e);
+            }
+        }
+
+        private static void setMapField(Recorder recorder, String name, Object value) throws Exception {
+            java.lang.reflect.Field field = TextureMap.class.getDeclaredField(name);
+            field.setAccessible(true);
+            retrofit.legacy.compat.FinalFields.set(field, recorder, value);
+        }
+
+        /** Sprites mods put straight into mapRegisteredSprites: stitched like setTextureEntry's. */
+        @SuppressWarnings("unchecked")
+        synchronized void adoptRegisteredSprites() {
+            try {
+                java.lang.reflect.Field field = TextureMap.class.getDeclaredField("field_110574_e");
+                field.setAccessible(true);
+                for (Map.Entry<String, Object> entry : ((Map<String, Object>) field.get(this)).entrySet()) {
+                    if (entry.getValue() instanceof TextureAtlasSprite && !custom.containsKey(entry.getKey()) && !icons.containsKey(entry.getKey())) {
+                        custom.put(entry.getKey(), (TextureAtlasSprite) entry.getValue());
+                        record(entry.getKey());
+                    }
+                }
+            } catch (ReflectiveOperationException e) {
+                // nothing put there
             }
         }
 

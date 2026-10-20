@@ -32,7 +32,7 @@ public class LegacyMenu extends AbstractContainerMenu {
     /** Window id of client-only container GUIs (opened by client code): the server ignores their clicks. */
     public static final int CLIENT_ONLY = -3;
     /** guiId of a container a mod opened without FML's openGui (the legacy bridge's Guis.DIRECT). */
-    static final int DIRECT = -2;
+    static final int DIRECT = Integer.MIN_VALUE;
 
     private static MenuType<LegacyMenu> type;
 

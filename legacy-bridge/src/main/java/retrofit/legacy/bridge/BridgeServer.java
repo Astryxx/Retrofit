@@ -20,6 +20,12 @@ public final class BridgeServer extends MinecraftServer {
         super(directory, Proxy.NO_PROXY);
         this.dedicated = dedicated;
         func_152361_a(new BridgePlayerList(this, directory)); // setConfigurationManager
+        if (!dedicated) {
+            // as 1.7.10's IntegratedServer: singleplayer has an owner (isSinglePlayer), who may do anything
+            // (mods grant their protections to it: Carpenter's Blocks), and is in online mode
+            func_71224_l(System.getProperty("retrofit.username", "Player")); // setServerOwner
+            func_71229_d(true); // setOnlineMode
+        }
     }
 
     /**

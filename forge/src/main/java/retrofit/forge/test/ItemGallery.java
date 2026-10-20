@@ -74,7 +74,7 @@ final class ItemGallery extends Screen {
     }
 
     /** Development: the captured vertices (colour, normal, state) of block items' inventory drawing, "modid:name/meta,...". */
-    private static void dump(String items) {
+    static void dump(String items) {
         for (String entry : items.split(",")) {
             if (entry.isBlank()) {
                 continue;
@@ -87,14 +87,14 @@ final class ItemGallery extends Screen {
             int meta = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
             try {
                 synchronized (LegacyBridge.renderLock()) {
-                    int vertices = LegacyBridge.call("renderBlockItem", block.legacyBlock(), meta);
+                    int vertices = LegacyBridge.call("renderBlockItem", block.legacyBlock(), meta & 15, meta);
                     float[] d = retrofit.forge.client.LegacyCapture.data();
                     int[] states = retrofit.forge.client.LegacyCapture.states();
                     StringBuilder out = new StringBuilder();
                     for (int v = 0; v < Math.min(vertices, 24); v += 4) {
                         int o = v * retrofit.forge.client.LegacyCapture.FLOATS_PER_VERTEX;
-                        out.append(String.format(" [rgba %.2f %.2f %.2f %.2f n %.2f %.2f %.2f state %x]", d[o + 8], d[o + 9], d[o + 10], d[o + 11],
-                                d[o + 5], d[o + 6], d[o + 7], states[v] >>> 16));
+                        out.append(String.format(" [xyz %.2f %.2f %.2f uv %.3f %.3f rgba %.2f %.2f %.2f %.2f n %.2f %.2f %.2f state %x]", d[o], d[o + 1], d[o + 2],
+                                d[o + 3], d[o + 4], d[o + 8], d[o + 9], d[o + 10], d[o + 11], d[o + 5], d[o + 6], d[o + 7], states[v] >>> 16));
                     }
                     LOGGER.info("[ModSweep] Gallery dump {}: {} vertices{}", entry, vertices, out);
                 }

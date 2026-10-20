@@ -74,8 +74,10 @@ public final class LegacyRendering {
     /**
      * A block as 1.7.10 drew it as an item (RenderBlocks.renderBlockAsItem: custom renderers'
      * renderInventoryBlock), centred on the origin; returns the vertex count. Hold Bridge.LOCK.
+     * {@code meta} is the block's, for the stand-in world it stands in; {@code damage} the item's,
+     * which RenderItem passed on as it was (GregTech's machines are told apart by it, up to 32767).
      */
-    public static int renderBlockItem(Object block, int meta) {
+    public static int renderBlockItem(Object block, int meta, int damage) {
         World world = IsolatedHost.with(block, meta);
         if (renderBlocks == null) {
             renderBlocks = new RenderBlocks(world);
@@ -84,7 +86,7 @@ public final class LegacyRendering {
         Capture.begin();
         GL11.bindLegacyTexture(BLOCK_ATLAS);
         try {
-            renderBlocks.func_147800_a((Block) block, meta, 1.0f); // renderBlockAsItem
+            renderBlocks.func_147800_a((Block) block, damage, 1.0f); // renderBlockAsItem
         } catch (RuntimeException e) {
             resetTessellator();
             throw e;
@@ -296,11 +298,58 @@ public final class LegacyRendering {
         return Capture.vertexCount();
     }
 
+    private static net.minecraft.client.model.ModelBiped armorBody;
+    private static net.minecraft.client.model.ModelBiped armorLegs;
+
+    /**
+     * A worn legacy armor piece's own model (Item.getArmorModel, asked through Forge as RenderBiped
+     * did: FiskHeroes' suits, Galacticraft's oxygen gear, Thaumcraft's robes), posed by the wearer's
+     * limb swing, age and head angles, drawn with the piece's texture. {@code flags}: 1 sneaking,
+     * 2 riding, 4 a child. Returns the captured vertex count, or -1 if the piece has no model of its
+     * own (1.20.1 draws it with its texture then).
+     */
+    public static int renderArmorModel(Object legacyStack, Object wearer, int slot, float limbSwing, float limbSwingAmount, float age,
+                                       float headYaw, float headPitch, float partialTicks, int flags) {
+        environment();
+        if (armorBody == null) {
+            armorBody = new net.minecraft.client.model.ModelBiped(1.0F); // RenderBiped's own armor models
+            armorLegs = new net.minecraft.client.model.ModelBiped(0.5F);
+        }
+        ItemStack stack = (ItemStack) legacyStack;
+        net.minecraft.entity.EntityLivingBase entity = (net.minecraft.entity.EntityLivingBase) wearer;
+        net.minecraft.client.model.ModelBiped standard = slot == 2 ? armorLegs : armorBody;
+        net.minecraft.client.model.ModelBiped model = net.minecraftforge.client.ForgeHooksClient.getArmorModel(entity, stack, slot, standard);
+        if (model == null || model == standard) {
+            return -1;
+        }
+        Capture.begin();
+        try {
+            textures.func_110577_a(net.minecraft.client.renderer.entity.RenderBiped.getArmorResource(entity, stack, slot, null)); // bindTexture
+            GL11.glColor4f(1, 1, 1, 1);
+            model.field_78117_n = (flags & 1) != 0; // isSneak
+            model.field_78093_q = (flags & 2) != 0; // isRiding
+            model.field_78091_s = (flags & 4) != 0; // isChild
+            model.field_78120_m = entity.func_70694_bm() != null ? 1 : 0; // heldItemRight = getHeldItem
+            model.func_78086_a(entity, limbSwing, limbSwingAmount, partialTicks); // setLivingAnimations
+            model.func_78088_a(entity, limbSwing, limbSwingAmount, age, headYaw, headPitch, 0.0625F); // render
+        } catch (RuntimeException e) {
+            resetTessellator();
+            throw e;
+        }
+        return Capture.vertexCount();
+    }
+
     /** Whether a Forge item renderer handles this item for a render type (INVENTORY, ENTITY, EQUIPPED, EQUIPPED_FIRST_PERSON). */
     public static boolean hasItemRenderer(Object item, int meta, String type) {
         ItemStack stack = new ItemStack((Item) item, 1, meta);
         IItemRenderer.ItemRenderType renderType = IItemRenderer.ItemRenderType.valueOf(type);
-        return MinecraftForgeClient.getItemRenderer(stack, renderType) != null;
+        try {
+            return MinecraftForgeClient.getItemRenderer(stack, renderType) != null;
+        } catch (RuntimeException e) {
+            // handleRenderType read something that isn't there yet (FiskHeroes reads the player before
+            // any world): the item has a renderer of its own, which is asked again each time it is drawn
+            return true;
+        }
     }
 
     /** Runs an item's Forge item renderer; returns the number of captured vertices. */

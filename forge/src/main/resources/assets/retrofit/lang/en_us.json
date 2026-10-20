@@ -1,6 +1,8 @@
 {
   "retrofit.nomods.title": "Retrofit: no 1.7.10 mods found",
   "retrofit.nomods.text": "Put 1.7.10 Forge mods in the mods folder (or retrofit/mods) and restart Minecraft.",
+  "retrofit.leftout.title": "%s 1.7.10 mod(s) not loaded",
+  "retrofit.leftout.text": "%s. The other mods are loaded; the log (logs/latest.log) has the details.",
   "retrofit.otherversions.title": "Retrofit runs 1.7.10 mods only",
   "retrofit.otherversions.text": "Not loaded, made for other Minecraft versions: %s",
   "retrofit.download.title": "Retrofit needs Minecraft 1.7.10",

@@ -74,6 +74,15 @@ public final class LegacyKeys {
                 || glfwKey >= GLFW.GLFW_KEY_KP_0 && glfwKey <= GLFW.GLFW_KEY_KP_EQUAL && glfwKey != GLFW.GLFW_KEY_KP_ENTER;
     }
 
+    private static boolean mappingDown(Minecraft minecraft, InputConstants.Key key) {
+        for (net.minecraft.client.KeyMapping mapping : minecraft.options.keyMappings) {
+            if (mapping.isDown() && mapping.getKey().equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Installs the live key, button and pointer queries for legacy code (once). */
     public static synchronized void install() {
         if (installed) {
@@ -81,9 +90,11 @@ public final class LegacyKeys {
         }
         installed = true;
         Minecraft minecraft = Minecraft.getInstance();
+        // a key is down if it is held, or a key mapping bound to it is (controller mods and macros press mappings)
         IntPredicate keys = key -> {
             int glfw = key >= 0 && key < TO_GLFW.length ? TO_GLFW[key] : 0;
-            return glfw != 0 && InputConstants.isKeyDown(minecraft.getWindow().getWindow(), glfw);
+            return glfw != 0 && (InputConstants.isKeyDown(minecraft.getWindow().getWindow(), glfw)
+                    || mappingDown(minecraft, InputConstants.Type.KEYSYM.getOrCreate(glfw)));
         };
         // GLFW has buttons 0-7 only; legacy code asks about any number (Lycanites: a binding's code + 100).
         IntPredicate buttons = button -> button >= 0 && button <= GLFW.GLFW_MOUSE_BUTTON_LAST

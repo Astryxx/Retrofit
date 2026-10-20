@@ -112,7 +112,7 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                         pose.translate(0.5, 0.5, 0.5);
                     }
                     int vertices = custom ? LegacyBridge.renderItem(item.legacyItem(), meta, type)
-                            : LegacyBridge.call("renderBlockItem", block, blockMeta(item, meta));
+                            : LegacyBridge.call("renderBlockItem", block, blockMeta(item, meta), meta);
                     LegacyCapture.draw(pose.last(), buffers, vertices, light, overlay, custom && !type.equals("INVENTORY")); // block items: light of the isolated world
                 }
             } catch (Throwable t) {

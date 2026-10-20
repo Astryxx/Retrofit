@@ -774,6 +774,15 @@ public final class GL11 {
         return name == GL_MAX_TEXTURE_SIZE ? 16384 : 0;
     }
 
+    /**
+     * Minecraft.getGLMaximumTextureSize sizes a proxy texture and reads its width back: the
+     * proxy always fits (atlases are stitched by the host), so mods' own texture maps stitch too.
+     */
+    public static int glGetTexLevelParameteri(int target, int level, int pname) {
+        boolean proxy = target == 0x8064; // GL_PROXY_TEXTURE_2D
+        return proxy && (pname == 0x1000 || pname == 0x1001) ? 16384 : 0; // GL_TEXTURE_WIDTH, GL_TEXTURE_HEIGHT
+    }
+
     public static int glGetError() {
         return 0;
     }

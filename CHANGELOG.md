@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.4.0-beta
+
+Played through the client the way players do (new client-driven play test), which showed most of
+what made 0.3.x unplayable; all of these are fixed:
+
+- **One mod no longer takes the others down.** A 1.7.10 mod that lacks a mod it requires (GregTech
+  without IndustrialCraft 2), doesn't accept 1.7.10, or throws while loading is left out, with the
+  mods that require it; every other mod loads, and the title screen says which mod was left out and
+  why. Before, FML stopped and the game started with no 1.7.10 mods at all. A mod that fails while a
+  world starts carries on (logged).
+- **Broken event handlers are contained.** A 1.7.10 event listener that throws is logged once and
+  the others still run. Before, one mod's handler could stop players being created (Galacticraft's
+  handler did, which broke every client-side feature of every mod).
+- **Keys reach 1.7.10 in the world.** Mods that poll the keyboard (IC2's jetpack, flight, hotkeys)
+  saw nothing until a 1.7.10 GUI had been opened. 1.7.10's own key bindings (jump, sneak, movement,
+  attack, use) now follow 1.20.1's, with the player's own bindings, and the local player's movement
+  input too.
+- **Mods move the player.** Motion and fall distance 1.7.10 code gives the player (jetpacks, flying
+  armor, leaps, boots that soften falls) now move the 1.20.1 player; worn and carried items tick on
+  the client too, as on 1.7.10.
+- **Singleplayer counts as singleplayer.** 1.7.10's server now has an owner and online mode in
+  singleplayer, and operators are the host's: mods that grant their protections to the
+  singleplayer player or to operators (Carpenter's Blocks' covers, hammer and chisel) work.
+- **Galacticraft**: its planets (the Moon, Mars, Asteroids), which it registers only once a server
+  starts, are 1.20.1 dimensions; its server start no longer fails; rockets are placed on the launch
+  pad, boarded and launched. Space stations (dimensions made while playing) aren't supported yet.
+- **FiskHeroes 2.4** loads: Java 17 refused its classes ("Inconsistent constant pool data"), it
+  needs Java 8's JavaScript engine for its heroes (Retrofit provides the standalone Nashorn, asked
+  about like the other downloads), its sound packs download, and its HUD finds the player
+  controller. Suits draw with their own models.
+- **Armor with its own model** (Item.getArmorModel: hero suits, oxygen gear, robes, hats) draws that
+  model on 1.20.1 players and creatures.
+- **Armor textures**: textures at the top of a mod's assets (OreSpawn's armor) and armor textures for
+  mods' own render prefixes are served; they were missing.
+- **GregTech's machine items** draw in inventories and hands: block items were drawn with their
+  block metadata (0-15) instead of the item damage 1.7.10 passed on, and blocks without icons got
+  no item model at all.
+- Mods' own negative GUI ids (Galacticraft's) no longer collide with Retrofit's: those GUIs open.
+- Invisible blocks (render type -1: Galacticraft's lit air) no longer show as missing-texture cubes.
+- 1.7.10 code sees the whole JDK again: javax.script, java.sql and the rest of Java's platform
+  modules were invisible to it since Java 9.
+- Mods' own texture maps stitch, and every resource reload listener runs even when one fails.
+- Vanilla 1.7.10 spawn eggs convert to 1.20.1's.
+- `-Dretrofit.debugInteractions=true` logs right and left clicks on legacy blocks and motion
+  legacy code gives players.
+
 ## 0.3.2-beta
 
 - **Fixed: 1.7.10 mods in the `mods` folder did nothing.** Launchers (CurseForge, the Minecraft

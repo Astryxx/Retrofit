@@ -41,6 +41,17 @@ final class BridgePlayerList extends ServerConfigurationManager {
         }
     }
 
+    /** func_152596_g (whether a player is an operator): the host's permission level, as for commands. */
+    @Override
+    public boolean func_152596_g(com.mojang.authlib.GameProfile profile) {
+        for (Object player : field_72404_b) { // playerEntityList
+            if (player instanceof BridgePlayerMP && ((BridgePlayerMP) player).func_146103_bH().getId().equals(profile.getId())) { // getGameProfile
+                return ((BridgePlayerMP) player).host.permissionLevel() >= 2;
+            }
+        }
+        return super.func_152596_g(profile);
+    }
+
     /** func_152602_a: the statistics file of a player */
     @Override
     public StatisticsFile func_152602_a(EntityPlayer player) {

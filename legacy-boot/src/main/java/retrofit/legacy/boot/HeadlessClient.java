@@ -31,7 +31,9 @@ public final class HeadlessClient {
 
         Class<?> gameSettingsClass = Class.forName("net.minecraft.client.settings.GameSettings", true, lcl);
         // The no-argument constructor gives default settings and key bindings without reading options.txt.
-        setField(minecraftClass, minecraft, "field_71474_y", gameSettingsClass.getConstructor().newInstance()); // gameSettings
+        Object gameSettings = gameSettingsClass.getConstructor().newInstance();
+        setField(gameSettingsClass, gameSettings, "field_74317_L", minecraft); // mc: left null by that constructor (Galacticraft reads it)
+        setField(minecraftClass, minecraft, "field_71474_y", gameSettings); // gameSettings
 
         Object serializer = Class.forName("net.minecraft.client.resources.data.IMetadataSerializer", true, lcl).newInstance();
         Object resourceManager = Class.forName("net.minecraft.client.resources.SimpleReloadableResourceManager", true, lcl)

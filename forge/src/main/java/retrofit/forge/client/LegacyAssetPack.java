@@ -209,8 +209,15 @@ final class LegacyAssetPack implements PackResources {
                 fallbackModel = models[meta];
             }
         }
+        Object legacyItem = block.asItem() instanceof LegacyBlockItem item ? item.legacyItem() : null;
+        boolean customBlock = block.renderType() >= 42 && legacyItem != null && LegacyBridge.<Boolean>call("blockItemIn3d", block.legacyBlock());
+        boolean ownItemRenderer = legacyItem != null && LegacyBridge.hasItemRenderer(legacyItem, 0, "INVENTORY") || customBlock;
         if (fallbackModel == null) {
-            return; // no textures at all: leave it as a missing model
+            // no icons at all (GregTech's machines draw only through their own renderer): the item still is the mod's drawing
+            if (ownItemRenderer) {
+                putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", customRendererItemModel());
+            }
+            return;
         }
         JsonObject variants = new JsonObject();
         for (int meta = 0; meta < 16; meta++) {
@@ -224,9 +231,7 @@ final class LegacyAssetPack implements PackResources {
 
         String baseModel = models[0] != null ? models[0] : fallbackModel;
         JsonObject itemModel;
-        Object legacyItem = block.asItem() instanceof LegacyBlockItem item ? item.legacyItem() : null;
-        boolean customBlock = block.renderType() >= 42 && legacyItem != null && LegacyBridge.<Boolean>call("blockItemIn3d", block.legacyBlock());
-        if (legacyItem != null && LegacyBridge.hasItemRenderer(legacyItem, 0, "INVENTORY") || customBlock) {
+        if (ownItemRenderer) {
             // drawn by the legacy item renderer, or (mods' block renderers) as 1.7.10 drew the block as an item
             itemModel = customRendererItemModel();
         } else {
@@ -700,13 +705,27 @@ final class LegacyAssetPack implements PackResources {
                 }
                 String namespace = name.substring(7, slash).toLowerCase(Locale.ROOT);
                 String path = name.substring(slash + 1);
-                if (namespace.equals("minecraft") || namespace.equals(retrofit.forge.RetrofitMod.MOD_ID)) {
+                if (namespace.equals(retrofit.forge.RetrofitMod.MOD_ID)) {
+                    continue;
+                }
+                if (namespace.equals("minecraft")) {
+                    // mods' armor textures for their own render prefixes (vanilla's own are 1.20.1's)
+                    String file = path.substring(path.lastIndexOf('/') + 1);
+                    if (path.startsWith("textures/models/armor/") && file.endsWith(".png") && !VANILLA_ARMOR.matcher(file).matches()) {
+                        String target = sanitize(path);
+                        if (!files.getOrDefault(namespace, Map.of()).containsKey(target)) {
+                            put(namespace, target, () -> jar.getInputStream(entry));
+                            count++;
+                        }
+                    }
                     continue;
                 }
                 if (path.equals("sounds.json")) {
                     putJson(namespace, "sounds.json", soundsJson(namespace, jar, entry));
                     count++;
-                } else if (path.startsWith("sounds/") || path.startsWith("textures/")) {
+                } else if (path.startsWith("sounds/") || path.startsWith("textures/")
+                        || path.indexOf('/') < 0 && (path.endsWith(".png") || path.endsWith(".png.mcmeta"))) {
+                    // images at the namespace's top are textures named in code too (OreSpawn's armor: "orespawn:ruby_1.png")
                     String target = sanitize(path);
                     if (!files.getOrDefault(namespace, Map.of()).containsKey(target)) {
                         put(namespace, target, () -> jar.getInputStream(entry));
@@ -717,6 +736,8 @@ final class LegacyAssetPack implements PackResources {
         }
         return count;
     }
+
+    private static final Pattern VANILLA_ARMOR = Pattern.compile("(leather|chainmail|iron|diamond|gold)_layer_[12](_overlay)?\\.png");
 
     private static String sanitize(String path) {
         return path.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_./-]", "_");

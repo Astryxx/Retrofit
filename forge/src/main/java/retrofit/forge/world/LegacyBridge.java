@@ -26,7 +26,8 @@ public final class LegacyBridge {
             "retrofit.legacy.bridge.Fluids", "retrofit.legacy.bridge.Achievements", "retrofit.legacy.bridge.Villagers",
     };
     /** Entry classes that name client-only legacy types; dedicated servers must never load them. */
-    private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis", "retrofit.legacy.bridge.ClientEvents"};
+    private static final String[] CLIENT_ENTRY_CLASSES = {"retrofit.legacy.bridge.ClientGuis", "retrofit.legacy.bridge.ClientEvents",
+            "retrofit.legacy.bridge.ClientTextures"};
     private static final Map<String, MethodHandle> HANDLES = new HashMap<>();
     private static MethodHandle tick;
     private static MethodHandle canUpdate;

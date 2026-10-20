@@ -40,7 +40,8 @@ public final class LegacyDownloads {
     LegacyDownloads(Path legacyDir, boolean server) throws IOException {
         this.legacyDir = legacyDir;
         this.server = server;
-        this.install = new LegacyInstall(LegacyInstall.defaultMinecraftHome(), legacyDir.resolve(".retrofit"), server);
+        this.install = new LegacyInstall(LegacyInstall.defaultMinecraftHome(), legacyDir.resolve(".retrofit"), server)
+                .withJavaScript(LegacyInstall.needsJavaScript(legacyDir.resolve("mods")));
         this.files = install.missing();
         this.dependencies = LegacyDependencies.missing(legacyDir.resolve("mods"));
     }

@@ -87,6 +87,12 @@ public class LegacyArmorItem extends ArmorItem implements LegacyStackItem {
         return legacyItem;
     }
 
+    /** Clients: pieces with a model of their own draw it (client.LegacyArmorModels). */
+    @Override
+    public void initializeClient(java.util.function.Consumer<net.minecraftforge.client.extensions.common.IClientItemExtensions> consumer) {
+        consumer.accept(retrofit.forge.client.LegacyArmorModels.INSTANCE);
+    }
+
     @Override
     public boolean hasSubtypes() {
         return false;

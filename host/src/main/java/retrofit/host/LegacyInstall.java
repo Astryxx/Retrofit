@@ -53,9 +53,23 @@ public final class LegacyInstall {
     private static final Library COMMONS_COMPRESS = new Library("org.apache.commons", "commons-compress", "1.21", null,
             List.of("4ec95b60d4e86b5c95a0e919cb172a0af98011ef"));
 
+    /**
+     * Java 8's JavaScript engine (Nashorn, removed in Java 15), as its OpenJDK project publishes it,
+     * with the ASM it needs (kept apart from legacy code's ASM 5 in a class loader of its own).
+     * Only for mods that run JavaScript (FiskHeroes' heroes); see {@link #needsJavaScript}.
+     */
+    private static final List<Library> JAVASCRIPT = List.of(
+            new Library("org.openjdk.nashorn", "nashorn-core", "15.4", null, List.of()),
+            new Library("org.ow2.asm", "asm", "7.3.1", null, List.of()),
+            new Library("org.ow2.asm", "asm-commons", "7.3.1", null, List.of()),
+            new Library("org.ow2.asm", "asm-tree", "7.3.1", null, List.of()),
+            new Library("org.ow2.asm", "asm-util", "7.3.1", null, List.of()),
+            new Library("org.ow2.asm", "asm-analysis", "7.3.1", null, List.of()));
+
     private final Path minecraftHome;
     private final Path cacheDir;
     private final boolean server;
+    private boolean javaScript;
 
     /**
      * @param minecraftHome the launcher's .minecraft directory, used when it has the files (may not exist)
@@ -66,6 +80,82 @@ public final class LegacyInstall {
         this.minecraftHome = minecraftHome;
         this.cacheDir = cacheDir;
         this.server = server;
+    }
+
+    /** Includes the JavaScript engine (some mods need it: {@link #needsJavaScript}). */
+    public LegacyInstall withJavaScript(boolean wanted) {
+        javaScript = wanted;
+        return this;
+    }
+
+    /**
+     * Whether a 1.7.10 mod in the folder runs JavaScript through Nashorn, Java 8's engine: one that
+     * carries .js files and names jdk.nashorn in its classes. Only such mods' classes are read.
+     */
+    public static boolean needsJavaScript(Path legacyMods) {
+        for (Path folder : new Path[]{legacyMods, legacyMods.resolve(VANILLA_VERSION)}) {
+            if (!Files.isDirectory(folder)) {
+                continue;
+            }
+            try (java.util.stream.Stream<Path> files = Files.list(folder)) {
+                for (Path file : (Iterable<Path>) files::iterator) {
+                    String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    if (Files.isRegularFile(file) && (name.endsWith(".jar") || name.endsWith(".zip")) && usesNashorn(file)) {
+                        return true;
+                    }
+                }
+            } catch (IOException e) {
+                // unreadable folder
+            }
+        }
+        return false;
+    }
+
+    private static boolean usesNashorn(Path jar) {
+        byte[] marker = "jdk/nashorn".getBytes(StandardCharsets.UTF_8);
+        byte[] dotted = "jdk.nashorn".getBytes(StandardCharsets.UTF_8);
+        try (ZipFile zip = new ZipFile(jar.toFile())) {
+            if (zip.stream().noneMatch(entry -> entry.getName().endsWith(".js"))) {
+                return false;
+            }
+            for (ZipEntry entry : java.util.Collections.list(zip.entries())) {
+                if (entry.getName().endsWith(".class")) {
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        byte[] bytes = in.readAllBytes();
+                        if (indexOf(bytes, marker) >= 0 || indexOf(bytes, dotted) >= 0) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // not a readable jar
+        }
+        return false;
+    }
+
+    private static int indexOf(byte[] data, byte[] marker) {
+        outer:
+        for (int i = 0; i + marker.length <= data.length; i++) {
+            for (int j = 0; j < marker.length; j++) {
+                if (data[i + j] != marker[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
+
+    /** The JavaScript engine's jars (see {@link #JAVASCRIPT}), downloading them if needed; empty unless {@link #withJavaScript}. */
+    public List<Path> javaScriptLibraries() throws IOException {
+        List<Path> jars = new ArrayList<>();
+        if (javaScript) {
+            for (Library library : JAVASCRIPT) {
+                jars.add(library.locate(minecraftHome.resolve("libraries"), cacheDir.resolve("libraries")));
+            }
+        }
+        return jars;
     }
 
     /** One thing that would be downloaded: what it is, and the address it comes from. */
@@ -124,6 +214,9 @@ public final class LegacyInstall {
         if (!COMMONS_COMPRESS.isLocal(launcherLibraries, cacheLibraries)) {
             missing.add(new Missing("Apache Commons Compress " + COMMONS_COMPRESS.version(), "Maven Central (repo1.maven.org)"));
         }
+        if (javaScript && JAVASCRIPT.stream().anyMatch(library -> !library.isLocal(launcherLibraries, cacheLibraries))) {
+            missing.add(new Missing("the Nashorn JavaScript engine 15.4 (a mod runs JavaScript; Java 8 had it built in)", "Maven Central (repo1.maven.org)"));
+        }
         if (vanillaKnown) {
             Path gameJar = server ? cacheDir.resolve("versions").resolve("minecraft_server." + VANILLA_VERSION + ".jar")
                     : Files.isRegularFile(minecraftHome.resolve("versions").resolve(VANILLA_VERSION).resolve(VANILLA_VERSION + ".jar"))
@@ -140,6 +233,7 @@ public final class LegacyInstall {
     public void fetchAll() throws IOException {
         classpath();
         commonsCompress();
+        javaScriptLibraries();
     }
 
     /** The launcher's .minecraft directory (-Dretrofit.minecraftHome=... for launchers that keep it elsewhere). */

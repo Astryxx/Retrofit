@@ -27,6 +27,8 @@ import java.util.Map;
 public final class Dimensions {
     /** The generator of each legacy dimension's generation world. */
     private static final Map<Integer, IChunkProvider> GENERATORS = new HashMap<Integer, IChunkProvider>();
+    /** The host's: the bridged world of a dimension's 1.20.1 level (made if needed), or null if there's no such level. */
+    private static volatile java.util.function.IntFunction<Object> hostWorlds;
 
     private Dimensions() {
     }
@@ -38,9 +40,16 @@ public final class Dimensions {
      */
     public static Object[][] legacyDimensions() {
         List<Object[]> result = new ArrayList<Object[]>();
-        for (Integer id : DimensionManager.getStaticDimensionIDs()) {
+        List<Integer> ids = new ArrayList<Integer>(java.util.Arrays.asList(DimensionManager.getStaticDimensionIDs()));
+        List<Integer> later = laterDimensions(ids);
+        ids.addAll(later);
+        for (Integer id : ids) {
             if (id == 0 || id == -1 || id == 1) {
                 continue;
+            }
+            boolean registered = !later.contains(id);
+            if (!registered) {
+                DimensionManager.registerDimension(id, id); // just to look at its provider; the mod registers it itself
             }
             try {
                 WorldProvider provider = ((net.minecraft.world.World) WorldGen.genWorld(id)).field_73011_w; // provider
@@ -50,9 +59,61 @@ public final class Dimensions {
                         fogColor(provider), skyColor(provider)});
             } catch (Throwable t) {
                 System.out.println("[Retrofit] Legacy dimension " + id + " can't be used: " + t);
+            } finally {
+                if (!registered) {
+                    DimensionManager.unregisterDimension(id);
+                }
             }
         }
         return result.toArray(new Object[0][]);
+    }
+
+    /**
+     * Dimensions mods register only once a server starts (Galacticraft's Moon and planets): their
+     * provider types exist from loading, under the dimension's own id, with no dimension yet. Each
+     * gets its 1.20.1 level now, as 1.20.1 knows its dimensions before a server starts.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Integer> laterDimensions(List<Integer> registered) {
+        List<Integer> later = new ArrayList<Integer>();
+        try {
+            java.lang.reflect.Field field = DimensionManager.class.getDeclaredField("providers");
+            field.setAccessible(true);
+            for (Integer provider : ((Map<Integer, Class<?>>) field.get(null)).keySet()) {
+                if (provider != 0 && provider != -1 && provider != 1 && !registered.contains(provider)
+                        && !DimensionManager.isDimensionRegistered(provider)) {
+                    later.add(provider);
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Retrofit] Could not list legacy dimension types: " + e);
+        }
+        return later;
+    }
+
+    public static void setHostWorlds(java.util.function.IntFunction<Object> worlds) {
+        hostWorlds = worlds;
+    }
+
+    /** Whether a dimension's legacy world can be made (its mod registered it; Galacticraft's planets: once the server started). */
+    public static boolean dimensionReady(int dimension) {
+        return dimension == 0 || dimension == -1 || dimension == 1 || DimensionManager.isDimensionRegistered(dimension);
+    }
+
+    /**
+     * DimensionManager.initDimension (redirected), for mods that ask for a dimension's world
+     * (MinecraftServer.worldServerForDimension) before anyone went there: the bridged world of
+     * its 1.20.1 level. Dimensions mods make while playing (Galacticraft's space stations) have none.
+     */
+    public static void initDimension(int dimension) {
+        if (DimensionManager.getWorld(dimension) != null) {
+            return;
+        }
+        java.util.function.IntFunction<Object> worlds = hostWorlds;
+        if (worlds == null || worlds.apply(dimension) == null) {
+            System.out.println("[Retrofit] A 1.7.10 mod asked for dimension " + dimension + ", which has no 1.20.1 level"
+                    + " (dimensions mods add while playing aren't supported yet)");
+        }
     }
 
     private static int rgb(net.minecraft.util.Vec3 colour) {

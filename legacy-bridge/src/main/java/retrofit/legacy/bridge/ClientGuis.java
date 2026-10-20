@@ -34,17 +34,18 @@ import java.lang.reflect.Method;
  * - Minecraft.displayGuiScreen is redirected to the host, which opens or closes its screen.
  */
 public final class ClientGuis {
+    // Retrofit's own guiIds are just above Guis.DIRECT (Integer.MIN_VALUE): mods use small negative ids themselves (Galacticraft).
     /** guiId of a vanilla chest GUI over a mod's inventory (EntityPlayerMP.displayGUIChest). */
-    static final int CHEST = -1;
-    // -2 is Guis.DIRECT. The other vanilla GUIs (EntityPlayerMP.displayGUIFurnace and so on):
-    static final int FURNACE = -10;
-    static final int DISPENSER = -11;
-    static final int HOPPER = -12;
-    static final int BREWING = -13;
-    static final int BEACON = -14;
-    static final int WORKBENCH = -15;
-    static final int ENCHANTMENT = -16;
-    static final int ANVIL = -17;
+    static final int CHEST = Guis.DIRECT + 1;
+    // The other vanilla GUIs (EntityPlayerMP.displayGUIFurnace and so on):
+    static final int FURNACE = Guis.DIRECT + 10;
+    static final int DISPENSER = Guis.DIRECT + 11;
+    static final int HOPPER = Guis.DIRECT + 12;
+    static final int BREWING = Guis.DIRECT + 13;
+    static final int BEACON = Guis.DIRECT + 14;
+    static final int WORKBENCH = Guis.DIRECT + 15;
+    static final int ENCHANTMENT = Guis.DIRECT + 16;
+    static final int ANVIL = Guis.DIRECT + 17;
 
     private static Method mouseClicked;
     private static Method mouseReleased;

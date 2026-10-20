@@ -43,6 +43,8 @@ import java.util.List;
  */
 public class LegacyBlock extends Block {
     private static final Logger LOGGER = LogUtils.getLogger();
+    /** -Dretrofit.debugInteractions=true: logs every right click on a legacy block, on each side. */
+    private static final boolean DEBUG_INTERACTIONS = Boolean.getBoolean("retrofit.debugInteractions");
 
     private final Object legacyBlock;
     private final boolean hasTileEntity;
@@ -181,6 +183,12 @@ public class LegacyBlock extends Block {
     /** The legacy render type: 0 = plain cube, -1 = drawn only by its tile entity renderer, else RenderBlocks. */
     public int renderType() {
         return renderType;
+    }
+
+    /** Render type -1 (1.7.10's air, lit air, blocks drawn only by their tile entity renderer): no block model at all. */
+    @Override
+    public net.minecraft.world.level.block.RenderShape getRenderShape(BlockState state) {
+        return renderType == -1 ? net.minecraft.world.level.block.RenderShape.INVISIBLE : super.getRenderShape(state);
     }
 
     /** 0 = solid, 1 = translucent (legacy getRenderBlockPass). */
@@ -336,6 +344,10 @@ public class LegacyBlock extends Block {
                     mirror, hit.getDirection().get3DDataValue(), (float) (at.x - pos.getX()), (float) (at.y - pos.getY()),
                     (float) (at.z - pos.getZ()));
             LegacyPlayers.writeBack(player, mirror);
+            if (DEBUG_INTERACTIONS) {
+                LOGGER.info("[Interactions] {} use at {} on the {}: {} (holding {})", translationKey, pos, level.isClientSide ? "client" : "server",
+                        used, player.getMainHandItem());
+            }
             return used ? InteractionResult.sidedSuccess(level.isClientSide) : InteractionResult.PASS;
         } catch (RuntimeException e) {
             LegacyErrors.report(translationKey, "being used", e);
@@ -349,6 +361,10 @@ public class LegacyBlock extends Block {
             Object mirror = LegacyPlayers.mirror(player, true);
             LegacyBridge.call("clicked", legacyBlock, LegacyContent.legacyWorld(level), pos.getX(), pos.getY(), pos.getZ(), mirror);
             LegacyPlayers.writeBack(player, mirror);
+            if (DEBUG_INTERACTIONS) {
+                LOGGER.info("[Interactions] {} left click at {} on the {} (holding {})", translationKey, pos, level.isClientSide ? "client" : "server",
+                        player.getMainHandItem());
+            }
         } catch (RuntimeException e) {
             LegacyErrors.report(translationKey, "being clicked", e);
         }

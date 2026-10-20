@@ -41,7 +41,8 @@ public final class LegacyHost {
         // world: SLF4J and log4j both discover providers and config files through it.
         Logger log = LoggerFactory.getLogger("Retrofit");
         long start = System.nanoTime();
-        LegacyInstall install = new LegacyInstall(minecraftHome, gameDir.resolve(".retrofit"), server);
+        LegacyInstall install = new LegacyInstall(minecraftHome, gameDir.resolve(".retrofit"), server)
+                .withJavaScript(LegacyInstall.needsJavaScript(gameDir.resolve("mods")));
         prepareGameDir(gameDir);
 
         List<URL> urls = new ArrayList<>();
@@ -53,7 +54,13 @@ public final class LegacyHost {
         }
         log.info("Legacy classpath: {} entries from {}", urls.size(), minecraftHome);
 
-        LegacyRootLoader root = new LegacyRootLoader(urls.toArray(URL[]::new), LegacyHost.class.getClassLoader());
+        List<Path> javaScript = install.javaScriptLibraries();
+        ClassLoader nashorn = javaScript.isEmpty() ? null : new URLClassLoader("retrofit-nashorn",
+                javaScript.stream().map(LegacyHost::url).toArray(URL[]::new), ClassLoader.getPlatformClassLoader());
+        if (nashorn != null) {
+            log.info("Nashorn JavaScript engine for 1.7.10 mods that run JavaScript: {}", javaScript.get(0).getFileName());
+        }
+        LegacyRootLoader root = new LegacyRootLoader(urls.toArray(URL[]::new), LegacyHost.class.getClassLoader(), nashorn);
         root.loadClass("retrofit.legacy.compat.Pack200").getField("impl").set(null,
                 pack200(install.commonsCompress(), gameDir.resolve(".retrofit").resolve("pack200.log")));
         // A lambda, not a method reference: log4j picks the logging context from the first
@@ -76,6 +83,14 @@ public final class LegacyHost {
         }
         log.info("Total legacy boot time: {} ms", (System.nanoTime() - start) / 1_000_000);
         return new LegacyRuntime(root, server ? null : install.gameJar());
+    }
+
+    private static URL url(Path path) {
+        try {
+            return path.toUri().toURL();
+        } catch (java.net.MalformedURLException e) {
+            throw new IllegalArgumentException(path.toString(), e);
+        }
     }
 
     /** Forge's loading splash needs its own OpenGL window, so it is always off. */

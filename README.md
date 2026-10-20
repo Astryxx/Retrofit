@@ -10,13 +10,13 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.3.2-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.4.0-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.3.2-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.4.0-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `mods/` with your other mods (as launchers like CurseForge do), or in
    `retrofit/mods/` inside the game directory. 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -51,12 +51,14 @@ together, in singleplayer and on a dedicated server with a client connected.
 | Ars Magica 2 1.4.0.009 (+ AnimationAPI 1.2.4) | Works: blocks, 18 machine GUIs, 36 creatures, spells, flight, the air sled, the power network, world generation |
 | Tinkers' Construct 1.8.8 (+ Mantle 0.3.2b) | Works: tools and parts with their names and textures, smeltery blocks, 35 GUIs, ores |
 | Pam's HarvestCraft 1.7.10Lb | Works: crops, food, gardens, machines and their GUIs |
-| Carpenter's Blocks 3.3.8.2 | Works: blocks render in place in the world (slopes, stairs, doors...) |
+| Carpenter's Blocks 3.3.8.2 | Works: blocks render in place in the world (slopes, stairs, doors...), covers (1.20.1 blocks too), hammer |
 | Chisel 2.9.5.11 | Works: all 1,373 variants including connected textures, the chisel GUI, marble and limestone generation |
 | BuildCraft 7.1.27 | Works: engines, machines, GUIs, oil and fuel; vanilla chests and furnaces are inventories to its pipes. Robots need their dock |
 | IndustrialCraft 2 2.2.828 | Works: machines with their textures, 72 machine GUIs, cables, ores, crops |
 | GregTech 5 Unofficial 5.09.31 (+ IndustrialCraft 2) | Works: machines placed from their items with their GUIs (steam and electric machines, multiblock controllers, battery buffers), cables and pipes, 2,700+ items, ore veins in world generation (62,000 ore blocks in the test area), IC2's machine recipes in GregTech's machines |
 | Lycanite's Mobs 1.13.0.5 | Works: 110 creatures across all its sub-mods, natural spawning |
+| Galacticraft 3.0.12 (Core and Planets) | Works: launch pads, rockets placed, boarded and launched, the Moon, Mars and Asteroids as dimensions. Space stations don't work yet |
+| Fisk's Superheroes 2.4.0 | Loads and runs (its JavaScript heroes through the Nashorn engine Retrofit provides); suits draw with their own models |
 | CodeChickenCore 1.4.22 + NotEnoughItems 2.8.160 (GTNH) | Loads and runs (coremods). NEI's item panel only appears on 1.7.10 screens; use JEI on 1.20.1 screens |
 
 1.7.10 mods' own config files are in `retrofit/config`. ID clashes between mods are the same as
@@ -71,7 +73,7 @@ DragonAPI then refuses to start until one is changed there.
 | Rendering | Plain cubes as 1.20.1 JSON models with the mods' own 1.7.10 textures (animated ones too, sprite sheets and mods' own sprite loaders); custom block renderers drawn in place in the world, with their neighbours, tile entity and the world's light (connected textures, covers, pipes); tile entity renderers and Forge item renderers every frame through a GL 1.1 emulation, items in inventories and hands placed as 1.7.10 placed them (custom renderers that handle only some views, like OreSpawn's big swords, too) | Only the GL subset models need (quads, triangles, lines); mods' shaders run as plain drawing |
 | Tile entities | Ticking on both sides, NBT saving, description packet sync, chunk unload, inventories as Forge item handlers (hoppers, pipes); vanilla and modern inventories as 1.7.10 tile entities for legacy pipes and machines | |
 | Items | Subtypes, the mods' own item names, durability, use on blocks and in the air (either hand), use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel, enchantments (mods' own become 1.20.1 enchantments), each mod's own creative tab | Items used over time work in the main hand only |
-| Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick | Dyeable and special armor models |
+| Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick; pieces with their own model (getArmorModel) draw it | Dyed armor's colour |
 | GUIs | Container GUIs (FML openGui, and containers mods open themselves, as IC2 does) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
 | Entities | Mod creatures and things with their own AI and pathfinding, damage both ways, death and drops, saving, the mod's own renderer, spawn eggs, natural spawning from the 1.7.10 biome lists, leads, riding (the player on legacy mounts, legacy creatures on each other); vanilla entities legacy code spawns (arrows, mobs) become 1.20.1 ones; 1.7.10 spawn setup (equipment, variants) for mobs 1.20.1 spawns; pathfinding below y 0 | |
 | Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, flight, chat, teleports, damage from legacy mobs, permission levels, potion effects both ways (mod potions' attribute modifiers too), extended properties saved with the player; FakePlayers; RenderPlayerEvent (Pre, Specials, Post) around the local player's model | Render events for other players |
@@ -146,7 +148,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.3.2-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.4.0-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

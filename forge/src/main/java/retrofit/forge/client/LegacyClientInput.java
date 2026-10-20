@@ -71,9 +71,76 @@ public final class LegacyClientInput {
         private Game() {
         }
 
+        private static boolean keyboardInstalled;
+
+        /** Presses of the vanilla keys 1.7.10 has, counted apart from the host's own (see onKey). */
+        private static final int[] VANILLA_PRESSES = new int[10];
+
+        private static KeyMapping[] vanillaKeys() {
+            var options = Minecraft.getInstance().options;
+            return new KeyMapping[]{options.keyUp, options.keyLeft, options.keyDown, options.keyRight, options.keyJump,
+                    options.keyShift, options.keySprint, options.keyAttack, options.keyUse, options.keyDrop};
+        }
+
+        /** Counts presses of the vanilla keys without consuming the host's own clicks. */
+        @SubscribeEvent
+        public static void onKey(net.minecraftforge.client.event.InputEvent.Key event) {
+            if (event.getAction() == org.lwjgl.glfw.GLFW.GLFW_PRESS) {
+                countPress(InputConstants.Type.KEYSYM.getOrCreate(event.getKey()));
+            }
+        }
+
+        @SubscribeEvent
+        public static void onMouseButton(net.minecraftforge.client.event.InputEvent.MouseButton.Pre event) {
+            if (event.getAction() == org.lwjgl.glfw.GLFW.GLFW_PRESS) {
+                countPress(InputConstants.Type.MOUSE.getOrCreate(event.getButton()));
+            }
+        }
+
+        private static void countPress(InputConstants.Key key) {
+            if (Minecraft.getInstance().screen != null) {
+                return;
+            }
+            KeyMapping[] vanilla = vanillaKeys();
+            for (int i = 0; i < vanilla.length; i++) {
+                if (vanilla[i].getKey().equals(key)) {
+                    VANILLA_PRESSES[i]++;
+                }
+            }
+        }
+
+        private static void mirrorVanillaKeys() {
+            KeyMapping[] vanilla = vanillaKeys();
+            boolean[] down = new boolean[vanilla.length];
+            int[] presses = new int[vanilla.length];
+            int[] codes = new int[vanilla.length];
+            for (int i = 0; i < vanilla.length; i++) {
+                down[i] = vanilla[i].isDown();
+                presses[i] = VANILLA_PRESSES[i];
+                VANILLA_PRESSES[i] = 0;
+                InputConstants.Key key = vanilla[i].getKey();
+                codes[i] = key.getType() == InputConstants.Type.MOUSE ? key.getValue() - 100
+                        : key.getType() == InputConstants.Type.KEYSYM ? LegacyKeys.toLegacy(key.getValue()) : 0;
+            }
+            var input = Minecraft.getInstance().player.input;
+            LegacyBridge.call("setVanillaKeys", down, presses, codes, input.forwardImpulse, input.leftImpulse, input.jumping, input.shiftKeyDown);
+        }
+
         @SubscribeEvent
         public static void onClientTick(TickEvent.ClientTickEvent event) {
-            if (event.phase != TickEvent.Phase.START || MAPPINGS.isEmpty() || Minecraft.getInstance().player == null) {
+            if (event.phase != TickEvent.Phase.START || Minecraft.getInstance().player == null || !LegacyBridge.isReady()) {
+                return;
+            }
+            if (!keyboardInstalled) {
+                keyboardInstalled = true;
+                LegacyKeys.install(); // mods poll the keyboard in the world too (jetpacks: GameSettings.isKeyDown), not only in GUIs
+            }
+            try {
+                mirrorVanillaKeys();
+            } catch (RuntimeException e) {
+                LegacyBridge.reportClientFailure("vanilla key bindings", e);
+            }
+            if (MAPPINGS.isEmpty()) {
                 return;
             }
             try {

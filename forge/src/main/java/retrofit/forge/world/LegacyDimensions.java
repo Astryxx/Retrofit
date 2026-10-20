@@ -201,10 +201,34 @@ public final class LegacyDimensions {
     public static void onLevelLoad(LevelEvent.Load event) {
         if (RetrofitMod.runtime() != null && event.getLevel() instanceof ServerLevel level && legacyDimension(level) != 0) {
             try {
+                if (!LegacyBridge.<Boolean>call("dimensionReady", legacyDimension(level))) {
+                    return; // registered by its mod once the server starts; its world is made then (initDimension)
+                }
                 LegacyContent.legacyWorld(level);
             } catch (RuntimeException e) {
                 LegacyErrors.report("legacy dimension " + level.dimension().location(), "being loaded", e);
             }
+        }
+    }
+
+    /** Mods may ask for a dimension's world before anyone went there (the bridge's Dimensions.initDimension). */
+    @SubscribeEvent
+    public static void onServerAboutToStart(net.minecraftforge.event.server.ServerAboutToStartEvent event) {
+        if (RetrofitMod.runtime() == null) {
+            return;
+        }
+        MinecraftServer server = event.getServer();
+        java.util.function.IntFunction<Object> worlds = id -> {
+            ServerLevel level = server.getLevel(levelKey(id));
+            return level == null ? null : LegacyContent.legacyWorld(level);
+        };
+        LegacyBridge.call("setHostWorlds", worlds);
+    }
+
+    @SubscribeEvent
+    public static void onServerStopped(net.minecraftforge.event.server.ServerStoppedEvent event) {
+        if (RetrofitMod.runtime() != null) {
+            LegacyBridge.call("setHostWorlds", (Object) null);
         }
     }
 

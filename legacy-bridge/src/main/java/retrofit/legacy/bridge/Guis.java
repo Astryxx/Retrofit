@@ -61,7 +61,7 @@ public final class Guis {
     }
 
     /** guiId of a container a mod opened by itself; its client GUI comes from the mod's own packet. */
-    public static final int DIRECT = -2;
+    public static final int DIRECT = Integer.MIN_VALUE;
 
     /**
      * Mods that open containers without FML's openGui (IC2: player.openContainer = container, then
@@ -83,10 +83,10 @@ public final class Guis {
         player.field_71070_bA = open; // the host's open message must not have replaced it
     }
 
-    /** The client GUI for a container the server opened: from the mod's GUI handler (or a vanilla GUI, guiId < 0). */
+    /** The client GUI for a container the server opened: from the mod's GUI handler (or a vanilla GUI, Retrofit's own guiIds). */
     public static Object clientGui(Object legacyPlayer, String modId, int guiId, int x, int y, int z) {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
-        if (guiId < 0) {
+        if (guiId > DIRECT && guiId < DIRECT + 100) {
             return ClientGuis.vanillaGui(player, guiId, modId, x, y, z); // modId carries the title; x the size for chests
         }
         ModContainer container = Loader.instance().getIndexedModList().get(modId);

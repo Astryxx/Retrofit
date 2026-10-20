@@ -15,6 +15,7 @@ import net.minecraft.util.datafix.DataFixers;
 import net.minecraft.util.datafix.fixes.References;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
@@ -104,7 +105,20 @@ public final class LegacyStacks {
         return stack;
     }
 
+    /** 1.7.10's vanilla spawn egg kept the entity's id in its damage; 1.20.1 has an egg per entity (the fixer needs a tag). */
+    private static final Map<Integer, String> SPAWN_EGGS = Map.ofEntries(Map.entry(50, "creeper"), Map.entry(51, "skeleton"),
+            Map.entry(52, "spider"), Map.entry(54, "zombie"), Map.entry(55, "slime"), Map.entry(56, "ghast"), Map.entry(57, "zombified_piglin"),
+            Map.entry(58, "enderman"), Map.entry(59, "cave_spider"), Map.entry(60, "silverfish"), Map.entry(61, "blaze"),
+            Map.entry(62, "magma_cube"), Map.entry(65, "bat"), Map.entry(66, "witch"), Map.entry(90, "pig"), Map.entry(91, "sheep"),
+            Map.entry(92, "cow"), Map.entry(93, "chicken"), Map.entry(94, "squid"), Map.entry(95, "wolf"), Map.entry(96, "mooshroom"),
+            Map.entry(98, "ocelot"), Map.entry(100, "horse"), Map.entry(120, "villager"));
+
     private static ItemStack vanilla(String name, int count, int damage, CompoundTag tag) {
+        if (name.equals("minecraft:spawn_egg")) {
+            String entity = SPAWN_EGGS.get(damage);
+            Item egg = entity == null ? null : ForgeRegistries.ITEMS.getValue(new ResourceLocation("minecraft", entity + "_spawn_egg"));
+            return egg == null || egg == Items.AIR ? ItemStack.EMPTY : new ItemStack(egg, count);
+        }
         if (tag == null) {
             ItemStack prototype = VANILLA.computeIfAbsent(name + "/" + damage, key -> fix(name, 1, damage, null));
             ItemStack stack = prototype.copy();
@@ -180,6 +194,12 @@ public final class LegacyStacks {
                             if (!modern.isEmpty()) {
                                 built.putIfAbsent(modern.getItem(), new Object[]{name, meta});
                             }
+                        }
+                    }
+                    for (Map.Entry<Integer, String> egg : SPAWN_EGGS.entrySet()) {
+                        Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation("minecraft", egg.getValue() + "_spawn_egg"));
+                        if (item != null && item != Items.AIR) {
+                            built.putIfAbsent(item, new Object[]{"minecraft:spawn_egg", egg.getKey()});
                         }
                     }
                     LOGGER.info("Mapped {} 1.20.1 items to 1.7.10 items", built.size());

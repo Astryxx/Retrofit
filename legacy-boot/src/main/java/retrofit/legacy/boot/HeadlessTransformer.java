@@ -99,6 +99,8 @@ public class HeadlessTransformer implements IClassTransformer {
         redirect(cache, "func_72812_b(Lnet/minecraft/world/EnumSkyBlock;III)I", glue + "getSpecialBlockBrightness");
         redirect(cache, "func_72800_K()I", glue + "getHeight");
         redirect(cache, "isSideSolid(IIILnet/minecraftforge/common/util/ForgeDirection;Z)Z", glue + "isSideSolid");
+        // A dimension's world, asked for before anyone went there: its 1.20.1 level's (see the bridge's Dimensions).
+        redirect("net.minecraftforge.common.DimensionManager", "initDimension(I)V", "retrofit/legacy/bridge/Dimensions.initDimension");
         // Mod packets: FML's outbound handler hands each packet to the host's channel.
         redirect("cpw.mods.fml.common.network.FMLOutboundHandler",
                 "write(Lio/netty/channel/ChannelHandlerContext;Ljava/lang/Object;Lio/netty/channel/ChannelPromise;)V", NETWORK + "outbound");

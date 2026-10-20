@@ -89,6 +89,45 @@ public final class ClientEvents {
         return presses > 0;
     }
 
+    /**
+     * 1.7.10's own key bindings (forward, left, back, right, jump, sneak, sprint, attack, use, drop,
+     * in that order) follow the host's: held state, presses since the last tick and key code
+     * (LWJGL 2's; 0 if bound to something 1.7.10 can't name). Mods read them directly: Galacticraft
+     * launches a rocket on jump, jetpacks and flying armor rise on jump and sink on sneak. The local
+     * player's movementInput gets the host's too (forward and strafe impulse, jump, sneak).
+     */
+    public static void setVanillaKeys(boolean[] down, int[] presses, int[] codes, float forward, float strafe, boolean jump, boolean sneak)
+            throws ReflectiveOperationException {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        if (minecraft.field_71439_g != null && minecraft.field_71439_g.field_71158_b != null) { // thePlayer.movementInput
+            net.minecraft.util.MovementInput input = minecraft.field_71439_g.field_71158_b;
+            input.field_78900_b = forward; // moveForward
+            input.field_78902_a = strafe;  // moveStrafe
+            input.field_78901_c = jump;
+            input.field_78899_d = sneak;
+        }
+        net.minecraft.client.settings.GameSettings settings = minecraft.field_71474_y; // gameSettings
+        KeyBinding[] keys = {settings.field_74351_w, settings.field_74370_x, settings.field_74368_y, settings.field_74366_z,
+                settings.field_74314_A, settings.field_74311_E, settings.field_151444_V, settings.field_74312_F, settings.field_74313_G,
+                settings.field_74316_C};
+        if (pressed == null) {
+            pressed = KeyBinding.class.getDeclaredField("field_74513_e");
+            pressed.setAccessible(true);
+            pressTime = KeyBinding.class.getDeclaredField("field_151474_i");
+            pressTime.setAccessible(true);
+        }
+        for (int i = 0; i < keys.length && i < down.length; i++) {
+            pressed.setBoolean(keys[i], down[i]);
+            if (presses[i] > 0) {
+                pressTime.setInt(keys[i], pressTime.getInt(keys[i]) + presses[i]);
+            }
+            if (keys[i].func_151463_i() != codes[i]) { // getKeyCode
+                keys[i].func_151462_b(codes[i]); // setKeyCode (GameSettings.isKeyDown reads the keyboard by it)
+                KeyBinding.func_74508_b(); // resetKeyBindingArrayAndHash
+            }
+        }
+    }
+
     /** FML's KeyInputEvent: mods check their key bindings' isPressed here. */
     public static void fireKeyInput() {
         FMLCommonHandler.instance().fireKeyInput();

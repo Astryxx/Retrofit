@@ -38,6 +38,7 @@ public final class LegacyBootstrap {
         classLoader.addClassLoaderExclusion("retrofit.legacy.lwjgl.");
         classLoader.addClassLoaderExclusion("org.slf4j.");
         classLoader.addClassLoaderExclusion("retrofit.api.");
+        classLoader.addClassLoaderExclusion("org.openjdk.nashorn."); // the JavaScript engine's own loader (LegacyRootLoader)
 
         Launch.classLoader = classLoader;
         Launch.minecraftHome = gameDir;

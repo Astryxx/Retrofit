@@ -196,6 +196,7 @@ public final class LegacyEvents {
         fire("player tick", () -> {
             Object mirror = LegacyPlayers.mirror(player, false);
             LegacyBridge.call("playerTick", mirror, start);
+            LegacyPlayers.applyMotion(player, mirror);
         });
         if (!start) {
             if (player instanceof ServerPlayer server) {
@@ -204,10 +205,15 @@ public final class LegacyEvents {
                     fire("player state save", () -> LegacyPlayers.saveState(server)); // in case the server stops abruptly
                 }
             } else {
-                fire("player update", () -> LegacyBridge.call("tickClientPlayer", LegacyPlayers.mirror(player, false)));
+                fire("player update", () -> {
+                    Object mirror = LegacyPlayers.mirror(player, false);
+                    LegacyBridge.call("tickClientPlayer", mirror);
+                    LegacyPlayers.applyMotion(player, mirror);
+                });
             }
         }
-        if (!start && !player.level().isClientSide && hasTickingItems(player)) {
+        // carried and worn items tick on both sides, as on 1.7.10 (jetpacks and flying armor push the client's player)
+        if (!start && hasTickingItems(player)) {
             fire("inventory tick", () -> {
                 Object mirror = LegacyPlayers.mirror(player, true);
                 LegacyBridge.call("inventoryTick", mirror, LegacyContent.legacyWorld(player.level()));

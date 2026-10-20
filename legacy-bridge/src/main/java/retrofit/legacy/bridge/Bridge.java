@@ -124,6 +124,12 @@ public final class Bridge {
         LegacyIcons.setIconUV(kind, name, minU, maxU, minV, maxV, width, height);
     }
 
+    /** Client only; see {@link LegacyRendering#renderArmorModel}. */
+    public static int renderArmorModel(Object legacyStack, Object wearer, int slot, float limbSwing, float limbSwingAmount, float age,
+                                       float headYaw, float headPitch, float partialTicks, int flags) {
+        return LegacyRendering.renderArmorModel(legacyStack, wearer, slot, limbSwing, limbSwingAmount, age, headYaw, headPitch, partialTicks, flags);
+    }
+
     /** Client only; see {@link LegacyRendering#renderEntity}. */
     public static int renderEntity(Object entity, float yaw, float partialTicks) {
         return LegacyRendering.renderEntity(entity, yaw, partialTicks);
@@ -211,8 +217,8 @@ public final class Bridge {
     }
 
     /** Client: see LegacyRendering.renderBlockItem. */
-    public static int renderBlockItem(Object legacyBlock, int meta) {
-        return LegacyRendering.renderBlockItem(legacyBlock, meta);
+    public static int renderBlockItem(Object legacyBlock, int meta, int damage) {
+        return LegacyRendering.renderBlockItem(legacyBlock, meta, damage);
     }
 
     /** Client: see LegacyRendering.blockItemIn3d. */

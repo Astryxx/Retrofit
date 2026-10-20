@@ -39,7 +39,9 @@ you agree, and 1.7.10 mods load after Minecraft restarts.
 - **What and from where:** Minecraft 1.7.10 and its libraries from Mojang (`piston-meta.mojang.com`,
   `piston-data.mojang.com`, `libraries.minecraft.net`), Forge 10.13.4.1614 from Forge's Maven
   (`maven.minecraftforge.net`), and a few libraries from Maven Central (`repo1.maven.org`): about
-  about 50 MB on a client, about 45 MB on a server. Every file is checked against its published checksum.
+  50 MB on a client, about 45 MB on a server. Every file is checked against its published checksum.
+  When a mod runs JavaScript (Fisk's Superheroes), the question also lists the Nashorn JavaScript
+  engine, which Java 8 had built in (about 3 MB from Maven Central).
 - **Where it goes:** `retrofit/.retrofit` in your game directory. Retrofit only reads your
   launcher's `.minecraft` folder (to find files it already has), and changes nothing outside the game
   directory.

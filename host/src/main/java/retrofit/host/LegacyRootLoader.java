@@ -33,14 +33,19 @@ public final class LegacyRootLoader extends URLClassLoader {
     /** Generated LWJGL 2 stand-ins (see retrofit.legacy.boot.LwjglShims). */
     private static final String LWJGL_SHIMS = "retrofit.legacy.lwjgl.";
     private static final String[] SHARED_PREFIXES = {"org.slf4j.", "retrofit.api."};
+    /** The standalone Nashorn, which legacy code's jdk.nashorn names are mapped to (see RetrofitTransformer). */
+    private static final String NASHORN = "org.openjdk.nashorn.";
 
     private final ClassLoader host;
+    /** Loads the JavaScript engine with its own ASM, or null if no mod needs it. */
+    private final ClassLoader nashorn;
     private volatile Object transformer;
     private volatile Method transform;
 
-    LegacyRootLoader(URL[] urls, ClassLoader host) {
+    LegacyRootLoader(URL[] urls, ClassLoader host, ClassLoader nashorn) {
         super("retrofit-legacy", urls, ClassLoader.getPlatformClassLoader());
         this.host = host;
+        this.nashorn = nashorn;
     }
 
     @Override
@@ -49,6 +54,9 @@ public final class LegacyRootLoader extends URLClassLoader {
             if (name.startsWith(prefix)) {
                 return host.loadClass(name);
             }
+        }
+        if (nashorn != null && name.startsWith(NASHORN)) {
+            return nashorn.loadClass(name);
         }
         return super.loadClass(name, resolve);
     }

@@ -177,8 +177,26 @@ public final class Interactions {
         if (item.onItemUseFirst(stack, player, (World) world, x, y, z, side, hitX, hitY, hitZ)) {
             return true;
         }
-        return item.func_77648_a(stack, player, (World) world, x, y, z, side, hitX, hitY, hitZ); // onItemUse
+        boolean used = item.func_77648_a(stack, player, (World) world, x, y, z, side, hitX, hitY, hitZ); // onItemUse
+        if (DEBUG) {
+            System.out.println("[Retrofit] [Interactions] " + item.getClass().getName() + " used on " + x + "," + y + "," + z + " side " + side
+                    + (((World) world).field_72995_K ? " (client)" : " (server)") + ": " + used + ", above is now "
+                    + ((World) world).func_147439_a(x, y + 1, z) + " with tile entity " + describeTile(((World) world).func_147438_o(x, y + 1, z)));
+        }
+        return used;
     }
+
+    private static String describeTile(net.minecraft.tileentity.TileEntity tile) {
+        if (tile == null) {
+            return "none";
+        }
+        net.minecraft.nbt.NBTTagCompound tag = new net.minecraft.nbt.NBTTagCompound();
+        tile.func_145841_b(tag); // writeToNBT
+        return tile.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(tile)) + " " + tag;
+    }
+
+    /** -Dretrofit.debugInteractions=true (see the host's LegacyBlock). */
+    private static final boolean DEBUG = Boolean.getBoolean("retrofit.debugInteractions");
 
     /** onItemRightClick; the result replaces the held stack, as ItemInWorldManager did. */
     public static void rightClick(Object legacyPlayer, Object world) {
@@ -310,7 +328,6 @@ public final class Interactions {
 
     // ---- Armor and items that tick in inventories ----
 
-    private static final String[] ARMOR_PREFIXES = {"leather", "chainmail", "iron", "diamond", "gold"};
     private static final java.util.Map<Class<?>, Integer> TICK_FLAGS = new java.util.HashMap<Class<?>, Integer>();
 
     /** {armor type (0 head, 1 chest, 2 legs, 3 feet) or -1 if not armor, armor points, enchantability, render index}. */
@@ -320,18 +337,6 @@ public final class Interactions {
         }
         net.minecraft.item.ItemArmor armor = (net.minecraft.item.ItemArmor) legacyItem;
         return new int[]{armor.field_77881_a, armor.field_77879_b, armor.func_77619_b(), armor.field_77880_c}; // armorType, damageReduceAmount, renderIndex
-    }
-
-    /** Forge getArmorTexture, or the vanilla texture 1.7.10 used by render index. */
-    public static String armorTexture(Object legacyStack, int slot, String type) {
-        ItemStack stack = (ItemStack) legacyStack;
-        String texture = stack.func_77973_b().getArmorTexture(stack, null, slot, type);
-        if (texture == null && stack.func_77973_b() instanceof net.minecraft.item.ItemArmor) {
-            int index = ((net.minecraft.item.ItemArmor) stack.func_77973_b()).field_77880_c;
-            String prefix = ARMOR_PREFIXES[Math.max(0, Math.min(index, ARMOR_PREFIXES.length - 1))];
-            texture = "minecraft:textures/models/armor/" + prefix + "_layer_" + (slot == 2 ? 2 : 1) + (type == null ? "" : "_" + type) + ".png";
-        }
-        return texture;
     }
 
     /** 1 if the item overrides onUpdate (ticks in inventories), 2 if it overrides onArmorTick; cached per class. */

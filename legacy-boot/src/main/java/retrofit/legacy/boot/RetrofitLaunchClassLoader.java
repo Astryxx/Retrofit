@@ -38,7 +38,33 @@ public class RetrofitLaunchClassLoader extends LaunchClassLoader {
                 return patched;
             }
         }
-        return super.findClass(name);
+        try {
+            return super.findClass(name);
+        } catch (ClassNotFoundException e) {
+            Class<?> platform = platformClass(name);
+            if (platform != null) {
+                return platform;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * LaunchClassLoader asks only the bootstrap loader before its own classpath. On Java 8 that had
+     * the whole JDK; since Java 9 some of it is in the platform loader's modules (javax.script,
+     * java.sql, javax.annotation.processing...), which legacy code would never see. JDK packages it
+     * can't find are looked for there, after mods' own copies.
+     */
+    private static Class<?> platformClass(String name) {
+        if (!(name.startsWith("java") || name.startsWith("jdk.") || name.startsWith("sun.") || name.startsWith("com.sun.")
+                || name.startsWith("org.w3c.") || name.startsWith("org.xml.") || name.startsWith("org.ietf."))) {
+            return null;
+        }
+        try {
+            return ClassLoader.getSystemClassLoader().getParent().loadClass(name); // the platform loader (Java 8 API)
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
     }
 
     private synchronized Class<?> definePatchedIfNeeded(String name) throws ClassNotFoundException {

@@ -305,6 +305,9 @@ public final class ModSweepServer {
                         reportWorldGen(player, level);
                         dimensions = server.levelKeys().stream()
                                 .filter(key -> key.location().getNamespace().equals("retrofit") && key.location().getPath().startsWith("legacy_dim_"))
+                                // dimension types a mod only uses for dimensions made while playing (Galacticraft's space stations)
+                                .filter(key -> LegacyBridge.<Boolean>call("dimensionReady",
+                                        Integer.parseInt(key.location().getPath().substring("legacy_dim_".length()))))
                                 .toList();
                         LOGGER.info("[ModSweep] Legacy dimensions: {}", dimensions.stream().map(key -> key.location().toString()).toList());
                         enter(Phase.DIMENSIONS);
