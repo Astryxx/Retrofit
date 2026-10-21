@@ -38,14 +38,17 @@ final class LegacyBakedModel implements BakedModel {
     private final LegacyBlock block;
     private final int meta;
     private final BakedModel base;
+    /** Whether the JSON model is the stand-alone one (plain cubes drawn in place only for their world icons). */
+    private final boolean baseStandsAlone;
     private volatile List<BakedQuad> quads;
     /** For the item model: the model per metadata value, chosen by the stack's subtype. */
     private LegacyBakedModel[] itemVariants;
 
-    LegacyBakedModel(LegacyBlock block, int meta, BakedModel base) {
+    LegacyBakedModel(LegacyBlock block, int meta, BakedModel base, boolean baseStandsAlone) {
         this.block = block;
         this.meta = meta;
         this.base = base;
+        this.baseStandsAlone = baseStandsAlone;
     }
 
     /** Quads of one block as its renderer drew it in place (see getModelData). */
@@ -109,6 +112,9 @@ final class LegacyBakedModel implements BakedModel {
 
     @Override
     public List<BakedQuad> getQuads(BlockState state, Direction side, RandomSource random) {
+        if (baseStandsAlone) {
+            return base.getQuads(state, side, random);
+        }
         if (side != null) {
             return List.of();
         }
@@ -148,37 +154,70 @@ final class LegacyBakedModel implements BakedModel {
             }
         }
         int[] lights = level == null ? null : LegacyCapture.lights();
-        {
-            {
-                float[] d = LegacyCapture.data();
-                for (int v = 0; v + 3 < vertices; v += 4) {
-                    // 1.7.10's block renderers set no normals: a quad faces where its corners say
-                    float[] normal = faceNormal(d, v);
-                    int[] packed = new int[32];
-                    for (int corner = 0; corner < 4; corner++) {
-                        int o = (v + corner) * LegacyCapture.FLOATS_PER_VERTEX;
-                        int p = corner * 8;
-                        packed[p] = Float.floatToRawIntBits(d[o]);
-                        packed[p + 1] = Float.floatToRawIntBits(d[o + 1]);
-                        packed[p + 2] = Float.floatToRawIntBits(d[o + 2]);
-                        packed[p + 3] = abgr(d[o + 8], d[o + 9], d[o + 10], d[o + 11]);
-                        packed[p + 4] = Float.floatToRawIntBits(d[o + 3]);
-                        packed[p + 5] = Float.floatToRawIntBits(d[o + 4]);
-                        packed[p + 6] = 0; // lightmap: computed by the chunk renderer (the brighter of it and this wins)
-                        packed[p + 7] = normal(normal[0], normal[1], normal[2]);
-                    }
-                    Direction face = Direction.getNearest(normal[0], normal[1], normal[2]);
-                    if (faceLight != null) {
-                        for (int corner = 0; corner < 4; corner++) {
-                            int set = lights != null && v + corner < lights.length ? lights[v + corner] : -1;
-                            packed[corner * 8 + 6] = set >= 0 ? set : faceLight[face.ordinal()];
-                        }
-                    }
-                    result.add(new BakedQuad(packed, -1, face, sprite, false));
+        int[] states = LegacyCapture.states();
+        float[] d = LegacyCapture.data();
+        java.util.Set<String> problems = null;
+        for (int v = 0; v + 3 < vertices; v += 4) {
+            String problem = textureProblem(states[v], d, v);
+            if (problem != null) {
+                if (problems == null) {
+                    problems = new java.util.TreeSet<>();
+                }
+                problems.add(problem);
+            }
+            // 1.7.10's block renderers set no normals: a quad faces where its corners say
+            float[] normal = faceNormal(d, v);
+            int[] packed = new int[32];
+            for (int corner = 0; corner < 4; corner++) {
+                int o = (v + corner) * LegacyCapture.FLOATS_PER_VERTEX;
+                int p = corner * 8;
+                packed[p] = Float.floatToRawIntBits(d[o]);
+                packed[p + 1] = Float.floatToRawIntBits(d[o + 1]);
+                packed[p + 2] = Float.floatToRawIntBits(d[o + 2]);
+                packed[p + 3] = abgr(d[o + 8], d[o + 9], d[o + 10], d[o + 11]);
+                packed[p + 4] = Float.floatToRawIntBits(d[o + 3]);
+                packed[p + 5] = Float.floatToRawIntBits(d[o + 4]);
+                packed[p + 6] = 0; // lightmap: computed by the chunk renderer (the brighter of it and this wins)
+                packed[p + 7] = normal(normal[0], normal[1], normal[2]);
+            }
+            Direction face = Direction.getNearest(normal[0], normal[1], normal[2]);
+            if (faceLight != null) {
+                for (int corner = 0; corner < 4; corner++) {
+                    int set = lights != null && v + corner < lights.length ? lights[v + corner] : -1;
+                    packed[corner * 8 + 6] = set >= 0 ? set : faceLight[face.ordinal()];
                 }
             }
+            result.add(new BakedQuad(packed, -1, face, sprite, false));
+        }
+        if (problems != null && REPORTED.add(block.getDescriptionId() + "#" + meta)) {
+            LOGGER.warn("Legacy block {} meta {} draws quads its block model can't show: {}", block.getDescriptionId(), meta, problems);
         }
         return List.copyOf(result);
+    }
+
+    private static final java.util.Set<String> REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Why a captured quad would come out wrong in a block model, which samples only the block atlas:
+     * drawn untextured, with another texture bound, or with the atlas's missing sprite; null if fine.
+     */
+    private static String textureProblem(int state, float[] d, int v) throws Throwable {
+        if ((state & LegacyCapture.UNTEXTURED) != 0) {
+            return "untextured";
+        }
+        String texture = LegacyCapture.textureName(state & LegacyCapture.TEXTURE_MASK);
+        if (!texture.contains("textures/atlas/")) {
+            return "texture " + texture;
+        }
+        TextureAtlasSprite missing = net.minecraft.client.Minecraft.getInstance().getModelManager()
+                .getAtlas(net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_BLOCKS)
+                .getSprite(net.minecraft.client.renderer.texture.MissingTextureAtlasSprite.getLocation());
+        int o = v * LegacyCapture.FLOATS_PER_VERTEX, c = (v + 2) * LegacyCapture.FLOATS_PER_VERTEX;
+        float u = (d[o + 3] + d[c + 3]) / 2, w = (d[o + 4] + d[c + 4]) / 2;
+        if (u >= missing.getU0() && u <= missing.getU1() && w >= missing.getV0() && w <= missing.getV1()) {
+            return "missing icon";
+        }
+        return null;
     }
 
     /**
@@ -233,7 +272,7 @@ final class LegacyBakedModel implements BakedModel {
 
     @Override
     public boolean useAmbientOcclusion() {
-        return false;
+        return false; // legacy renderers shade their own corners
     }
 
     @Override
@@ -263,7 +302,7 @@ final class LegacyBakedModel implements BakedModel {
 
     /** Makes this the item model, picking the variant for the stack's legacy subtype. */
     LegacyBakedModel forItems(LegacyBakedModel[] variants) {
-        LegacyBakedModel item = new LegacyBakedModel(block, meta, base);
+        LegacyBakedModel item = new LegacyBakedModel(block, meta, base, baseStandsAlone);
         item.itemVariants = variants;
         return item;
     }

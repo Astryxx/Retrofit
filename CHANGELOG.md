@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.0-beta (in progress)
+
+- **Runs on NeoForge 1.20.1** (47.1) as well as Forge: the same jar, client and server, tested with
+  the play test's mods.
+- **Coremods see the class loading they were written for.** While transformers run, the call stack
+  is again frame for frame LaunchWrapper's: transformers that find their class loader by walking
+  the stack (CoFHCore's) got the wrong one and failed on every Minecraft class, which stopped
+  CoFHCore and the mods built on it. CoFHCore and MineFactory Reloaded boot and play.
+- **Mixin on 1.7.10 (UniMixins) boots.** Loggers take log4j appenders again, and get every event:
+  Mixin watches FML's log to know when to apply its mixins.
+- More of log4j 2.0-beta9 that mods call (its resource `Loader`, used by CoFHCore to copy its
+  world generation files), and the 1.7.10 framebuffer mods resize at startup.
+- **Blocks that face where they were placed show it.** Plain-cube blocks whose icons depend on the
+  world (furnaces and machines facing their placer, connected textures) are drawn in the world as
+  1.7.10 drew them, not with their metadata's icons alone. Items keep their usual model.
+- **1.20.1-only blocks work as covers.** Full-cube 1.20.1 blocks (deepslate, copper, other mods'
+  blocks) reach 1.7.10 code as blocks with their real textures, so Carpenter's Blocks (and mods with
+  facades or covers like it) accept and draw them. They turn back into themselves when they leave.
+- **Sprite-sheet textures load.** Mods that cut their icons out of sheets with their own sprite
+  loaders (Railcraft, Extra Utilities) were handed a file path where 1.7.10 hands them the icon's
+  name, and gave up: hundreds of their blocks were the missing texture. They load as on 1.7.10.
+- **Item renderers get the real stack.** Mods' item renderers were given only the item and damage,
+  never the stack's NBT: BuildCraft's facades were invisible everywhere, and renderers that draw
+  what a stack holds drew their default. They now get the stack itself.
+- **Items whose icons depend on their NBT show them** (Tinkers' tools, FiskHeroes' suits, wands,
+  17 mods of the tested ones use this): the item model asks the item for each stack's icons.
+- **Icons from mods' own atlases** (FiskHeroes' suits, from its hero atlas) and **items showing
+  block icons** (fluid containers) find their textures.
+- **Weapons and tools with their own renderers are held in the hand.** Renderers that ask for
+  every render helper (OreSpawn's swords and guns) were held with the pose 1.7.10 used only for
+  blocks, shrunk and mirrored away from the hand.
+- Other players' skins (and heads mods draw by player name) use their 1.20.1 skins.
+- Extra Utilities no longer crashes the client when one of its machines is placed (it reads 1.7.10's
+  sound manager, which Retrofit now provides, idle).
+- Legacy blocks that draw something their block model can't show (untextured, with their own
+  texture, or with an icon that has no file) are logged once each, and the icons without a texture
+  file are named in the log. `-Dretrofit.debugItem=<name>` makes the harness print where an item's
+  renderer draws in each render type.
+
 ## 0.4.1-beta
 
 From players' reports (Thaumcraft 4, Rival Rebels, a large modpack):

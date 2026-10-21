@@ -79,7 +79,7 @@ public final class LegacyStacks {
         int count = (Integer) read[1];
         int damage = (Integer) read[2];
         CompoundTag tag = read[3] == null ? null : fromBytes((byte[]) read[3]);
-        if (name.equals(ModernItems.LEGACY_NAME)) {
+        if (ModernItems.isCarrier(name)) {
             return ModernItems.toModern(tag, count); // a 1.20.1 item that went through legacy code
         }
         if (name.startsWith("minecraft:")) {

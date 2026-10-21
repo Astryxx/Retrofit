@@ -71,13 +71,18 @@ public final class LegacyClientSetup {
         }
     }
 
-    /** Blocks with a custom render type get a model baked from 1.7.10's RenderBlocks; their items too. */
+    /**
+     * Blocks with a custom render type get a model baked from 1.7.10's RenderBlocks; their items too.
+     * Plain cubes whose icons depend on the world (machines facing their placer) keep their JSON
+     * model, but are drawn in the world as RenderBlocks drew them.
+     */
     @SubscribeEvent
     public static void onModifyBakingResult(ModelEvent.ModifyBakingResult event) {
         Map<ResourceLocation, BakedModel> models = event.getModels();
         int replaced = 0;
         for (LegacyBlock block : LegacyContent.blocks()) {
-            if (block.renderType() == 0 || block.renderType() == -1) {
+            boolean cube = block.renderType() == 0;
+            if (cube && !block.worldIcons() || block.renderType() == -1) {
                 continue; // plain cubes keep their JSON model; -1 is drawn by its tile entity renderer
             }
             LegacyBakedModel[] byMeta = new LegacyBakedModel[16];
@@ -88,17 +93,34 @@ public final class LegacyClientSetup {
                     continue;
                 }
                 int meta = state.getValue(LegacyContent.META);
-                byMeta[meta] = new LegacyBakedModel(block, meta, base);
+                byMeta[meta] = new LegacyBakedModel(block, meta, base, cube);
                 models.put(location, byMeta[meta]);
                 replaced++;
+            }
+            if (cube) {
+                continue; // its item keeps the JSON model, which shows the metadata's icons
             }
             ModelResourceLocation itemLocation = new ModelResourceLocation(ForgeRegistries.ITEMS.getKey(block.asItem()), "inventory");
             BakedModel itemBase = models.get(itemLocation);
             if (itemBase != null && !itemBase.isCustomRenderer() && byMeta[0] != null) {
-                models.put(itemLocation, new LegacyBakedModel(block, 0, itemBase).forItems(byMeta));
+                models.put(itemLocation, new LegacyBakedModel(block, 0, itemBase, false).forItems(byMeta));
             }
         }
         LOGGER.info("Legacy blocks with custom render types: {} block state models baked from RenderBlocks", replaced);
+        int stackIcons = 0;
+        for (net.minecraft.world.item.Item item : ForgeRegistries.ITEMS) {
+            if (!(item instanceof retrofit.forge.world.LegacyStackItem legacy) || legacy.legacyItem() == null) {
+                continue;
+            }
+            ModelResourceLocation location = new ModelResourceLocation(ForgeRegistries.ITEMS.getKey(item), "inventory");
+            BakedModel base = models.get(location);
+            // the flat generated models only: items drawn by their own renderers or as blocks ask for their icons themselves
+            if (base instanceof net.minecraft.client.resources.model.SimpleBakedModel && LegacyBridge.<Boolean>call("stackIcons", legacy.legacyItem())) {
+                models.put(location, new LegacyStackIconModel(base));
+                stackIcons++;
+            }
+        }
+        LOGGER.info("Legacy items whose icons depend on the whole stack: {}", stackIcons);
     }
 
     /**
@@ -113,18 +135,42 @@ public final class LegacyClientSetup {
         }
         int mapped = 0;
         int missing = 0;
+        java.util.List<String> missingNames = new java.util.ArrayList<>();
         for (int kind = 0; kind < 2; kind++) {
             for (String name : LegacyBridge.iconNames(kind)) {
                 TextureAtlasSprite sprite = atlas.getSprite(new ResourceLocation(LegacyAssetPack.spriteId(ICON_KINDS[kind], name)));
                 if (sprite.contents().name().equals(MissingTextureAtlasSprite.getLocation())) {
                     missing++;
+                    if (missingNames.size() < 40) {
+                        missingNames.add(ICON_KINDS[kind] + "/" + name);
+                    }
                 }
                 LegacyBridge.setIconUV(kind, name, sprite.getU0(), sprite.getU1(), sprite.getV0(), sprite.getV1(),
                         sprite.contents().width(), sprite.contents().height());
                 mapped++;
             }
         }
-        LOGGER.info("Legacy icons placed in the block atlas: {} ({} without a texture file)", mapped, missing);
+        LOGGER.info("Legacy icons placed in the block atlas: {} ({} without a texture file{})", mapped, missing,
+                missingNames.isEmpty() ? "" : ": " + String.join(", ", missingNames) + (missing > missingNames.size() ? ", ..." : ""));
+        LegacyStackIconModel.clear();
+        LegacyBridge.call("setModernIconSource", (java.util.function.BiFunction<Integer, Integer, float[]>) LegacyClientSetup::modernBlockSprite);
+    }
+
+    /**
+     * The sprite of a side of a 1.20.1 block carried through legacy code (by its carrier's damage):
+     * the first quad its model has on that side, as {u0, u1, v0, v1, width, height}; null if none.
+     */
+    private static float[] modernBlockSprite(int index, int side) {
+        net.minecraft.world.level.block.Block block = retrofit.forge.world.ModernItems.blockOf(index);
+        if (block == null) {
+            return null;
+        }
+        BlockState state = block.defaultBlockState();
+        BakedModel model = net.minecraft.client.Minecraft.getInstance().getBlockRenderer().getBlockModel(state);
+        net.minecraft.core.Direction direction = net.minecraft.core.Direction.from3DDataValue(side);
+        var quads = model.getQuads(state, direction, net.minecraft.util.RandomSource.create(42L));
+        TextureAtlasSprite sprite = quads.isEmpty() ? model.getParticleIcon() : quads.get(0).getSprite();
+        return new float[]{sprite.getU0(), sprite.getU1(), sprite.getV0(), sprite.getV1(), sprite.contents().width(), sprite.contents().height()};
     }
 
     /** Once per frame, before anything renders: put the legacy viewer at the camera. */

@@ -396,7 +396,10 @@ final class LegacyAssetPack implements PackResources {
             model.addProperty("parent", handheld ? "minecraft:item/handheld" : "minecraft:item/generated"); // tools, swords: held as 1.7.10's full-3D items
             JsonObject textures = new JsonObject();
             for (int pass = 0; pass < passes.length && passes[pass] != null; pass++) {
-                textures.addProperty("layer" + pass, textureIds.computeIfAbsent(passes[pass], name -> spriteId("items", name)));
+                String icon = passes[pass];
+                // "#name": an icon of the block atlas (every one of those is stitched already)
+                textures.addProperty("layer" + pass, icon.startsWith("#") ? spriteId("blocks", icon.substring(1))
+                        : textureIds.computeIfAbsent(icon, name -> spriteId("items", name)));
             }
             model.add("textures", textures);
             putJson("retrofit", "models/" + modelPath + ".json", model);
@@ -491,7 +494,8 @@ final class LegacyAssetPack implements PackResources {
         int colon = iconName.indexOf(':');
         String namespace = colon < 0 ? "minecraft" : iconName.substring(0, colon).toLowerCase(Locale.ROOT);
         String path = colon < 0 ? iconName : iconName.substring(colon + 1);
-        String legacyPath = "assets/" + namespace + "/textures/" + kind + "/" + path + ".png";
+        String folder = LegacyBridge.call("iconFolder", kind.equals("blocks") ? 0 : 1, iconName); // a mod's own atlas, or null
+        String legacyPath = "assets/" + namespace + "/" + (folder != null ? folder : "textures/" + kind) + "/" + path + ".png";
         String target = "textures/" + spriteId.substring("retrofit:".length()) + ".png";
         for (ZipFile jar : sources) {
             ZipEntry png = jar.getEntry(legacyPath);

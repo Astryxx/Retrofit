@@ -76,6 +76,7 @@ public class LegacyBlock extends Block {
         this.renderType = renderInfo[0];
         this.opaque = renderInfo[1] != 0;
         this.renderPass = renderInfo[2];
+        this.worldIcons = renderInfo[4] != 0;
         this.translationKey = LegacyBridge.blockTranslationKey(legacyBlock);
         registerDefaultState(stateDefinition.any().setValue(LegacyContent.META, 0));
     }
@@ -189,6 +190,13 @@ public class LegacyBlock extends Block {
     @Override
     public net.minecraft.world.level.block.RenderShape getRenderShape(BlockState state) {
         return renderType == -1 ? net.minecraft.world.level.block.RenderShape.INVISIBLE : super.getRenderShape(state);
+    }
+
+    private final boolean worldIcons;
+
+    /** Whether its icons depend on the world around it, not only its metadata (see the bridge's Bridge.worldIcons). */
+    public boolean worldIcons() {
+        return worldIcons;
     }
 
     /** 0 = solid, 1 = translucent (legacy getRenderBlockPass). */

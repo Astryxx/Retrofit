@@ -8,17 +8,21 @@ import org.apache.logging.log4j.spi.ExtendedLogger;
 import org.apache.logging.log4j.spi.ExtendedLoggerWrapper;
 
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Every legacy logger is one of these, so mods that cast loggers to log4j-core's Logger (to add
- * filters or change levels, as DragonAPI does) keep working. Messages go on to the host's logging
- * (see retrofit.legacy.compat.log4j); this class only adds filters and a level. It is not
- * log4j-core: no configuration, appenders or lookups.
+ * filters or change levels, as DragonAPI does, or to watch its events with an appender, as Mixin
+ * does) keep working. Messages go on to the host's logging (see retrofit.legacy.compat.log4j);
+ * this class only adds filters, appenders and a level. It is not log4j-core: no configuration or
+ * lookups, and appenders see events without writing anywhere themselves.
  */
 public class Logger extends ExtendedLoggerWrapper {
     private final List<Filter> filters = new CopyOnWriteArrayList<Filter>();
+    private final List<Appender> appenders = new CopyOnWriteArrayList<Appender>();
     private volatile Level level;
 
     public Logger(ExtendedLogger delegate, String name, MessageFactory messageFactory) {
@@ -39,6 +43,22 @@ public class Logger extends ExtendedLoggerWrapper {
 
     public int filterCount() {
         return filters.size();
+    }
+
+    public void addAppender(Appender appender) {
+        appenders.add(appender);
+    }
+
+    public void removeAppender(Appender appender) {
+        appenders.remove(appender);
+    }
+
+    public Map<String, Appender> getAppenders() {
+        Map<String, Appender> byName = new LinkedHashMap<String, Appender>();
+        for (Appender appender : appenders) {
+            byName.put(appender.getName(), appender);
+        }
+        return byName;
     }
 
     public void setLevel(Level level) {
@@ -65,8 +85,8 @@ public class Logger extends ExtendedLoggerWrapper {
         if (own != null && !own.isLessSpecificThan(messageLevel)) {
             return;
         }
+        Event event = filters.isEmpty() && appenders.isEmpty() ? null : new Event(getName(), fqcn, messageLevel, marker, message, t);
         if (!filters.isEmpty()) {
-            Event event = new Event(getName(), fqcn, messageLevel, marker, message, t);
             for (Filter filter : filters) {
                 try {
                     Filter.Result result = filter.filter(event);
@@ -78,6 +98,15 @@ public class Logger extends ExtendedLoggerWrapper {
                     }
                 } catch (RuntimeException broken) {
                     // A broken mod filter must not stop logging.
+                }
+            }
+        }
+        for (Appender appender : appenders) {
+            if (appender.isStarted()) {
+                try {
+                    appender.append(event);
+                } catch (RuntimeException broken) {
+                    // nor a broken appender
                 }
             }
         }

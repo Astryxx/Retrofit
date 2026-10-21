@@ -18,13 +18,18 @@ import java.lang.reflect.Field;
  * stack's NBT, and the damage value is the item's number in Retrofit's table (stable across
  * restarts), so legacy recipes and the Ore Dictionary tell items apart. Legacy chests, pipes,
  * machines and recipes keep and move them; they turn back into themselves on the 1.20.1 side.
+ * Full-cube blocks travel as "retrofit:modern_block" instead, an ItemBlock of the solid stand-in
+ * block, whose icons for that damage are the 1.20.1 block's textures: mods that take blocks as
+ * covers or facades (Carpenter's Blocks) accept and draw them.
  */
 public final class ModernContent {
     static final String ITEM_NAME = "retrofit:modern_item";
+    static final String BLOCK_ITEM_NAME = "retrofit:modern_block";
     static final String TAG = "RetrofitModern";
     private static ModernItem item;
     private static ModernBlock solidBlock;
     private static ModernBlock openBlock;
+    private static Item blockItem;
 
     private ModernContent() {
     }
@@ -52,8 +57,10 @@ public final class ModernContent {
                 GameRegistry.registerItem(item, "modern_item");
                 solidBlock = new ModernBlock(true);
                 openBlock = new ModernBlock(false);
-                GameRegistry.registerBlock(solidBlock, null, "modern_block"); // no item: they stand for blocks of the 1.20.1 world
-                GameRegistry.registerBlock(openBlock, null, "modern_open_block");
+                // the solid one's item carries 1.20.1 blocks (Block.getBlockFromItem goes by the shared id)
+                GameRegistry.registerBlock(solidBlock, ModernBlockItem.class, "modern_block");
+                GameRegistry.registerBlock(openBlock, null, "modern_open_block"); // no item: it stands for blocks of the 1.20.1 world
+                blockItem = Item.func_150898_a(solidBlock); // getItemFromBlock
             } finally {
                 active.set(controller, before);
             }
@@ -73,12 +80,15 @@ public final class ModernContent {
                 openBlock == null ? 0 : net.minecraft.block.Block.func_149682_b(openBlock)};
     }
 
-    /** The legacy stack carrying a 1.20.1 item: {@code tag} is its 1.20.1 NBT (as legacy NBT bytes), or null. */
-    public static Object makeModernStack(String id, int count, int index, byte[] tag, String name, int maxStack) throws java.io.IOException {
+    /**
+     * The legacy stack carrying a 1.20.1 item: {@code tag} is its 1.20.1 NBT (as legacy NBT bytes),
+     * or null; {@code cube} for a full-cube block, carried as a block.
+     */
+    public static Object makeModernStack(String id, int count, int index, byte[] tag, String name, int maxStack, boolean cube) throws java.io.IOException {
         if (item == null) {
             return null;
         }
-        ItemStack stack = new ItemStack(item, count, index);
+        ItemStack stack = new ItemStack(cube && blockItem != null ? blockItem : item, count, index);
         NBTTagCompound data = new NBTTagCompound();
         data.func_74778_a("id", id); // setString
         data.func_74778_a("Name", name == null ? id : name);
@@ -200,6 +210,41 @@ public final class ModernContent {
         public String func_149732_F() { // getLocalizedName
             return solid ? "1.20.1 block" : "1.20.1 block (open)";
         }
+
+        /** registerBlockIcons: stone's, for mods that list every block (BuildCraft's facades) and show it. */
+        @Override
+        public void func_149651_a(net.minecraft.client.renderer.texture.IIconRegister register) {
+            field_149761_L = register.func_94245_a("stone"); // blockIcon = registerIcon
+        }
+
+        /** getIcon: for the block carrier's damage, the 1.20.1 block's texture (client only). */
+        @Override
+        public net.minecraft.util.IIcon func_149691_a(int side, int meta) {
+            net.minecraft.util.IIcon icon = solid ? ModernIcons.icon(meta, side) : null;
+            return icon != null ? icon : super.func_149691_a(side, meta);
+        }
+    }
+
+    /** The carrier of 1.20.1 full-cube blocks: the solid stand-in's item; damage and data as {@link ModernItem}'s. */
+    public static final class ModernBlockItem extends net.minecraft.item.ItemBlock {
+        public ModernBlockItem(net.minecraft.block.Block block) {
+            super(block);
+            func_77627_a(true); // setHasSubtypes
+            func_77655_b("retrofit.modern"); // setUnlocalizedName
+        }
+
+        @Override
+        public String func_77653_i(ItemStack stack) { // getItemStackDisplayName
+            NBTTagCompound data = ModernItem.data(stack);
+            return data == null || data.func_74779_i("Name").isEmpty() ? "1.20.1 block" : data.func_74779_i("Name");
+        }
+
+        @Override
+        public int getItemStackLimit(ItemStack stack) {
+            NBTTagCompound data = ModernItem.data(stack);
+            int max = data == null ? 0 : data.func_74762_e("Max");
+            return max > 0 ? max : 64;
+        }
     }
 
     /** The item itself: a stand-in that knows its name and stack size from the stack. */
@@ -209,7 +254,7 @@ public final class ModernContent {
             func_77655_b("retrofit.modern"); // setUnlocalizedName
         }
 
-        private static NBTTagCompound data(ItemStack stack) {
+        static NBTTagCompound data(ItemStack stack) {
             NBTTagCompound tag = stack == null ? null : stack.func_77978_p(); // getTagCompound
             return tag == null ? null : tag.func_74775_l(TAG); // getCompoundTag
         }

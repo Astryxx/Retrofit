@@ -52,13 +52,19 @@ final class ItemGallery extends Screen {
             if (id == null || id.getNamespace().equals("hello1710")) {
                 continue;
             }
-            int[] metas = legacy.hasSubtypes() ? LegacyBridge.itemSubtypes(legacy.legacyItem()) : new int[]{0};
-            for (int meta : metas) {
-                ItemStack stack = legacy.stackOf(meta);
+            // the stacks the creative menu shows, NBT and all (facades, prebuilt tools, filled containers)
+            List<ItemStack> listed = new ArrayList<>();
+            for (Object legacyStack : LegacyBridge.<Object[]>call("subItemStacks", legacy.legacyItem())) {
+                listed.add(retrofit.forge.world.LegacyStacks.toModern(legacyStack));
+            }
+            if (listed.isEmpty()) {
+                listed.add(legacy.stackOf(0));
+            }
+            for (ItemStack stack : listed) {
                 if (!stack.isEmpty() && stack.getItem() == item) {
                     int n = stacks.size();
                     index.append(n / (COLUMNS * ROWS)).append(' ').append(n % (COLUMNS * ROWS) / COLUMNS).append(' ')
-                            .append(n % COLUMNS).append(' ').append(id).append(' ').append(meta).append('\n');
+                            .append(n % COLUMNS).append(' ').append(id).append(' ').append(legacy.meta(stack)).append('\n');
                     stacks.add(stack);
                 }
             }

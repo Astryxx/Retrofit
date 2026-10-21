@@ -36,6 +36,13 @@ public final class HeadlessClient {
         Object gameSettings = gameSettingsClass.getConstructor().newInstance();
         setField(gameSettingsClass, gameSettings, "field_74317_L", minecraft); // mc: left null by that constructor (Galacticraft reads it)
         setField(minecraftClass, minecraft, "field_71474_y", gameSettings); // gameSettings
+        // The window and its framebuffer, as Minecraft's startGame made them before mods loaded (CoFHCore
+        // resizes the framebuffer to turn on its stencil). Framebuffers are reported unsupported, so this
+        // one only holds its size; the host's window size replaces this one's on each frame.
+        setField(minecraftClass, minecraft, "field_71443_c", 854); // displayWidth
+        setField(minecraftClass, minecraft, "field_71440_d", 480); // displayHeight
+        setField(minecraftClass, minecraft, "field_147124_at", Class.forName("net.minecraft.client.shader.Framebuffer", true, lcl) // framebufferMc
+                .getConstructor(int.class, int.class, boolean.class).newInstance(854, 480, true));
 
         Object serializer = Class.forName("net.minecraft.client.resources.data.IMetadataSerializer", true, lcl).newInstance();
         Object resourceManager = Class.forName("net.minecraft.client.resources.SimpleReloadableResourceManager", true, lcl)

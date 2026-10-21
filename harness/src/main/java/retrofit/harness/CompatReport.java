@@ -89,6 +89,17 @@ final class CompatReport {
                     continue; // metadata the block doesn't use
                 }
                 check("shape", name, () -> call("blockShape", block, meta));
+                if (DEBUG_ITEM != null && name.contains(DEBUG_ITEM)) {
+                    synchronized (call("lock")) {
+                        printBounds(name + " meta " + meta + " as an item block", (int) call("renderBlockItem", block, meta, meta));
+                        Object item = call("item", name);
+                        for (String type : ITEM_RENDER_TYPES) {
+                            if (item != null && (boolean) call("hasItemRenderer", item, meta, type)) {
+                                printBounds(name + " meta " + meta + " " + type, (int) call("renderItem", item, meta, type));
+                            }
+                        }
+                    }
+                }
                 if (renderType != 0 && renderType != -1) {
                     check("static model (render type " + renderType + ")", name, () -> {
                         synchronized (call("lock")) {
@@ -128,7 +139,11 @@ final class CompatReport {
                     if ((boolean) call("hasItemRenderer", item, meta, type)) {
                         check("item renderer " + type, name, () -> {
                             synchronized (call("lock")) {
-                                return call("renderItem", item, meta, type);
+                                int vertices = (int) call("renderItem", item, meta, type);
+                                if (DEBUG_ITEM != null && name.contains(DEBUG_ITEM)) {
+                                    printBounds(name + " meta " + meta + " " + type, vertices);
+                                }
+                                return vertices;
                             }
                         });
                     }
@@ -160,6 +175,28 @@ final class CompatReport {
             String key = check + ": " + cause + (where == null ? "" : " at " + where);
             failures.computeIfAbsent(key, k -> new TreeMap<>()).merge(subject, 1, Integer::sum);
         }
+    }
+
+    /** -Dretrofit.debugItem=<part of an item name>: prints where such items' renderers draw, per render type. */
+    private static final String DEBUG_ITEM = System.getProperty("retrofit.debugItem");
+
+    /** The box the captured vertices span (in the renderer's own space, before the host's transforms), and their alpha. */
+    private void printBounds(String what, int vertices) throws Exception {
+        Class<?> capture = bridge.getClassLoader().loadClass("retrofit.legacy.gl.Capture");
+        float[] d = (float[]) capture.getMethod("data").invoke(null);
+        int stride = capture.getField("FLOATS_PER_VERTEX").getInt(null);
+        float[] min = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE}, max = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+        float minAlpha = 1, maxAlpha = 0;
+        for (int v = 0; v < vertices; v++) {
+            for (int axis = 0; axis < 3; axis++) {
+                min[axis] = Math.min(min[axis], d[v * stride + axis]);
+                max[axis] = Math.max(max[axis], d[v * stride + axis]);
+            }
+            minAlpha = Math.min(minAlpha, d[v * stride + 11]);
+            maxAlpha = Math.max(maxAlpha, d[v * stride + 11]);
+        }
+        System.out.printf("[Retrofit] Item %s: %d vertices, x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f, alpha %.2f..%.2f%n", what, vertices,
+                min[0], max[0], min[1], max[1], min[2], max[2], minAlpha, maxAlpha);
     }
 
     private Object call(String name, Object... args) throws Exception {

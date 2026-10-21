@@ -82,8 +82,23 @@ public final class Bridge {
                 renderType,
                 block.func_149662_c() ? 1 : 0,     // isOpaqueCube
                 renderPass,
-                block.func_149750_m()              // getLightValue
+                block.func_149750_m(),             // getLightValue
+                worldIcons(block) ? 1 : 0
         };
+    }
+
+    /**
+     * Whether the block picks its icons from the world (getIcon(IBlockAccess, x, y, z, side)):
+     * machines facing where they were placed, connected textures, blocks showing what they hold.
+     * The metadata alone doesn't say what they look like.
+     */
+    private static boolean worldIcons(Block block) {
+        try {
+            return block.getClass().getMethod("func_149673_e", net.minecraft.world.IBlockAccess.class,
+                    int.class, int.class, int.class, int.class).getDeclaringClass() != Block.class;
+        } catch (NoSuchMethodException | RuntimeException dedicatedServer) {
+            return false; // client-only in 1.7.10
+        }
     }
 
     /** Files of all loaded legacy mods (their jars hold the mods' textures and other assets). */
@@ -216,6 +231,11 @@ public final class Bridge {
         return LegacyRendering.renderItem(legacyItem, meta, type);
     }
 
+    /** Client only; see {@link LegacyRendering#renderItemStack}. Hold {@link #LOCK}. */
+    public static int renderItemStack(Object legacyStack, String type) {
+        return LegacyRendering.renderItemStack(legacyStack, type);
+    }
+
     /** Client: see LegacyRendering.renderBlockItem. */
     public static int renderBlockItem(Object legacyBlock, int meta, int damage) {
         return LegacyRendering.renderBlockItem(legacyBlock, meta, damage);
@@ -329,6 +349,21 @@ public final class Bridge {
     /** Client only; see {@link LegacyIcons#itemPassTextures}. */
     public static String[] itemPassTextures(Object legacyItem, int meta, int max) {
         return LegacyIcons.itemPassTextures(legacyItem, meta, max);
+    }
+
+    /** Client only; see {@link LegacyIcons#iconFolder}. */
+    public static String iconFolder(int kind, String name) {
+        return LegacyIcons.iconFolder(kind, name);
+    }
+
+    /** Client only; see {@link LegacyIcons#stackIcons}. */
+    public static boolean stackIcons(Object legacyItem) {
+        return LegacyIcons.stackIcons(legacyItem);
+    }
+
+    /** Client only; see {@link LegacyIcons#stackPassTextures}. */
+    public static String[] stackPassTextures(Object legacyStack, int max) {
+        return LegacyIcons.stackPassTextures(legacyStack, max);
     }
 
     /** Client only; see {@link LegacyIcons#itemColor}. */
@@ -596,7 +631,7 @@ public final class Bridge {
         for (Object element : Item.field_150901_e) { // itemRegistry
             Item item = (Item) element;
             String name = Item.field_150901_e.func_148750_c(item); // getNameForObject
-            if (name == null || name.startsWith("minecraft:") || name.equals(ModernContent.ITEM_NAME)) {
+            if (name == null || name.startsWith("minecraft:") || name.equals(ModernContent.ITEM_NAME) || name.equals(ModernContent.BLOCK_ITEM_NAME)) {
                 continue;
             }
             try {
@@ -608,6 +643,19 @@ public final class Bridge {
             } catch (Throwable t) {
                 // an item that can't list itself: left out of the tab
             }
+        }
+        return stacks.toArray();
+    }
+
+    /** Client: the stacks an item lists in its creative tab (getSubItems), NBT and all; none if it can't. */
+    @SuppressWarnings("unchecked")
+    public static Object[] subItemStacks(Object legacyItem) {
+        Item item = (Item) legacyItem;
+        List<Object> stacks = new ArrayList<Object>();
+        try {
+            item.func_150895_a(item, item.func_77640_w(), stacks); // getSubItems(item, getCreativeTab(), list)
+        } catch (Throwable t) {
+            stacks.clear();
         }
         return stacks.toArray();
     }

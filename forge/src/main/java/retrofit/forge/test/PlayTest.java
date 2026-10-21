@@ -185,6 +185,7 @@ public final class PlayTest {
         if (findItem("fiskheroes", path -> true, Item.class) != null) {
             heldItems("fiskheroes");
         }
+        heldInHand();
     }
 
     /** Places a Carpenter's Block, covers it with 1.20.1 oak planks, then places and hammers a slope. */
@@ -226,6 +227,25 @@ public final class PlayTest {
                     "planks left " + planks + ", tile entity " + before[0] + " -> " + after);
         });
         shot("play-carpenters-cover", () -> ground(2, 0).above());
+        // a block 1.7.10 never had: carried to legacy code as Retrofit's block carrier
+        String[] plainBefore = new String[1];
+        do_("carpenters: modern cover", 20, () -> {
+            server(player -> player.getInventory().setItem(4, new ItemStack(Items.DEEPSLATE, 8)));
+            select(0);
+            useOn(ground(2, -2), Direction.UP);
+        });
+        do_("carpenters: cover with deepslate", 20, () -> {
+            plainBefore[0] = blockEntityTag(ground(2, -2).above());
+            select(4);
+            useOn(ground(2, -2).above(), Direction.WEST);
+        });
+        do_("carpenters: deepslate covered?", 0, () -> {
+            String after = blockEntityTag(ground(2, -2).above());
+            int left = serverPlayer().getInventory().getItem(4).getCount();
+            result("carpenters cover with 1.20.1-only deepslate", after != null && !after.equals(plainBefore[0]) && left == 7,
+                    "deepslate left " + left + ", tile entity " + after);
+        });
+        shot("play-carpenters-deepslate", () -> ground(2, -2).above());
         if (slope != null) {
             do_("carpenters: slope", 20, () -> {
                 select(2);
@@ -523,6 +543,8 @@ public final class PlayTest {
             select(0);
             useOn(ground(2, 0), Direction.UP);
         });
+        // machines turn their front to whoever placed them (icons chosen from the world, not the metadata)
+        do_(name + ": placed", 2, () -> grab("play-placed-" + name.toLowerCase().replace(' ', '-')));
         do_(name + ": open", 20, () -> useOn(ground(2, 0).above(), Direction.WEST));
         do_(name + ": opened?", 5, () -> {
             Object screen = Minecraft.getInstance().screen;
@@ -566,6 +588,45 @@ public final class PlayTest {
             do_(namespace + " shot " + n, 2, () -> grab("play-" + namespace + "-held-" + n));
         }
         do_(namespace + " items done", 2, () -> Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON));
+    }
+
+    /**
+     * Items in the hand, first and third person, next to 1.20.1's own stone and sword as the
+     * reference: legacy block items (drawn as 1.7.10 drew them as items) and items with their own
+     * renderers, a few of each kind the loaded mods have.
+     */
+    private static void heldInHand() {
+        List<ItemStack> stacks = new ArrayList<>(List.of(new ItemStack(Items.STONE), new ItemStack(Items.DIAMOND_SWORD)));
+        int blocks = 0, rendered = 0;
+        for (Item item : ForgeRegistries.ITEMS) {
+            if (!(item instanceof retrofit.forge.world.LegacyStackItem legacy) || legacy.legacyItem() == null
+                    || ForgeRegistries.ITEMS.getKey(item).getNamespace().equals("hello1710")) {
+                continue;
+            }
+            boolean custom = net.minecraft.client.Minecraft.getInstance().getItemRenderer().getModel(new ItemStack(item), null, null, 0).isCustomRenderer();
+            if (item instanceof retrofit.forge.world.LegacyBlockItem && blocks < 4 && (custom || blocks < 2)) {
+                stacks.add(new ItemStack(item));
+                blocks++;
+            } else if (!(item instanceof retrofit.forge.world.LegacyBlockItem) && custom && rendered < 4) {
+                stacks.add(new ItemStack(item));
+                rendered++;
+            }
+        }
+        newSite("held in hand");
+        for (int i = 0; i < stacks.size(); i++) {
+            ItemStack stack = stacks.get(i);
+            int n = i;
+            do_("hand: hold " + n, 10, () -> {
+                server(player -> player.getInventory().setItem(0, stack.copy()));
+                select(0);
+                Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON);
+                LOGGER.info("[PlayTest] hand {}: {}", n, ForgeRegistries.ITEMS.getKey(stack.getItem()));
+            });
+            do_("hand: first " + n, 2, () -> grab("play-hand-" + n + "-first"));
+            do_("hand: turn " + n, 10, () -> Minecraft.getInstance().options.setCameraType(CameraType.THIRD_PERSON_FRONT));
+            do_("hand: third " + n, 2, () -> grab("play-hand-" + n + "-third"));
+        }
+        do_("hand: done", 2, () -> Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON));
     }
 
     // ---- Steps ----

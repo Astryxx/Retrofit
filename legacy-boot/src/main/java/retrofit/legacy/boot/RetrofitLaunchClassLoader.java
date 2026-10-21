@@ -15,6 +15,12 @@ import java.util.Set;
  * LaunchClassLoader that also applies {@link RetrofitTransformer}'s Java 17 fixes to
  * classes on its transformer-exclusion list (FML excludes its own patcher, which uses
  * the removed Pack200 API). All other behaviour is LaunchWrapper's own.
+ *
+ * <p>The additions are made in {@link #loadClass(String, boolean)}, in place of ClassLoader's
+ * own, and {@link #findClass} is LaunchClassLoader's: the call stack while transformers run is
+ * then frame for frame what it was under LaunchWrapper. Coremods count on it (CoFHCore's access
+ * transformer finds the class loader at fixed depths of the stack, and took ours for the
+ * loader above it, which has no Minecraft classes).
  */
 public class RetrofitLaunchClassLoader extends LaunchClassLoader {
     private static final RetrofitTransformer COMPAT = new RetrofitTransformer();
@@ -30,22 +36,39 @@ public class RetrofitLaunchClassLoader extends LaunchClassLoader {
         cachedClasses = privateField("cachedClasses");
     }
 
+    /** ClassLoader.loadClass for a loader with no parent (as LaunchClassLoader is), with the additions. */
     @Override
-    public Class<?> findClass(String name) throws ClassNotFoundException {
-        if (startsWithAny(name, transformerExceptions) && !startsWithAny(name, classLoaderExceptions)) {
-            Class<?> patched = definePatchedIfNeeded(name);
-            if (patched != null) {
-                return patched;
+    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        synchronized (getClassLoadingLock(name)) {
+            Class<?> type = findLoadedClass(name);
+            if (type == null) {
+                type = bootstrapClass(name);
             }
+            if (type == null && startsWithAny(name, transformerExceptions) && !startsWithAny(name, classLoaderExceptions)) {
+                type = definePatchedIfNeeded(name);
+            }
+            if (type == null) {
+                try {
+                    type = findClass(name);
+                } catch (ClassNotFoundException e) {
+                    type = platformClass(name);
+                    if (type == null) {
+                        throw e;
+                    }
+                }
+            }
+            if (resolve) {
+                resolveClass(type);
+            }
+            return type;
         }
+    }
+
+    private static Class<?> bootstrapClass(String name) {
         try {
-            return super.findClass(name);
+            return Class.forName(name, false, null);
         } catch (ClassNotFoundException e) {
-            Class<?> platform = platformClass(name);
-            if (platform != null) {
-                return platform;
-            }
-            throw e;
+            return null;
         }
     }
 

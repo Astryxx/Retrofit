@@ -132,7 +132,7 @@ public final class LegacyOreDictionary {
                 }
                 for (Object legacyStack : (Object[]) entry[1]) {
                     Object[] read = LegacyBridge.readStack(legacyStack);
-                    if (read == null || ((String) read[0]).startsWith("minecraft:") || read[0].equals(ModernItems.LEGACY_NAME)) {
+                    if (read == null || ((String) read[0]).startsWith("minecraft:") || ModernItems.isCarrier((String) read[0])) {
                         continue;
                     }
                     ItemStack modern = LegacyStacks.toModern(legacyStack);
@@ -219,6 +219,6 @@ public final class LegacyOreDictionary {
 
     private static boolean isCarrier(Object legacyStack) {
         Object[] read = legacyStack == null ? null : LegacyBridge.readStack(legacyStack);
-        return read != null && read[0].equals(ModernItems.LEGACY_NAME);
+        return read != null && ModernItems.isCarrier((String) read[0]);
     }
 }

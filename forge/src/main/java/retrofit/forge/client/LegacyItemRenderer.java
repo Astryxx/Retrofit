@@ -86,7 +86,9 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                         pose.mulPose(Axis.YP.rotationDegrees(-180));
                         pose.mulPose(Axis.XP.rotationDegrees(90));
                         pose.translate(-0.0625f, 0.4375f, 0.0625f);
-                        if (!custom || (helpers & BLOCK_3D) != 0) {
+                        // RenderPlayer.renderEquippedItems: the block pose for item blocks only (renderers of
+                        // swords and guns often ask for BLOCK_3D too; 1.7.10 held those as items)
+                        if (!custom || (helpers & BLOCK_3D) != 0 && stack.getItem() instanceof LegacyBlockItem) {
                             pose.translate(0, 0.1875f, -0.3125f);
                             pose.mulPose(Axis.XP.rotationDegrees(20));
                             pose.mulPose(Axis.YP.rotationDegrees(45));
@@ -111,7 +113,9 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                     } else if (type.equals("ENTITY") || !custom) {
                         pose.translate(0.5, 0.5, 0.5);
                     }
-                    int vertices = custom ? LegacyBridge.renderItem(item.legacyItem(), meta, type)
+                    Object legacy = custom && stack.hasTag() ? legacyStack(stack, item, meta) : null;
+                    int vertices = legacy != null ? LegacyBridge.call("renderItemStack", legacy, type)
+                            : custom ? LegacyBridge.renderItem(item.legacyItem(), meta, type)
                             : LegacyBridge.call("renderBlockItem", block, blockMeta(item, meta), meta);
                     LegacyCapture.draw(pose.last(), buffers, vertices, light, overlay, custom && !type.equals("INVENTORY")); // block items: light of the isolated world
                 }
@@ -137,6 +141,29 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
     private static int helpers(LegacyStackItem item, int meta, String type) {
         return HELPERS.computeIfAbsent(System.identityHashCode(item) + "/" + meta + "/" + type,
                 k -> LegacyBridge.<Integer>call("itemRendererHelpers", item.legacyItem(), meta, type));
+    }
+
+    private record StackKey(Object item, int meta, int tag) {
+    }
+
+    private static final int MAX_CACHED = 1024;
+    private static final java.util.Map<StackKey, Object> LEGACY_STACKS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The legacy form of a stack with NBT, kept per item, damage and tag (converting its NBT each frame would cost). */
+    private static Object legacyStack(ItemStack stack, LegacyStackItem item, int meta) {
+        StackKey key = new StackKey(item, meta, stack.getTag().hashCode());
+        Object known = LEGACY_STACKS.get(key);
+        if (known == null) {
+            known = retrofit.forge.world.LegacyStacks.toLegacy(stack);
+            if (known == null) {
+                return null; // drawn as its item and damage
+            }
+            if (LEGACY_STACKS.size() > MAX_CACHED) {
+                LEGACY_STACKS.clear();
+            }
+            LEGACY_STACKS.put(key, known);
+        }
+        return known;
     }
 
     private static int blockMeta(LegacyStackItem item, int meta) {

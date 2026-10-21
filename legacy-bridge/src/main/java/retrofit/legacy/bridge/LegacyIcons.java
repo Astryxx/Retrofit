@@ -78,10 +78,17 @@ public final class LegacyIcons {
         }
         for (Object item : Item.field_150901_e) { // itemRegistry
             try {
-                if (((Item) item).func_94901_k() == 0) { // getSpriteNumber: 0 = block atlas (ItemBlocks)
+                int atlas = ((Item) item).func_94901_k(); // getSpriteNumber: 0 = block atlas (ItemBlocks)
+                if (atlas == 0) {
                     ((Item) item).func_94581_a(BLOCKS);
                 } else {
-                    ((Item) item).func_94581_a(ITEMS);    // registerIcons
+                    // a mod's own atlas (FiskHeroes' suits): stitched with the items, from that atlas's folder
+                    ITEMS.basePath = atlas == 1 ? null : ownAtlasPath(atlas);
+                    try {
+                        ((Item) item).func_94581_a(ITEMS); // registerIcons
+                    } finally {
+                        ITEMS.basePath = null;
+                    }
                 }
             } catch (Throwable t) {
                 failed++;
@@ -112,13 +119,12 @@ public final class LegacyIcons {
         if (sprite == null) {
             return null;
         }
-        net.minecraft.util.ResourceLocation base = new net.minecraft.util.ResourceLocation(name);
-        net.minecraft.util.ResourceLocation file = new net.minecraft.util.ResourceLocation(base.func_110624_b(), // getResourceDomain
-                "textures/" + (kind == 0 ? "blocks" : "items") + "/" + base.func_110623_a() + ".png"); // getResourcePath
+        // As Forge 1.7.10's TextureMap: the loader gets the icon's own name, not its file (Extra Utilities checks)
+        net.minecraft.util.ResourceLocation location = new net.minecraft.util.ResourceLocation(name);
         IResourceManager manager = net.minecraft.client.Minecraft.func_71410_x().func_110442_L(); // getResourceManager
         try {
-            // As Forge 1.7.10's TextureMap: load returning false means loaded (stitch it); true means skip it.
-            if (!sprite.hasCustomLoader(manager, file) || sprite.load(manager, file) || sprite.func_110970_k() == 0) { // getFrameCount
+            // load returning false means loaded (stitch it); true means skip it.
+            if (!sprite.hasCustomLoader(manager, location) || sprite.load(manager, location) || sprite.func_110970_k() == 0) { // getFrameCount
                 return null;
             }
             int[][] frame = sprite.func_147965_a(0); // getFrameTextureData
@@ -134,6 +140,36 @@ public final class LegacyIcons {
             }
             return null;
         }
+    }
+
+    /**
+     * The folder of a mod's own atlas of a sprite number (a TextureMap it registered with the
+     * TextureManager, as FiskHeroes does for its suits: "textures/items/heroes"); null if none.
+     */
+    @SuppressWarnings("unchecked")
+    private static String ownAtlasPath(int spriteNumber) {
+        try {
+            java.lang.reflect.Field objects = net.minecraft.client.renderer.texture.TextureManager.class.getDeclaredField("field_110585_a"); // mapTextureObjects
+            objects.setAccessible(true);
+            java.lang.reflect.Field type = TextureMap.class.getDeclaredField("field_94255_a"); // textureType
+            java.lang.reflect.Field base = TextureMap.class.getDeclaredField("field_94254_c"); // basePath
+            type.setAccessible(true);
+            base.setAccessible(true);
+            Map<Object, Object> textures = (Map<Object, Object>) objects.get(net.minecraft.client.Minecraft.func_71410_x().func_110434_K()); // getTextureManager
+            for (Object texture : textures.values()) {
+                if (texture instanceof TextureMap && !(texture instanceof Recorder) && type.getInt(texture) == spriteNumber) {
+                    return (String) base.get(texture);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // no such atlas
+        }
+        return null;
+    }
+
+    /** The folder an item icon's file is in when it isn't textures/items (a mod's own atlas); null otherwise. */
+    public static String iconFolder(int kind, String name) {
+        return (kind == 0 ? BLOCKS : ITEMS).basePaths.get(name);
     }
 
     /** Names of all recorded block (kind 0) or item (kind 1) icons. */
@@ -183,11 +219,26 @@ public final class LegacyIcons {
     /** The texture name of an item for a damage value, or null. */
     public static String itemTexture(Object item, int meta) {
         try {
-            IIcon icon = ((Item) item).func_77617_a(meta); // getIconFromDamage
-            return icon == null ? null : icon.func_94215_i();
+            return itemIconName(((Item) item).func_77617_a(meta)); // getIconFromDamage
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /** Marks an item's icon that is in the block atlas (see {@link #itemIconName}). */
+    public static final String BLOCK_ATLAS_ICON = "#";
+
+    /**
+     * The name of an icon an item draws with, marked with {@link #BLOCK_ATLAS_ICON} when it is one
+     * of the block atlas's: items show those too (fluid containers show the fluid's icon, items of
+     * getSpriteNumber 0 register theirs there), and a name alone would be looked up among items.
+     */
+    static String itemIconName(IIcon icon) {
+        if (icon == null) {
+            return null;
+        }
+        String name = icon.func_94215_i(); // getIconName
+        return BLOCKS.holds(icon) && !ITEMS.holds(icon) ? BLOCK_ATLAS_ICON + name : name;
     }
 
     /**
@@ -204,12 +255,51 @@ public final class LegacyIcons {
             int passes = Math.max(1, Math.min(max, legacy.getRenderPasses(meta)));
             String[] textures = new String[passes];
             for (int pass = 0; pass < passes; pass++) {
-                IIcon icon = legacy.func_77618_c(meta, pass); // getIconFromDamageForRenderPass
-                textures[pass] = icon == null ? null : icon.func_94215_i();
+                textures[pass] = itemIconName(legacy.func_77618_c(meta, pass)); // getIconFromDamageForRenderPass
             }
             return textures;
         } catch (Throwable t) {
             return new String[]{itemTexture(item, meta)};
+        }
+    }
+
+    /**
+     * Whether an item picks its icons from the whole stack, not only its damage (Forge's
+     * getIcon(ItemStack, pass), getIconIndex): tools by their materials, suits by their hero.
+     */
+    public static boolean stackIcons(Object item) {
+        Class<?> type = item.getClass();
+        return declarer(type, "getIcon", ItemStack.class, int.class) != Item.class
+                || declarer(type, "func_77650_f", ItemStack.class) != Item.class; // getIconIndex
+    }
+
+    private static Class<?> declarer(Class<?> type, String name, Class<?>... parameters) {
+        try {
+            return type.getMethod(name, parameters).getDeclaringClass();
+        } catch (NoSuchMethodException | RuntimeException e) {
+            return Item.class;
+        }
+    }
+
+    /**
+     * The icon of each render pass a stack draws with, as RenderItem asked for it: getIcon(stack,
+     * pass) for items of several passes, getIconIndex otherwise; names as {@link #itemIconName}.
+     */
+    public static String[] stackPassTextures(Object stack, int max) {
+        ItemStack legacy = (ItemStack) stack;
+        Item item = legacy.func_77973_b(); // getItem
+        try {
+            if (!item.func_77623_v()) { // requiresMultipleRenderPasses
+                return new String[]{itemIconName(item.func_77650_f(legacy))}; // getIconIndex
+            }
+            int passes = Math.max(1, Math.min(max, item.getRenderPasses(legacy.func_77960_j()))); // getItemDamage
+            String[] textures = new String[passes];
+            for (int pass = 0; pass < passes; pass++) {
+                textures[pass] = itemIconName(item.getIcon(legacy, pass));
+            }
+            return textures;
+        } catch (Throwable t) {
+            return new String[0];
         }
     }
 
@@ -276,6 +366,10 @@ public final class LegacyIcons {
         private Map<String, RecordedIcon> icons;
         /** Sprites mods made themselves (setTextureEntry), by name; their files are stitched like the rest. */
         private Map<String, TextureAtlasSprite> custom;
+        /** Icon name -> its folder, for icons of a mod's own atlas (see ownAtlasPath). */
+        private Map<String, String> basePaths;
+        /** The folder of the atlas whose item is registering its icons now; null for the usual one. */
+        private volatile String basePath;
         private int type;
 
         private Recorder() {
@@ -290,6 +384,7 @@ public final class LegacyIcons {
                 Recorder recorder = (Recorder) unsafeClass.getMethod("allocateInstance", Class.class).invoke(theUnsafe.get(null), Recorder.class);
                 recorder.icons = new LinkedHashMap<String, RecordedIcon>();
                 recorder.custom = new LinkedHashMap<String, TextureAtlasSprite>();
+                recorder.basePaths = new java.util.concurrent.ConcurrentHashMap<String, String>();
                 recorder.type = type;
                 // TextureMap's own fields, as its constructor sets them: mods reach into them (FiskHeroes
                 // puts sprites in mapRegisteredSprites through reflection)
@@ -331,11 +426,19 @@ public final class LegacyIcons {
             }
         }
 
+        /** Whether an icon is one of this atlas's (recorded here, or a mod's own sprite put here). */
+        synchronized boolean holds(IIcon icon) {
+            return icons.get(icon.func_94215_i()) == icon || custom.get(icon.func_94215_i()) == icon;
+        }
+
         private synchronized RecordedIcon record(String name) {
             RecordedIcon icon = icons.get(name);
             if (icon == null) {
                 icon = new RecordedIcon(name);
                 icons.put(name, icon);
+                if (basePath != null) {
+                    basePaths.put(name, basePath);
+                }
             }
             return icon;
         }

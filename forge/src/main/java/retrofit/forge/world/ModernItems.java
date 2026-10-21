@@ -26,6 +26,8 @@ import java.util.Map;
 public final class ModernItems {
     private static final Logger LOGGER = LogUtils.getLogger();
     public static final String LEGACY_NAME = "retrofit:modern_item";
+    /** The carrier of full-cube blocks (an ItemBlock to legacy code). */
+    public static final String LEGACY_BLOCK_NAME = "retrofit:modern_block";
     private static final String TAG = "RetrofitModern";
     private static final Map<String, Integer> INDEX = new HashMap<>();
     private static final List<String> IDS = new ArrayList<>();
@@ -73,6 +75,11 @@ public final class ModernItems {
         return index;
     }
 
+    /** Whether a legacy item name is one of the carriers of 1.20.1 items. */
+    public static boolean isCarrier(String legacyName) {
+        return legacyName.equals(LEGACY_NAME) || legacyName.equals(LEGACY_BLOCK_NAME);
+    }
+
     /** The legacy stack carrying a 1.20.1 item, or null (no carrier: the item has nothing legacy code could hold it as). */
     static Object toLegacy(ItemStack stack) {
         ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
@@ -82,10 +89,38 @@ public final class ModernItems {
         try {
             byte[] tag = stack.getTag() == null ? null : LegacyStacks.toBytes(stack.getTag());
             return LegacyBridge.call("makeModernStack", id.toString(), stack.getCount(), index(id.toString()), tag,
-                    stack.getHoverName().getString(), stack.getMaxStackSize());
+                    stack.getHoverName().getString(), stack.getMaxStackSize(), isCube(stack.getItem()));
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    private static final Map<Item, Boolean> CUBES = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Whether an item places a full, opaque cube (carried as a block legacy code can use as a cover). */
+    private static boolean isCube(Item item) {
+        if (!(item instanceof net.minecraft.world.item.BlockItem blockItem)) {
+            return false;
+        }
+        return CUBES.computeIfAbsent(item, key -> {
+            try {
+                net.minecraft.world.level.block.state.BlockState state = blockItem.getBlock().defaultBlockState();
+                return state.canOcclude() && net.minecraft.world.level.block.Block.isShapeFullBlock(
+                        state.getShape(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, net.minecraft.core.BlockPos.ZERO));
+            } catch (RuntimeException e) {
+                return false; // a block that needs a real world to say
+            }
+        });
+    }
+
+    /** The 1.20.1 block a carrier damage value stands for, or null. */
+    public static net.minecraft.world.level.block.Block blockOf(int index) {
+        String id;
+        synchronized (ModernItems.class) {
+            id = index >= 0 && index < IDS.size() ? IDS.get(index) : null;
+        }
+        Item item = id == null ? null : ForgeRegistries.ITEMS.getValue(new ResourceLocation(id));
+        return item instanceof net.minecraft.world.item.BlockItem blockItem ? blockItem.getBlock() : null;
     }
 
     /** The 1.20.1 item a carrier stack holds: {@code tag} is the carrier's NBT. */

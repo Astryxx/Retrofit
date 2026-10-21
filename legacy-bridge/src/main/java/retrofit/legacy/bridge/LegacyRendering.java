@@ -356,7 +356,15 @@ public final class LegacyRendering {
 
     /** Runs an item's Forge item renderer; returns the number of captured vertices. */
     public static int renderItem(Object item, int meta, String type) {
-        ItemStack stack = new ItemStack((Item) item, 1, meta);
+        return renderItemStack(new ItemStack((Item) item, 1, meta), type);
+    }
+
+    /**
+     * A stack drawn by its Forge item renderer, NBT and all: renderers draw what the stack holds
+     * (BuildCraft's facades their block, wands their caps and rods). Returns the vertex count.
+     */
+    public static int renderItemStack(Object legacyStack, String type) {
+        ItemStack stack = (ItemStack) legacyStack;
         IItemRenderer.ItemRenderType renderType = IItemRenderer.ItemRenderType.valueOf(type);
         IItemRenderer renderer = MinecraftForgeClient.getItemRenderer(stack, renderType);
         Capture.begin();
@@ -547,7 +555,11 @@ public final class LegacyRendering {
             }
             Field sounds = Minecraft.class.getDeclaredField("field_147127_av"); // mcSoundHandler
             sounds.setAccessible(true);
-            sounds.set(minecraft, allocate(BridgeSoundHandler.class));
+            Object handler = allocate(BridgeSoundHandler.class);
+            Field manager = net.minecraft.client.audio.SoundHandler.class.getDeclaredField("field_147694_f"); // sndManager
+            manager.setAccessible(true);
+            retrofit.legacy.compat.FinalFields.set(manager, handler, idleSoundManager());
+            sounds.set(minecraft, handler);
             Field fontField = TileEntityRendererDispatcher.class.getDeclaredField("field_147557_n"); // fontRenderer
             fontField.setAccessible(true);
             fontField.set(TileEntityRendererDispatcher.field_147556_a, font);
@@ -566,6 +578,32 @@ public final class LegacyRendering {
         } catch (ReflectiveOperationException ignored) {
             // Nothing more can be done; the next startDrawing will report it.
         }
+    }
+
+    /**
+     * A SoundManager that never starts (the host plays every sound), with its collections there and
+     * empty: mods look into them by reflection (Extra Utilities checks playingSounds before adding
+     * its machines' sounds).
+     */
+    private static Object idleSoundManager() throws Exception {
+        Object manager = allocate(net.minecraft.client.audio.SoundManager.class);
+        for (Field field : net.minecraft.client.audio.SoundManager.class.getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            Class<?> type = field.getType();
+            Object empty = type.isAssignableFrom(com.google.common.collect.HashBiMap.class) ? com.google.common.collect.HashBiMap.create()
+                    : type.isAssignableFrom(com.google.common.collect.HashMultimap.class) ? com.google.common.collect.HashMultimap.create()
+                    : type.isAssignableFrom(java.util.HashMap.class) ? new java.util.HashMap<Object, Object>()
+                    : type.isAssignableFrom(java.util.ArrayList.class) ? new java.util.ArrayList<Object>()
+                    : type.isAssignableFrom(java.util.HashSet.class) ? new java.util.HashSet<Object>()
+                    : null;
+            if (empty != null) {
+                field.setAccessible(true);
+                retrofit.legacy.compat.FinalFields.set(field, manager, empty);
+            }
+        }
+        return manager;
     }
 
     private static Object allocate(Class<?> type) throws Exception {

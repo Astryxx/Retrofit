@@ -130,7 +130,7 @@ public final class LegacyContent {
             }
             LegacyWoodSets.registerItems(helper);
             for (String name : LegacyBridge.modItemNames()) {
-                if (name.equals(ModernItems.LEGACY_NAME)) {
+                if (ModernItems.isCarrier(name)) {
                     continue; // carries 1.20.1 items through legacy code; never an item of its own here
                 }
                 Object legacyItem = LegacyBridge.item(name);
