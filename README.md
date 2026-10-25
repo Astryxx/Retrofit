@@ -25,10 +25,10 @@ supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects
    screen asks whether to download them and their libraries (about 50 MB, from Mojang, Forge's
    Maven and Maven Central; nothing is downloaded without a yes), and 1.7.10 mods load after a
    restart. Every start spends about 5-10 seconds booting 1.7.10 during mod loading.
-   `-Dretrofit.minecraftHome=<dir>` points Retrofit at a launcher folder other than `.minecraft`.
+   `-Dretrofit.minecraftHome=<dir>` points Retrofit to a launcher folder other than `.minecraft`.
 
 Servers: the same, on a Forge 1.20.1 server. Clients and the server need the same 1.7.10 mods;
-connecting with a different set is refused with a message. Java 17 or newer (tested with 17, 21 and 26).
+Connecting with a different set is refused with a message. Java 17 or newer (tested with 17, 21, and 26).
 
 ## Compatibility
 
@@ -36,7 +36,7 @@ connecting with a different set is refused with a message. Java 17 or newer (tes
 
 Every mod below was run through the automated mod sweep (see [Building](#building)) in a new
 1.20.1 world. The sweep places every block variant, right-clicks every machine, spawns and kills
-every creature, carries every item and generates new chunks. All of them were also loaded
+every creature, carries every item, and generates new chunks. All of them were also loaded
 together, in singleplayer and on a dedicated server with a client connected.
 
 | Mod (version tested) | Result |
@@ -75,10 +75,10 @@ DragonAPI then refuses to start until one is changed there.
 | Tile entities | Ticking on both sides, NBT saving, description packet sync, chunk unload, inventories as Forge item handlers (hoppers, pipes); vanilla and modern inventories as 1.7.10 tile entities for legacy pipes and machines | |
 | Items | Subtypes, the mods' own item names, durability, use on blocks and in the air (either hand), use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel, enchantments (mods' own become 1.20.1 enchantments), each mod's own creative tab | Items used over time work in the main hand only |
 | Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick; pieces with their own model (getArmorModel) draw it | Dyed armor's colour |
-| GUIs | Container GUIs (FML openGui, and containers mods open themselves, as IC2 does) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
+| GUIs | Container GUIs (FML openGui, and container mods open themselves, as IC2 does) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
 | Entities | Mod creatures and things with their own AI and pathfinding, damage both ways, death and drops, saving, the mod's own renderer, spawn eggs, natural spawning from the 1.7.10 biome lists, leads, riding (the player on legacy mounts, legacy creatures on each other); vanilla entities legacy code spawns (arrows, mobs) become 1.20.1 ones; 1.7.10 spawn setup (equipment, variants) for mobs 1.20.1 spawns; pathfinding below y 0 | |
 | Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, flight, chat, teleports, damage from legacy mobs, permission levels, potion effects both ways (mod potions' attribute modifiers too), extended properties saved with the player; FakePlayers; RenderPlayerEvent (Pre, Specials, Post) around the local player's model | Render events for other players |
-| World | Mod world generators (ores, structures, generated chests), world saved data, chunk load/unload/data events with per-chunk mod data, chunk access, per-world id maps (stable when mods change), mods' dimensions as 1.20.1 dimensions (their generators, creatures, fog and sky colours, Teleporters), ForgeChunkManager chunk loading; ores also generated below y 0 in the overworld | Generation is serialized |
+| World | Mod world generators (ores, structures, generated chests), world saved data, chunk load/unload/data events with per-chunk mod data, chunk access, per-world ID maps (stable when mods change), mods' dimensions as 1.20.1 dimensions (their generators, creatures, fog and sky colours, Teleporters), ForgeChunkManager chunk loading; ores also generated below y 0 in the overworld | Generation is serialized |
 | Recipes | Every crafting recipe (through the legacy recipe list, mods' own recipe classes included), furnace recipes, fuel; shaped and shapeless crafting recipes (vanilla and Ore Dictionary ones) in the recipe book, JEI, REI and EMI | Recipes of mods' own recipe classes (IC2's, Tinkers' tools) craft but don't show in the recipe book or viewers |
 | Events | FML ticks (server, world, player, client, render), login/logout/respawn/dimension, server lifecycle, PlayerInteractEvent, living events (attack, hurt, death, fall, jump, heal, break speed, update), EntityJoinWorldEvent, item tooltips, world load/save, chunk events, texture stitching, key bindings and KeyInputEvent, HUD (RenderGameOverlayEvent.Post), RenderWorldLastEvent, RenderPlayerEvent, DrawBlockHighlightEvent | |
 | Commands | Commands registered in FMLServerStartingEvent, with tab completion; usable from command blocks and data pack functions | |
@@ -92,9 +92,9 @@ DragonAPI then refuses to start until one is changed there.
 ## Known issues
 
 - A client sometimes stalls at "Logging in..." when connecting very soon after the game starts
-  (it never answers the server's first Forge login query). It also happens without Retrofit;
-  cancel and connect again.
-- Without a 1.7.10 launcher install, downloading needs internet access to Mojang, Forge's Maven and
+  (It never answers the server's first Forge login query). It also happens without Retrofit;
+  Cancel and connect again.
+- Without a 1.7.10 launcher install, downloading needs internet access to Mojang, Forge's Maven, and
   Maven Central. Dedicated servers download only after `download-files=yes` is set in
   `retrofit/retrofit.properties` (they stop with instructions until then); `never` there means
   never download (and never ask).
@@ -105,7 +105,7 @@ DragonAPI then refuses to start until one is changed there.
   aren't drawn; legacy dimensions get 1.20.1's clouds and weather (their own sky renderers are drawn).
 - FML logs "missing any signature data", and some mods log signature warnings. Cosmetic.
 - Clients and servers need the same 1.7.10 configs (`retrofit/config`), as in a 1.7.10 pack: mods
-  that number their potions, biomes or enchantments in their configs (Witchery) otherwise refuse
+  that number their potions, biomes, or enchantments in their configs (Witchery) otherwise refuse
   to connect with "Missing registry data".
 
 ## How it works
@@ -119,7 +119,7 @@ DragonAPI then refuses to start until one is changed there.
   real 1.7.10 `WorldServer`/`WorldClient` whose block, light, redstone, entity, sound and particle
   methods call the level through `retrofit.api.HostWorld`. A real (never started) legacy
   `MinecraftServer` holds the player list and commands. Vanilla 1.7.10 blocks map to 1.20.1
-  blocks through Minecraft's own data fixer, items likewise.
+  blocks through Minecraft's own data fixer; items likewise.
 - **Players**: legacy code always sees a mirror player, synced around every legacy call; only the
   inventory slots legacy code changed are written back.
 - **Rendering**: LWJGL 2 references go to generated stand-ins; GL11 calls are emulated and
@@ -159,8 +159,8 @@ python -I tools/check_server_side.py   # after :harness:dumpServerSrgJar: no cli
 ```
 
 Dev runs load the 1.7.10 mods in `corpus/` (not in git; `.jar` and `.zip`). `-Pcorpus=a,b` picks
-the ones whose file names contain one of the parts, `-Pcorpus=none` only the test mod.
-`-PextraJvmArg=...` passes a JVM argument to the game (for example DragonAPI's flag).
+the ones whose file names contain one of the parts; `-Pcorpus=none` only the test mod.
+`-PextraJvmArg=...` passes a JVM argument to the game (for example, DragonAPI's flag).
 
 The world test places, uses, eats and breaks legacy blocks and items, crafts and smelts, opens
 the test mod's and BiblioCraft's GUIs, clicks a legacy button that sends a packet, fights a legacy
@@ -190,3 +190,8 @@ Retrofit is free and open source software, licensed under the GNU General Public
 version 2 (see [LICENSE](LICENSE)). The license covers Retrofit's own code only: Minecraft, Forge
 and 1.7.10 mods keep their own terms, and none of them are part of this repository or its
 releases.
+
+## Credits
+Built on Minecraft Forge and FML for both versions, and on everyone who wrote the 1.7.10 mods this is for.
+This project was built using an AI tool called "[Universal Modder](https://github.com/rehan-remade/universal-modder/tree/main)" by Rehan.
+Credit to [UsagiTsukino-01](https://github.com/UsagiTsukino-01) for their help on this project. 
