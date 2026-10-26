@@ -110,7 +110,7 @@ final class LegacyAssetPack implements PackResources {
             if (block.renderType() != 0) {
                 nonCube++;
             }
-            addBlock(block, blockTextures);
+            addBlock(block, blockTextures, itemTextures);
         }
         addWoodAliases();
         for (LegacyItem item : items) {
@@ -189,17 +189,21 @@ final class LegacyAssetPack implements PackResources {
         }
     }
 
-    private void addBlock(LegacyBlock block, Map<String, String> textureIds) {
+    private void addBlock(LegacyBlock block, Map<String, String> textureIds, Map<String, String> itemTextureIds) {
         ResourceLocation key = ForgeRegistries.BLOCKS.getKey(block);
         String[] models = new String[16];
+        String[][] facesByMeta = new String[16][];
+        float[][] boundsByMeta = new float[16][];
         String fallbackModel = null;
         for (int meta = 0; meta < 16; meta++) {
             String[] faces = LegacyBridge.faceTextures(block.legacyBlock(), meta);
             if (faces == null) {
                 continue;
             }
+            facesByMeta[meta] = faces;
+            boundsByMeta[meta] = block.renderType() == 0 ? renderBounds(block, meta) : null;
             String modelPath = "block/legacy/" + key.getNamespace() + "/" + key.getPath() + "/m" + meta;
-            JsonObject model = blockModel(block, faces, textureIds);
+            JsonObject model = blockModel(block, faces, textureIds, boundsByMeta[meta]);
             if (block.renderType() == -1) {
                 model = emptyModel(model); // drawn entirely by its tile entity renderer
             }
@@ -212,6 +216,12 @@ final class LegacyAssetPack implements PackResources {
         Object legacyItem = block.asItem() instanceof LegacyBlockItem item ? item.legacyItem() : null;
         boolean customBlock = block.renderType() >= 42 && legacyItem != null && LegacyBridge.<Boolean>call("blockItemIn3d", block.legacyBlock());
         boolean ownItemRenderer = legacyItem != null && LegacyBridge.hasItemRenderer(legacyItem, 0, "INVENTORY") || customBlock;
+        // RenderItem: an item block whose render type isn't drawn in 3D (plants, rails, blocks drawn
+        // by their tile entity) is its item's icon, flat, like any item
+        boolean flatItem = legacyItem != null && !ownItemRenderer && !LegacyBridge.<Boolean>call("blockItemIn3d", block.legacyBlock());
+        if (flatItem) {
+            addItem((retrofit.forge.world.LegacyStackItem) block.asItem(), itemTextureIds);
+        }
         if (fallbackModel == null) {
             // no icons at all (GregTech's machines draw only through their own renderer): the item still is the mod's drawing
             if (ownItemRenderer) {
@@ -229,7 +239,31 @@ final class LegacyAssetPack implements PackResources {
         blockstate.add("variants", variants);
         putJson(key.getNamespace(), "blockstates/" + key.getPath() + ".json", blockstate);
 
-        String baseModel = models[0] != null ? models[0] : fallbackModel;
+        if (flatItem) {
+            return; // its item model is written
+        }
+        // RenderBlocks.renderBlockAsItem drew plain blocks with setBlockBoundsForItemRender's bounds
+        // (pressure plates thicker than in the world): those that differ get an item model of their own
+        String[] itemModels = models.clone();
+        if (block.renderType() == 0) {
+            float[] itemBounds = itemBounds(block);
+            for (int meta = 0; meta < 16; meta++) {
+                if (itemBounds != NOT_SET && models[meta] != null && !Arrays.equals(itemBounds, boundsByMeta[meta])) {
+                    String modelPath = "block/legacy/" + key.getNamespace() + "/" + key.getPath() + "/m" + meta + "_item";
+                    putJson("retrofit", "models/" + modelPath + ".json", blockModel(block, facesByMeta[meta], textureIds, itemBounds));
+                    itemModels[meta] = "retrofit:" + modelPath;
+                }
+            }
+        }
+        if (itemModels[0] == null) {
+            itemModels[0] = fallbackModel;
+        }
+        for (int meta = 0; meta < 16 && !ownItemRenderer; meta++) {
+            if (itemModels[meta] != null) {
+                itemModels[meta] = blockItemModel(key, meta, itemModels[meta]);
+            }
+        }
+        String baseModel = itemModels[0];
         JsonObject itemModel;
         if (ownItemRenderer) {
             // drawn by the legacy item renderer, or (mods' block renderers) as 1.7.10 drew the block as an item
@@ -240,14 +274,32 @@ final class LegacyAssetPack implements PackResources {
             if (block.asItem() instanceof LegacyBlockItem item && item.hasSubtypes()) {
                 JsonArray overrides = new JsonArray();
                 for (int meta : LegacyBridge.itemSubtypes(legacyItem)) {
-                    if (meta >= 0 && meta < 16 && models[meta] != null) {
-                        overrides.add(metaOverride(meta, models[meta]));
+                    if (meta >= 0 && meta < 16 && itemModels[meta] != null) {
+                        overrides.add(metaOverride(meta, itemModels[meta]));
                     }
                 }
                 itemModel.add("overrides", overrides);
             }
         }
         putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", itemModel);
+    }
+
+    /**
+     * 1.7.10's GUI pose of a block item (RenderItem: 210 degrees about x, 45 then -90 about y, at 10
+     * of 16 pixels), as a 1.20.1 display transform: vanilla's blocks face the other way round (225).
+     */
+    private static final JsonObject LEGACY_BLOCK_GUI = transform(new float[]{30, 315, 0}, new float[]{0, 0, 0}, 0.625f);
+
+    /** An item model of a block model for one metadata value, shown in GUIs as 1.7.10 showed it. */
+    private String blockItemModel(ResourceLocation key, int meta, String blockModel) {
+        String path = "item/legacy/" + key.getNamespace() + "/" + key.getPath() + "/b" + meta;
+        JsonObject model = new JsonObject();
+        model.addProperty("parent", blockModel);
+        JsonObject display = new JsonObject();
+        display.add("gui", LEGACY_BLOCK_GUI);
+        model.add("display", display);
+        putJson("retrofit", "models/" + path + ".json", model);
+        return "retrofit:" + path;
     }
 
     /** A model with no geometry, keeping the textures (for the break particles). */
@@ -303,7 +355,12 @@ final class LegacyAssetPack implements PackResources {
         return override;
     }
 
-    private JsonObject blockModel(LegacyBlock block, String[] faces, Map<String, String> textureIds) {
+    /**
+     * A block's model from its face textures: a plain block (render type 0) smaller than a cube
+     * (cakes, carpets, plates) is a box of its bounds (see renderBounds; null for a whole cube), its
+     * textures taken where the box lies, as RenderBlocks.renderStandardBlock took them.
+     */
+    private JsonObject blockModel(LegacyBlock block, String[] faces, Map<String, String> textureIds, float[] bounds) {
         String[] sprites = new String[6];
         for (int i = 0; i < 6; i++) {
             sprites[i] = textureIds.computeIfAbsent(faces[i], name -> spriteId("blocks", name));
@@ -311,7 +368,13 @@ final class LegacyAssetPack implements PackResources {
         JsonObject model = new JsonObject();
         JsonObject textures = new JsonObject();
         boolean tinted = tinted(block); // leaves, grass: coloured by LegacyBlockColors
-        if (Arrays.stream(sprites).allMatch(sprites[0]::equals)) {
+        if (bounds != null) {
+            model.addProperty("parent", "minecraft:block/block");
+            model.add("elements", box(bounds, tinted));
+            for (int i = 0; i < 6; i++) {
+                textures.addProperty(FACES[i], sprites[i]);
+            }
+        } else if (Arrays.stream(sprites).allMatch(sprites[0]::equals)) {
             model.addProperty("parent", tinted ? "minecraft:block/leaves" : "minecraft:block/cube_all"); // leaves: cube_all with tint index 0
             textures.addProperty("all", sprites[0]);
         } else {
@@ -321,8 +384,7 @@ final class LegacyAssetPack implements PackResources {
             }
             if (tinted) {
                 model.addProperty("parent", "minecraft:block/block");
-                model.add("elements", tintedCube());
-                textures.addProperty("particle", sprites[1]);
+                model.add("elements", box(new float[]{0, 0, 0, 16, 16, 16}, true));
             }
         }
         textures.addProperty("particle", sprites[1]);
@@ -348,19 +410,70 @@ final class LegacyAssetPack implements PackResources {
         });
     }
 
-    /** minecraft:block/cube's element with tint index 0 on every face. */
-    private static JsonArray tintedCube() {
+    /**
+     * The bounds a plain block is drawn with for a metadata value, in model units (min x y z, max x
+     * y z out of 16), or null for a whole cube: the selection box once setBlockBoundsBasedOnState has
+     * run, which is what RenderBlocks drew.
+     */
+    private static float[] renderBounds(LegacyBlock block, int meta) {
+        double[] shape;
+        try {
+            shape = LegacyBridge.blockShape(block.legacyBlock(), meta);
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return modelBounds(shape);
+    }
+
+    /** itemBounds of a block that doesn't set item bounds: its item is drawn with the block's own model. */
+    private static final float[] NOT_SET = new float[0];
+
+    /**
+     * The bounds plain blocks were drawn with as items (setBlockBoundsForItemRender), as renderBounds
+     * gives them, or NOT_SET.
+     */
+    private static float[] itemBounds(LegacyBlock block) {
+        try {
+            double[] bounds = LegacyBridge.call("itemRenderBounds", block.legacyBlock());
+            return bounds == null ? NOT_SET : modelBounds(bounds);
+        } catch (RuntimeException e) {
+            return NOT_SET;
+        }
+    }
+
+    /** Block bounds (min x y z, max x y z, out of 1) in model units, null for a whole cube or nothing. */
+    private static float[] modelBounds(double[] shape) {
+        float[] bounds = new float[6];
+        boolean whole = true;
+        for (int i = 0; i < 6; i++) {
+            bounds[i] = (float) Math.max(0, Math.min(16, shape[i] * 16));
+            whole &= bounds[i] == (i < 3 ? 0 : 16);
+        }
+        boolean empty = bounds[0] >= bounds[3] || bounds[1] >= bounds[4] || bounds[2] >= bounds[5];
+        return whole || empty ? null : bounds;
+    }
+
+    /**
+     * One element of the given bounds (min x y z, max x y z, out of 16) with each face's own texture;
+     * faces on the block's edge are culled by the neighbour there. Tint index 0 on every face if tinted.
+     */
+    private static JsonArray box(float[] bounds, boolean tinted) {
+        boolean[] onEdge = {bounds[1] == 0, bounds[4] == 16, bounds[2] == 0, bounds[5] == 16, bounds[0] == 0, bounds[3] == 16}; // FACES order
         JsonObject faces = new JsonObject();
-        for (String face : FACES) {
+        for (int i = 0; i < FACES.length; i++) {
             JsonObject entry = new JsonObject();
-            entry.addProperty("texture", "#" + face);
-            entry.addProperty("cullface", face);
-            entry.addProperty("tintindex", 0);
-            faces.add(face, entry);
+            entry.addProperty("texture", "#" + FACES[i]);
+            if (onEdge[i]) {
+                entry.addProperty("cullface", FACES[i]);
+            }
+            if (tinted) {
+                entry.addProperty("tintindex", 0);
+            }
+            faces.add(FACES[i], entry);
         }
         JsonObject element = new JsonObject();
-        element.add("from", array(new float[]{0, 0, 0}));
-        element.add("to", array(new float[]{16, 16, 16}));
+        element.add("from", array(new float[]{bounds[0], bounds[1], bounds[2]}));
+        element.add("to", array(new float[]{bounds[3], bounds[4], bounds[5]}));
         element.add("faces", faces);
         JsonArray elements = new JsonArray();
         elements.add(element);
@@ -437,6 +550,8 @@ final class LegacyAssetPack implements PackResources {
         flat.addProperty("parent", flatModel);
         JsonObject model = new JsonObject();
         model.addProperty("loader", "forge:separate_transforms");
+        // lit as the GUI shows it: from the front when that's the flat item (1.7.10 drew those unshaded)
+        model.addProperty("gui_light", custom[0] ? "side" : "front");
         model.add("base", flat);
         JsonObject perspectives = new JsonObject();
         for (int i = 0; i < contexts.length; i++) {
@@ -453,7 +568,7 @@ final class LegacyAssetPack implements PackResources {
     // ---- Textures ----
 
     /**
-     * Icons for mods' potion effects (retrofit:legacy_potion_N; see LegacyMobEffects): a disc in the
+     * Icons for mods' potion effects (registered by name; see LegacyMobEffects): a disc in the
      * potion's colour. Mods drew their own icons from their own sheets, which 1.20.1 can't call.
      */
     private void addPotionIcons() {
@@ -473,7 +588,8 @@ final class LegacyAssetPack implements PackResources {
             } catch (IOException | RuntimeException e) {
                 continue;
             }
-            put(retrofit.forge.RetrofitMod.MOD_ID, "textures/mob_effect/legacy_potion_" + potion.getKey() + ".png", () -> new ByteArrayInputStream(png));
+            ResourceLocation id = (ResourceLocation) potion.getValue()[2];
+            put(id.getNamespace(), "textures/mob_effect/" + id.getPath() + ".png", () -> new ByteArrayInputStream(png));
         }
     }
 
@@ -510,6 +626,13 @@ final class LegacyAssetPack implements PackResources {
             return true;
         }
         if (addSheetTile(kind, iconName, target, sources) || addCustomSprite(kind, iconName, target)) {
+            return true;
+        }
+        // not in any jar: a resource pack a mod adds on the legacy side (Extra Utilities makes Tinkers' Construct
+        // parts of its materials that way, drawn when asked for)
+        byte[] made = LegacyBridge.call("legacyResource", namespace, legacyPath.substring(("assets/" + namespace + "/").length()));
+        if (made != null) {
+            put("retrofit", target, () -> new ByteArrayInputStream(made));
             return true;
         }
         LOGGER.debug("Legacy texture {} not found (looked for {})", iconName, legacyPath);

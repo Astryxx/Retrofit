@@ -15,6 +15,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.WorldEvent;
+import retrofit.legacy.gl.Capture;
 
 import java.io.File;
 import java.lang.reflect.Field;
@@ -53,6 +54,12 @@ public final class Events {
             FMLCommonHandler.instance().onPreWorldTick((World) world);
         } else {
             FMLCommonHandler.instance().onPostWorldTick((World) world);
+            // A client-side handler drawing here draws into the capture nothing reads (drawing
+            // belongs to the render tick): clear it so it can't pile up. Server threads must not
+            // clear a capture the render thread is about to draw.
+            if (((World) world).field_72995_K) { // isRemote
+                Capture.begin();
+            }
         }
     }
 
@@ -61,6 +68,10 @@ public final class Events {
             FMLCommonHandler.instance().onPlayerPreTick((EntityPlayer) player);
         } else {
             FMLCommonHandler.instance().onPlayerPostTick((EntityPlayer) player);
+            // As worldTick: nothing reads what a client-side tick handler drew.
+            if (((EntityPlayer) player).field_70170_p.field_72995_K) { // worldObj.isRemote
+                Capture.begin();
+            }
         }
     }
 
@@ -71,6 +82,9 @@ public final class Events {
             FMLCommonHandler.instance().onPreClientTick();
         } else {
             FMLCommonHandler.instance().onPostClientTick();
+            // Nothing reads what a tick handler drew (ticks aren't drawn; the frame is drawn after
+            // them, as on 1.7.10): clear it, or a handler drawing every tick piles up vertices.
+            Capture.begin();
         }
     }
 
@@ -81,6 +95,11 @@ public final class Events {
         LegacyRendering.resetTessellatorIfDrawing();
         if (start) {
             FMLCommonHandler.instance().onRenderTickStart(partialTicks);
+            // Nothing reads what a start handler drew (the host's own frame is drawn over it, as on
+            // 1.7.10; only the tick end's drawing is captured, see ClientEvents.drawRenderTickEnd):
+            // clear it, or a handler drawing every frame (AoA's notice board) piles up vertices
+            // until the heap runs out.
+            Capture.begin();
         } else {
             FMLCommonHandler.instance().onRenderTickEnd(partialTicks);
         }
@@ -132,6 +151,7 @@ public final class Events {
         Field shared = World.class.getDeclaredField("s_mapStorage"); // Forge's global map storage, from the last world
         shared.setAccessible(true);
         shared.set(null, null);
+        BridgeWorldServer.resetSharedMapStorage();
         FMLCommonHandler.instance().handleServerAboutToStart(LegacyWorlds.server());
     }
 

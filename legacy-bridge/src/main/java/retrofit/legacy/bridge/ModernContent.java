@@ -21,6 +21,10 @@ import java.lang.reflect.Field;
  * Full-cube blocks travel as "retrofit:modern_block" instead, an ItemBlock of the solid stand-in
  * block, whose icons for that damage are the 1.20.1 block's textures: mods that take blocks as
  * covers or facades (Carpenter's Blocks) accept and draw them.
+ *
+ * In the world, blocks 1.7.10 never had are the stand-in blocks, whose tile entity
+ * ({@link ModernTile}) carries the real block: mods that move blocks with their tile entities
+ * (Pistronics' pistons, frames, block movers) move the real block.
  */
 public final class ModernContent {
     static final String ITEM_NAME = "retrofit:modern_item";
@@ -60,7 +64,9 @@ public final class ModernContent {
                 // the solid one's item carries 1.20.1 blocks (Block.getBlockFromItem goes by the shared id)
                 GameRegistry.registerBlock(solidBlock, ModernBlockItem.class, "modern_block");
                 GameRegistry.registerBlock(openBlock, null, "modern_open_block"); // no item: it stands for blocks of the 1.20.1 world
+                GameRegistry.registerTileEntity(ModernTile.class, "retrofit:modern_block"); // carried by mods that save tile entities to move them
                 blockItem = Item.func_150898_a(solidBlock); // getItemFromBlock
+                HostCreatures.nameStandIns();
             } finally {
                 active.set(controller, before);
             }
@@ -217,11 +223,63 @@ public final class ModernContent {
             field_149761_L = register.func_94245_a("stone"); // blockIcon = registerIcon
         }
 
+        /**
+         * getIcon in the world: the stand-in's own (stone's). Its metadata there is no carrier number,
+         * so the carrier's icons below don't apply.
+         */
+        @Override
+        public net.minecraft.util.IIcon func_149673_e(net.minecraft.world.IBlockAccess world, int x, int y, int z, int side) {
+            return field_149761_L; // blockIcon
+        }
+
         /** getIcon: for the block carrier's damage, the 1.20.1 block's texture (client only). */
         @Override
         public net.minecraft.util.IIcon func_149691_a(int side, int meta) {
             net.minecraft.util.IIcon icon = solid ? ModernIcons.icon(meta, side) : null;
             return icon != null ? icon : super.func_149691_a(side, meta);
+        }
+    }
+
+    static boolean isStandIn(net.minecraft.block.Block block) {
+        return block != null && (block == solidBlock || block == openBlock);
+    }
+
+    /**
+     * The tile entity of a stand-in in the world: the host block it stands for, as the host gave it
+     * ({@link retrofit.api.HostWorld#hostBlockData}). Placed again (World.setTileEntity), wherever
+     * that is, it puts the real block there.
+     */
+    public static final class ModernTile extends net.minecraft.tileentity.TileEntity {
+        private NBTTagCompound block;
+
+        public ModernTile() {
+        }
+
+        ModernTile(NBTTagCompound block) {
+            this.block = block;
+        }
+
+        NBTTagCompound block() {
+            return block;
+        }
+
+        @Override
+        public void func_145839_a(NBTTagCompound tag) { // readFromNBT
+            super.func_145839_a(tag);
+            block = tag.func_74764_b(TAG) ? tag.func_74775_l(TAG) : null; // hasKey, getCompoundTag
+        }
+
+        @Override
+        public void func_145841_b(NBTTagCompound tag) { // writeToNBT
+            super.func_145841_b(tag);
+            if (block != null) {
+                tag.func_74782_a(TAG, block); // setTag
+            }
+        }
+
+        @Override
+        public boolean canUpdate() {
+            return false;
         }
     }
 

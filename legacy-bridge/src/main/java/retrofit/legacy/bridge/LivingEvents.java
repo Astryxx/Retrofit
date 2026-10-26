@@ -3,6 +3,7 @@ package retrofit.legacy.bridge;
 import net.minecraft.block.Block;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.DamageSource;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
@@ -11,6 +12,8 @@ import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.player.ArrowLooseEvent;
+import net.minecraftforge.event.entity.player.ArrowNockEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 
 import java.lang.reflect.Constructor;
@@ -21,9 +24,10 @@ import java.util.Map;
 
 /**
  * Forge's living events for players, fired on the player's mirror when the host player is
- * attacked, hurt, killed, falls, jumps or heals, and when it breaks blocks (BreakSpeed). Mods hook
- * these for armour, shields, buffs, curses and transformations. Results go back to the host:
- * cancelled, a new amount, a new fall distance or speed. Legacy creatures fire them themselves.
+ * attacked, hurt, killed, falls, jumps or heals, when it breaks blocks (BreakSpeed), and when it
+ * draws and looses a bow (mods' own arrows). Mods hook these for armour, shields, buffs, curses
+ * and transformations. Results go back to the host: cancelled, a new amount, a new fall distance,
+ * speed or charge. Legacy creatures fire them themselves.
  */
 public final class LivingEvents {
     public static final int PROJECTILE = 1;
@@ -39,11 +43,12 @@ public final class LivingEvents {
     private LivingEvents() {
     }
 
-    /** Which of these events any legacy mod listens to, as bits: attack, hurt, death, fall, jump, heal, break speed. */
+    /** Which of these events any legacy mod listens to, as bits: attack, hurt, death, fall, jump, heal, break speed, arrow nock, arrow loose. */
     public static int livingWanted() {
         if (wanted == null) {
             Class<?>[] events = {LivingAttackEvent.class, LivingHurtEvent.class, LivingDeathEvent.class, LivingFallEvent.class,
-                    LivingEvent.LivingJumpEvent.class, LivingHealEvent.class, PlayerEvent.BreakSpeed.class};
+                    LivingEvent.LivingJumpEvent.class, LivingHealEvent.class, PlayerEvent.BreakSpeed.class,
+                    ArrowNockEvent.class, ArrowLooseEvent.class};
             int bits = 0;
             for (int i = 0; i < events.length; i++) {
                 bits |= Events.listenedTo(events[i]) ? 1 << i : 0;
@@ -131,6 +136,17 @@ public final class LivingEvents {
     public static float livingHeal(Object player, float amount) {
         LivingHealEvent event = new LivingHealEvent((EntityLivingBase) player, amount);
         return MinecraftForge.EVENT_BUS.post(event) ? Float.NaN : event.amount;
+    }
+
+    /** ArrowNockEvent, as a bow is drawn; true if a mod drew it itself (Pistronics: with its own arrows, no vanilla ones needed). */
+    public static boolean arrowNock(Object player, Object bow) {
+        return MinecraftForge.EVENT_BUS.post(new ArrowNockEvent((EntityPlayer) player, (ItemStack) bow));
+    }
+
+    /** ArrowLooseEvent, as a drawn bow is let go; the charge after the mods, or -1 if a mod fired it itself. */
+    public static int arrowLoose(Object player, Object bow, int charge) {
+        ArrowLooseEvent event = new ArrowLooseEvent((EntityPlayer) player, (ItemStack) bow, charge);
+        return MinecraftForge.EVENT_BUS.post(event) ? -1 : event.charge;
     }
 
     /** PlayerEvent.BreakSpeed; the speed after the mods (NaN if cancelled). */

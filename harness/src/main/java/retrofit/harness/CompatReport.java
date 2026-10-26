@@ -5,8 +5,10 @@ import retrofit.host.LegacyRuntime;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -92,6 +94,13 @@ final class CompatReport {
                 if (DEBUG_ITEM != null && name.contains(DEBUG_ITEM)) {
                     synchronized (call("lock")) {
                         printBounds(name + " meta " + meta + " as an item block", (int) call("renderBlockItem", block, meta, meta));
+                        Object blockItem = call("item", name);
+                        if (blockItem != null) {
+                            System.out.printf("[Retrofit] Block %s meta %d item colour %06x, render type %d%n", name, meta,
+                                    (int) call("itemColor", call("makeStackOf", blockItem, 1, meta, null), 0), renderType);
+                        }
+                        System.out.printf("[Retrofit] Block %s meta %d faces %s%n", name, meta,
+                                java.util.Arrays.toString((String[]) call("faceTextures", block, meta)));
                         Object item = call("item", name);
                         for (String type : ITEM_RENDER_TYPES) {
                             if (item != null && (boolean) call("hasItemRenderer", item, meta, type)) {
@@ -135,6 +144,12 @@ final class CompatReport {
         for (String name : (String[]) call("modItemNames")) {
             Object item = call("item", name);
             for (int meta : (int[]) call("itemSubtypes", item)) {
+                if (DEBUG_ITEM != null && name.contains(DEBUG_ITEM)) {
+                    Object stack = call("makeStackOf", item, 1, meta, null);
+                    System.out.printf("[Retrofit] Item %s meta %d icons %s, colours %06x %06x%n", name, meta,
+                            java.util.Arrays.toString((String[]) call("itemPassTextures", item, meta, 5)),
+                            (int) call("itemColor", stack, 0), (int) call("itemColor", stack, 1));
+                }
                 for (String type : ITEM_RENDER_TYPES) {
                     if ((boolean) call("hasItemRenderer", item, meta, type)) {
                         check("item renderer " + type, name, () -> {
@@ -151,6 +166,10 @@ final class CompatReport {
             }
         }
 
+        String itemList = System.getProperty("retrofit.itemList");
+        if (itemList != null) {
+            writeItemList(java.nio.file.Path.of(itemList));
+        }
         totals.forEach((check, counts) -> System.out.printf("[Retrofit] Compat: %-45s %4d ok, %4d failed%n", check, counts[0], counts[1]));
         failures.forEach((cause, where) -> System.out.printf("[Retrofit] Compat failure: %s%n      in %s%n", cause, where));
     }
@@ -177,6 +196,38 @@ final class CompatReport {
         }
     }
 
+    /**
+     * -Dretrofit.itemList=<file>: every mod item and item block with its subtypes, as the comparison
+     * with real 1.7.10 reads it ("name damage", "hand" after items whose own renderer draws them in
+     * the hand), after 1.20.1's stone and diamond sword as the reference for held items.
+     */
+    /** Items each mod has shot in the hand at most (see writeItemList). */
+    private static final int HAND_SHOTS_PER_MOD = 12;
+
+    private void writeItemList(java.nio.file.Path file) throws Exception {
+        List<String> lines = new ArrayList<>(List.of("minecraft:stone\t0\thand", "minecraft:diamond_sword\t0\thand"));
+        java.util.Set<String> names = new java.util.LinkedHashSet<>(List.of((String[]) call("modItemNames")));
+        names.addAll(List.of((String[]) call("modBlockNames")));
+        Map<String, Integer> handShots = new HashMap<>();
+        for (String name : names) {
+            Object item = call("item", name);
+            if (item == null || name.startsWith("hello1710:") || name.startsWith("retrofit:")) {
+                continue;
+            }
+            String mod = name.substring(0, Math.max(0, name.indexOf(':')));
+            for (int meta : (int[]) call("itemSubtypes", item)) {
+                boolean hand = (boolean) call("hasItemRenderer", item, meta, "EQUIPPED") || (boolean) call("hasItemRenderer", item, meta, "EQUIPPED_FIRST_PERSON");
+                // a sample of each mod's items in the hand: a whole mod's pipes or machines held one by one take hours
+                if (hand) {
+                    hand = handShots.merge(mod, 1, Integer::sum) <= HAND_SHOTS_PER_MOD;
+                }
+                lines.add(name + "\t" + meta + (hand ? "\thand" : ""));
+            }
+        }
+        java.nio.file.Files.write(file, lines);
+        System.out.printf("[Retrofit] Item list: %d stacks written to %s%n", lines.size(), file);
+    }
+
     /** -Dretrofit.debugItem=<part of an item name>: prints where such items' renderers draw, per render type. */
     private static final String DEBUG_ITEM = System.getProperty("retrofit.debugItem");
 
@@ -187,7 +238,12 @@ final class CompatReport {
         int stride = capture.getField("FLOATS_PER_VERTEX").getInt(null);
         float[] min = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE}, max = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
         float minAlpha = 1, maxAlpha = 0;
+        float[] colour = new float[3], normal = new float[3];
         for (int v = 0; v < vertices; v++) {
+            for (int c = 0; c < 3; c++) {
+                colour[c] += d[v * stride + 8 + c] / vertices;
+                normal[c] += Math.abs(d[v * stride + 5 + c]) / vertices;
+            }
             for (int axis = 0; axis < 3; axis++) {
                 min[axis] = Math.min(min[axis], d[v * stride + axis]);
                 max[axis] = Math.max(max[axis], d[v * stride + axis]);
@@ -195,8 +251,18 @@ final class CompatReport {
             minAlpha = Math.min(minAlpha, d[v * stride + 11]);
             maxAlpha = Math.max(maxAlpha, d[v * stride + 11]);
         }
-        System.out.printf("[Retrofit] Item %s: %d vertices, x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f, alpha %.2f..%.2f%n", what, vertices,
-                min[0], max[0], min[1], max[1], min[2], max[2], minAlpha, maxAlpha);
+        int[] states = (int[]) capture.getMethod("states").invoke(null);
+        int textureMask = capture.getField("TEXTURE_MASK").getInt(null);
+        int untextured = capture.getField("UNTEXTURED").getInt(null);
+        java.util.Set<String> textures = new java.util.TreeSet<>();
+        for (int v = 0; v < vertices; v += 4) {
+            textures.add((states[v] & untextured) != 0 ? "untextured"
+                    : String.valueOf(capture.getMethod("textureName", int.class).invoke(null, states[v] & textureMask)));
+        }
+        System.out.printf("[Retrofit] Item %s: %d vertices, x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f, alpha %.2f..%.2f, "
+                        + "mean rgb %.2f %.2f %.2f, mean |normal| %.2f %.2f %.2f, textures %s%n", what, vertices,
+                min[0], max[0], min[1], max[1], min[2], max[2], minAlpha, maxAlpha,
+                colour[0], colour[1], colour[2], normal[0], normal[1], normal[2], textures);
     }
 
     private Object call(String name, Object... args) throws Exception {

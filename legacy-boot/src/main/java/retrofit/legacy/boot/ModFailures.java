@@ -26,10 +26,17 @@ public final class ModFailures {
     private static final Set<String> CORE = new HashSet<String>(java.util.Arrays.asList("mcp", "FML", "Forge", "Minecraft"));
     /** Mod id -> why it was left out, in order. */
     private static final Map<String, String> DROPPED = new LinkedHashMap<String, String>();
+    /** The files of the mods left out: what they registered before failing stays, and needs their textures and names. */
+    private static final List<java.io.File> LEFT_OUT_SOURCES = new ArrayList<java.io.File>();
     /** Event listeners that threw, each logged once. */
     private static final Set<String> FAILED_LISTENERS = new HashSet<String>();
 
     private ModFailures() {
+    }
+
+    /** The jars of the mods left out (see {@link #LEFT_OUT_SOURCES}). */
+    public static synchronized List<java.io.File> leftOutSources() {
+        return new ArrayList<java.io.File>(LEFT_OUT_SOURCES);
     }
 
     /** Why mods were left out, one line each ("GregTech (gregtech): needs IC2"). */
@@ -202,8 +209,12 @@ public final class ModFailures {
         states.getClass().getMethod("put", Object.class, Object.class).invoke(states, id, Enum.valueOf((Class) modState, "DISABLED"));
         String name = (String) mod.getClass().getMethod("getName").invoke(mod);
         String line = (name != null && !name.equals(id) ? name + " (" + id + ")" : id) + ": " + why;
+        Object source = mod.getClass().getMethod("getSource").invoke(mod);
         synchronized (ModFailures.class) {
             DROPPED.put(id, line);
+            if (source instanceof java.io.File && !LEFT_OUT_SOURCES.contains(source)) {
+                LEFT_OUT_SOURCES.add((java.io.File) source);
+            }
         }
         System.out.println("[Retrofit] 1.7.10 mod left out: " + line);
     }

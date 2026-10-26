@@ -31,7 +31,10 @@ public class LegacyBlockItem extends BlockItem implements LegacyStackItem {
     public LegacyBlockItem(LegacyBlock block, Object legacyItem) {
         super(block, new Properties());
         this.legacyItem = legacyItem;
-        this.hasSubtypes = legacyItem != null && LegacyBridge.itemInfo(legacyItem)[2] != 0;
+        // 1.7.10 kept and drew a block item's damage whether or not it declared subtypes (IC2's sixteen
+        // wall colours don't), unless the damage was durability
+        int[] info = legacyItem != null ? LegacyBridge.itemInfo(legacyItem) : null;
+        this.hasSubtypes = info != null && (info[2] != 0 || info[1] == 0);
     }
 
     @Override
@@ -66,7 +69,17 @@ public class LegacyBlockItem extends BlockItem implements LegacyStackItem {
     @Override
     protected BlockState getPlacementState(BlockPlaceContext context) {
         BlockState state = super.getPlacementState(context);
-        return state == null || !hasSubtypes ? state : state.setValue(LegacyContent.META, meta(context.getItemInHand()) & 15);
+        if (state == null || !hasSubtypes) {
+            return state;
+        }
+        int placed = LegacyBridge.call("itemBlockMeta", legacyItem, meta(context.getItemInHand())); // ItemBlock.getMetadata: the mod decides
+        return state.setValue(LegacyContent.META, placed & 15);
+    }
+
+    /** The legacy item's enchantment glint (see LegacyFoil). */
+    @Override
+    public boolean isFoil(ItemStack stack) {
+        return super.isFoil(stack) || LegacyFoil.isFoil(stack, this);
     }
 
     @Override
@@ -76,6 +89,14 @@ public class LegacyBlockItem extends BlockItem implements LegacyStackItem {
         }
         int meta = meta(stack);
         return translationKeys.computeIfAbsent(meta, m -> LegacyBridge.itemTranslationKey(legacyItem, m));
+    }
+
+    private final LegacyItem.Names names = new LegacyItem.Names();
+
+    /** The mod's own name for the stack (ItemBlocks name subtypes themselves), as for items (see LegacyItem.Names). */
+    @Override
+    public net.minecraft.network.chat.Component getName(ItemStack stack) {
+        return names.of(stack, getDescriptionId(stack), () -> super.getName(stack));
     }
 
     @Override

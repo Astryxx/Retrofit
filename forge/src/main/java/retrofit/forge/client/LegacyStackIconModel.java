@@ -38,10 +38,14 @@ import java.util.concurrent.ConcurrentHashMap;
 final class LegacyStackIconModel implements BakedModel {
     private static final int MAX_CACHED = 4096;
     private static final Map<Key, String> ICONS = new ConcurrentHashMap<>();
-    private static final Map<String, BakedModel> MODELS = new ConcurrentHashMap<>();
+    /** Built models by their icons and the damage's model, whose transforms they take. */
+    private static final Map<ModelKey, BakedModel> MODELS = new ConcurrentHashMap<>();
     private static volatile boolean failed;
 
     private record Key(Item item, int meta, int tag) {
+    }
+
+    private record ModelKey(String icons, BakedModel like) {
     }
 
     private final BakedModel base;
@@ -87,7 +91,10 @@ final class LegacyStackIconModel implements BakedModel {
         if (icons.isEmpty()) {
             return null;
         }
-        return MODELS.computeIfAbsent(icons, names -> build(names.split("\n"), byDamage));
+        if (MODELS.size() > MAX_CACHED) {
+            MODELS.clear();
+        }
+        return MODELS.computeIfAbsent(new ModelKey(icons, byDamage), wanted -> build(wanted.icons().split("\n"), wanted.like()));
     }
 
     private static String[] nonNull(String[] icons) {

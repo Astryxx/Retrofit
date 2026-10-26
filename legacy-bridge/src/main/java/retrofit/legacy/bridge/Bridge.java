@@ -66,7 +66,8 @@ public final class Bridge {
 
     /**
      * How a legacy block wants to be rendered and lit: {render type (0 = plain cube), opaque cube
-     * (1/0), render pass (0 solid, 1 translucent), light value (0-15)}.
+     * (1/0, see opaqueOnAnyGraphics), render pass (0 solid, 1 translucent), light value (0-15),
+     * icons from the world (1/0, see worldIcons)}.
      */
     public static int[] blockRenderInfo(Object legacyBlock) {
         Block block = (Block) legacyBlock;
@@ -75,16 +76,57 @@ public final class Bridge {
         try {
             renderType = block.func_149645_b();    // getRenderType
             renderPass = block.func_149701_w();    // getRenderBlockPass
-        } catch (NoSuchMethodError dedicatedServer) {
-            // Client-only in 1.7.10; a server doesn't render, so the defaults are fine.
+        } catch (RuntimeException | LinkageError clientOnly) {
+            // Client-only in 1.7.10, and on servers mods' render state isn't set up (Pistronics' blocks ask
+            // their client-side render manager for the render type): a server doesn't render, so the
+            // defaults are fine; on a client the block draws as a plain cube.
         }
         return new int[]{
                 renderType,
-                block.func_149662_c() ? 1 : 0,     // isOpaqueCube
+                opaqueOnAnyGraphics(block) ? 1 : 0,
                 renderPass,
                 block.func_149750_m(),             // getLightValue
                 worldIcons(block) ? 1 : 0
         };
+    }
+
+    /**
+     * isOpaqueCube, with fancy and with fast graphics: leaves (and blocks that follow vanilla's) are
+     * opaque only on fast graphics, and count as not opaque, as 1.20.1's own leaves, so the faces
+     * seen through them are drawn. Asked the same way on servers, which have no graphics setting, so
+     * both sides agree (light goes through what doesn't occlude). The setting is put back as it was.
+     */
+    private static boolean opaqueOnAnyGraphics(Block block) {
+        Block[] leaves = {net.minecraft.init.Blocks.field_150362_t, net.minecraft.init.Blocks.field_150361_u};
+        try {
+            if (leavesFancy == null) {
+                leavesFancy = net.minecraft.block.BlockLeavesBase.class.getDeclaredField("field_150121_P"); // fancy graphics
+                leavesFancy.setAccessible(true);
+            }
+            boolean[] was = new boolean[leaves.length];
+            for (int i = 0; i < leaves.length; i++) {
+                was[i] = leavesFancy.getBoolean(leaves[i]);
+            }
+            try {
+                return opaqueWith(block, leaves, true) && opaqueWith(block, leaves, false);
+            } finally {
+                for (int i = 0; i < leaves.length; i++) {
+                    leavesFancy.setBoolean(leaves[i], was[i]);
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            return block.func_149662_c(); // isOpaqueCube as it is
+        }
+    }
+
+    /** BlockLeavesBase's fancy graphics flag, which isOpaqueCube reads (setGraphicsLevel is client-only). */
+    private static java.lang.reflect.Field leavesFancy;
+
+    private static boolean opaqueWith(Block block, Block[] leaves, boolean fancy) throws IllegalAccessException {
+        for (Block vanilla : leaves) {
+            leavesFancy.setBoolean(vanilla, fancy); // only vanilla's leaves were told the setting, in 1.7.10 too
+        }
+        return block.func_149662_c(); // isOpaqueCube
     }
 
     /**
@@ -94,10 +136,26 @@ public final class Bridge {
      */
     private static boolean worldIcons(Block block) {
         try {
-            return block.getClass().getMethod("func_149673_e", net.minecraft.world.IBlockAccess.class,
-                    int.class, int.class, int.class, int.class).getDeclaringClass() != Block.class;
-        } catch (NoSuchMethodException | RuntimeException dedicatedServer) {
-            return false; // client-only in 1.7.10
+            return Overrides.overrides(block.getClass(), Block.class, "func_149673_e", java.lang.invoke.MethodType.methodType(
+                    net.minecraft.util.IIcon.class, net.minecraft.world.IBlockAccess.class, int.class, int.class, int.class, int.class));
+        } catch (LinkageError dedicatedServer) {
+            return false; // IIcon is client-only in 1.7.10
+        }
+    }
+
+    /**
+     * The bounds a block was drawn with as an item (setBlockBoundsForItemRender): min x y z, max x y z;
+     * null when the block doesn't set them (Block's own does nothing: the item is drawn as the block).
+     */
+    public static double[] itemRenderBounds(Object legacyBlock) {
+        synchronized (LOCK) {
+            Block block = (Block) legacyBlock;
+            if (!Overrides.overrides(block.getClass(), Block.class, "func_149683_g", java.lang.invoke.MethodType.methodType(void.class))) {
+                return null;
+            }
+            block.func_149683_g(); // setBlockBoundsForItemRender
+            return new double[]{block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
+                    block.func_149753_y(), block.func_149669_A(), block.func_149693_C()}; // min x y z, max x y z
         }
     }
 
@@ -111,7 +169,37 @@ public final class Bridge {
                 sources.add(source.getAbsolutePath());
             }
         }
+        // and the mods left out: those that failed late (Thaumcraft in postInit) keep the blocks and items
+        // they registered, which need their textures and names
+        for (File source : retrofit.legacy.boot.ModFailures.leftOutSources()) {
+            if (source.isFile() && !sources.contains(source.getAbsolutePath())) {
+                sources.add(source.getAbsolutePath());
+            }
+        }
         return sources.toArray(new String[0]);
+    }
+
+    /**
+     * Client only: a file as 1.7.10's resource manager has it (every resource pack in it, those mods add at
+     * run time too, which may make the file when asked), or null.
+     */
+    public static byte[] legacyResource(String domain, String path) {
+        try {
+            java.io.InputStream in = net.minecraft.client.Minecraft.func_71410_x().func_110442_L() // getResourceManager
+                    .func_110536_a(new net.minecraft.util.ResourceLocation(domain, path)).func_110527_b(); // getResource, getInputStream
+            try {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                for (int read; (read = in.read(buffer)) > 0; ) {
+                    out.write(buffer, 0, read);
+                }
+                return out.toByteArray();
+            } finally {
+                in.close();
+            }
+        } catch (Exception e) {
+            return null; // not there (or the pack failed to make it)
+        }
     }
 
     /** "modid@version" of every loaded legacy mod, sorted: both sides of a connection must match. */
@@ -132,6 +220,13 @@ public final class Bridge {
     /** Client only: recorded icon names, kind 0 = block textures, 1 = item textures. */
     public static String[] iconNames(int kind) {
         return LegacyIcons.iconNames(kind);
+    }
+
+    /** Client only; see {@link LegacyIcons#iconsPlaced}. */
+    public static void iconsPlaced() {
+        synchronized (LOCK) {
+            LegacyIcons.iconsPlaced();
+        }
     }
 
     /** Client only: an icon's place in the host's atlas. */
@@ -261,6 +356,13 @@ public final class Bridge {
         return LegacyRendering.blockColorAt(region, x, y, z);
     }
 
+    /** Client: see LegacyRendering.setFancyGraphics. */
+    public static void setFancyGraphics(boolean fancy) {
+        synchronized (LOCK) {
+            LegacyRendering.setFancyGraphics(fancy);
+        }
+    }
+
     /** Client: see LegacyRendering.blockTinted. */
     public static boolean blockTinted(Object legacyBlock) {
         return LegacyRendering.blockTinted(legacyBlock);
@@ -354,6 +456,11 @@ public final class Bridge {
     /** Client only; see {@link LegacyIcons#iconFolder}. */
     public static String iconFolder(int kind, String name) {
         return LegacyIcons.iconFolder(kind, name);
+    }
+
+    /** Client only; see {@link LegacyIcons#itemHasEffect}. */
+    public static boolean itemHasEffect(Object legacyStack) {
+        return LegacyIcons.itemHasEffect(legacyStack);
     }
 
     /** Client only; see {@link LegacyIcons#stackIcons}. */

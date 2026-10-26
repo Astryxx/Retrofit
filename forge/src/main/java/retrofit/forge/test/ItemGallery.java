@@ -33,12 +33,20 @@ final class ItemGallery extends Screen {
     private static final int CELL = 26;
 
     private final List<ItemStack> stacks;
+    /** Screenshots are named prefix + page number (from 1). */
+    private final String prefix;
     private int page;
     private int frames;
 
-    private ItemGallery(List<ItemStack> stacks) {
+    private ItemGallery(List<ItemStack> stacks, String prefix) {
         super(Component.literal("Item gallery"));
         this.stacks = stacks;
+        this.prefix = prefix;
+    }
+
+    /** Given stacks (empty ones leave their cell empty), shot as prefix + page.png. */
+    static ItemGallery of(List<ItemStack> stacks, String prefix) {
+        return new ItemGallery(stacks, prefix);
     }
 
     static ItemGallery create(Minecraft minecraft) {
@@ -76,7 +84,7 @@ final class ItemGallery extends Screen {
         }
         LOGGER.info("[ModSweep] Gallery: {} legacy item stacks in {} pages", stacks.size(), pages(stacks.size()));
         dump(System.getProperty("retrofit.galleryDump", ""));
-        return new ItemGallery(stacks);
+        return new ItemGallery(stacks, "sweep-gallery-");
     }
 
     /** Development: the captured vertices (colour, normal, state) of block items' inventory drawing, "modid:name/meta,...". */
@@ -153,7 +161,7 @@ final class ItemGallery extends Screen {
     public void tick() {
         if (frames >= 3 && !done()) { // drawn a few times: textures and models settled
             Minecraft minecraft = Minecraft.getInstance();
-            Screenshot.grab(minecraft.gameDirectory, "sweep-gallery-" + (page + 1) + ".png", minecraft.getMainRenderTarget(), message -> { });
+            Screenshot.grab(minecraft.gameDirectory, prefix + (page + 1) + ".png", minecraft.getMainRenderTarget(), message -> { });
             frames = 0;
             page++;
         }

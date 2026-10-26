@@ -19,6 +19,11 @@ import java.util.zip.ZipOutputStream;
  *
  * The output is derived from the player's own Minecraft jar; it is for local builds only and
  * must never be published or committed.
+ *
+ * With -Dretrofit.cleanSrgDump=true only what Forge 1.7.10's own development setup applies is applied:
+ * its binary patches, the SRG names and FML's and Forge's access transformers. Nothing transformers add
+ * at run time (Forge's event constructors, Retrofit's own changes) is in it, so code that compiles
+ * against it compiles against Forge 1.7.10 as everyone else has it.
  */
 public final class SrgJarDumper {
     private SrgJarDumper() {
@@ -61,6 +66,21 @@ public final class SrgJarDumper {
         transformName.setAccessible(true);
         runTransformers.setAccessible(true);
 
+        boolean clean = Boolean.getBoolean("retrofit.cleanSrgDump");
+        java.util.List<net.minecraft.launchwrapper.IClassTransformer> cleanTransformers = new java.util.ArrayList<net.minecraft.launchwrapper.IClassTransformer>();
+        for (net.minecraft.launchwrapper.IClassTransformer transformer : lcl.getTransformers()) {
+            String type = transformer.getClass().getName();
+            if (type.equals("cpw.mods.fml.common.asm.transformers.PatchingTransformer")
+                    || type.equals("cpw.mods.fml.common.asm.transformers.DeobfuscationTransformer")
+                    || type.equals("cpw.mods.fml.common.asm.transformers.AccessTransformer")
+                    || type.equals("cpw.mods.fml.common.asm.transformers.FMLAccessTransformer")
+                    || type.equals("net.minecraftforge.transformers.ForgeAccessTransformer")) {
+                cleanTransformers.add(transformer);
+            }
+        }
+        if (clean) {
+            System.out.println("[Retrofit] Clean dump with " + cleanTransformers);
+        }
         int written = 0;
         int failed = 0;
         java.util.Map<String, byte[]> classes = new java.util.LinkedHashMap<String, byte[]>();
@@ -81,7 +101,15 @@ public final class SrgJarDumper {
                         String name = path.substring(0, path.length() - 6).replace('/', '.');
                         try {
                             String deobfName = (String) transformName.invoke(lcl, name);
-                            byte[] bytes = (byte[]) runTransformers.invoke(lcl, name, deobfName, lcl.getClassBytes(name));
+                            byte[] bytes;
+                            if (clean) {
+                                bytes = lcl.getClassBytes(name);
+                                for (net.minecraft.launchwrapper.IClassTransformer transformer : cleanTransformers) {
+                                    bytes = bytes == null ? null : transformer.transform(name, deobfName, bytes);
+                                }
+                            } else {
+                                bytes = (byte[]) runTransformers.invoke(lcl, name, deobfName, lcl.getClassBytes(name));
+                            }
                             if (bytes == null) {
                                 continue;
                             }

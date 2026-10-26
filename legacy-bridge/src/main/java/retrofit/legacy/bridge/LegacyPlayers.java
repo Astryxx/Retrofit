@@ -58,6 +58,13 @@ public final class LegacyPlayers {
         }
         EntityPlayer player = players.get(uuid);
         if (player == null) {
+            player = movedHere(uuid, world);
+            if (player != null) {
+                players.put(uuid, player);
+                return player;
+            }
+        }
+        if (player == null) {
             if (world.field_72995_K) { // isRemote
                 player = ClientPlayers.create(world, host, uuid, name);
             } else {
@@ -109,6 +116,22 @@ public final class LegacyPlayers {
                 }
             }
         }
+    }
+
+    /**
+     * A mirror legacy code moved into {@code world} itself (as 1.7.10's transferPlayerToDimension moves
+     * players: Galacticraft's and other mods' own teleports), taken from the world it was made for; null if
+     * there is none. It is the player there now, with what the mod did to it on the way.
+     */
+    private static EntityPlayer movedHere(String uuid, World world) {
+        for (Map.Entry<World, Map<String, EntityPlayer>> entry : PLAYERS.entrySet()) {
+            EntityPlayer player = entry.getValue().get(uuid);
+            if (entry.getKey() != world && player != null && player.field_70170_p == world) { // worldObj
+                entry.getValue().remove(uuid);
+                return player;
+            }
+        }
+        return null;
     }
 
     /** A server mirror of a player in another world than {@code except}, or null. */

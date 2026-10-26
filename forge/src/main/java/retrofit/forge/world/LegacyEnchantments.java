@@ -69,9 +69,12 @@ public final class LegacyEnchantments {
                 int legacyId = (Integer) row[0];
                 String key = (String) row[1];
                 String path = key.toLowerCase(Locale.ROOT).replaceFirst("^enchantment\\.", "").replaceAll("[^a-z0-9_./-]", "_");
-                ResourceLocation id = new ResourceLocation(RETROFIT, path.isEmpty() ? "enchantment_" + legacyId : path);
-                if (LEGACY.containsKey(id.toString())) {
-                    id = new ResourceLocation(RETROFIT, id.getPath() + "_" + legacyId);
+                ResourceLocation base = new ResourceLocation(RETROFIT, path.isEmpty() ? "enchantment_" + legacyId : path);
+                ResourceLocation id = base;
+                // a second enchantment with the same name key: a number in order, not its legacy id (which
+                // depends on the mods installed: a clashing one is moved, see LegacyIds)
+                for (int n = 2; LEGACY.containsKey(id.toString()); n++) {
+                    id = new ResourceLocation(RETROFIT, base.getPath() + "_" + n);
                 }
                 helper.register(id, new Legacy(rarity((Integer) row[2]), category((String) row[4]), Math.max(1, (Integer) row[3]), key));
                 MODERN.put(legacyId, id.toString());

@@ -5,6 +5,7 @@ import net.minecraft.network.NetHandlerPlayServer;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.play.server.S02PacketChat;
+import net.minecraft.network.play.server.S07PacketRespawn;
 import net.minecraft.network.play.server.S35PacketUpdateTileEntity;
 import net.minecraft.network.play.server.S3FPacketCustomPayload;
 import cpw.mods.fml.common.network.internal.FMLProxyPacket;
@@ -46,6 +47,12 @@ final class BridgeNetHandler extends NetHandlerPlayServer {
             Object[] position = fields(packet, "field_148863_a", "field_148861_b", "field_148862_c"); // x, y, z
             if (position != null) { // a mod sent a tile entity update itself: resend the block entity's data
                 field_147369_b.field_70170_p.func_147471_g((Integer) position[0], (Integer) position[1], (Integer) position[2]); // markBlockForUpdate
+            }
+        } else if (packet instanceof S07PacketRespawn) {
+            // A mod moving the player to another dimension itself, as transferPlayerToDimension does: the host follows.
+            Object[] dimension = fields(packet, "field_149088_a"); // dimensionID
+            if (dimension != null) {
+                host.followDimension((Integer) dimension[0]);
             }
         } else if (packet instanceof S02PacketChat) {
             IChatComponent component = chatOf((S02PacketChat) packet);

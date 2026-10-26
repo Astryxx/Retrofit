@@ -81,8 +81,8 @@ public final class LegacyClientSetup {
         Map<ResourceLocation, BakedModel> models = event.getModels();
         int replaced = 0;
         for (LegacyBlock block : LegacyContent.blocks()) {
-            boolean cube = block.renderType() == 0;
-            if (cube && !block.worldIcons() || block.renderType() == -1) {
+            boolean plainCube = block.renderType() == 0;
+            if (plainCube && !block.worldIcons() || block.renderType() == -1) {
                 continue; // plain cubes keep their JSON model; -1 is drawn by its tile entity renderer
             }
             LegacyBakedModel[] byMeta = new LegacyBakedModel[16];
@@ -93,20 +93,21 @@ public final class LegacyClientSetup {
                     continue;
                 }
                 int meta = state.getValue(LegacyContent.META);
-                byMeta[meta] = new LegacyBakedModel(block, meta, base, cube);
+                byMeta[meta] = new LegacyBakedModel(block, meta, base, plainCube);
                 models.put(location, byMeta[meta]);
                 replaced++;
             }
-            if (cube) {
+            if (plainCube) {
                 continue; // its item keeps the JSON model, which shows the metadata's icons
             }
             ModelResourceLocation itemLocation = new ModelResourceLocation(ForgeRegistries.ITEMS.getKey(block.asItem()), "inventory");
             BakedModel itemBase = models.get(itemLocation);
-            if (itemBase != null && !itemBase.isCustomRenderer() && byMeta[0] != null) {
+            // item blocks 1.7.10 drew flat (render types not drawn in 3D) keep their flat item model
+            if (itemBase != null && !itemBase.isCustomRenderer() && byMeta[0] != null && LegacyBridge.<Boolean>call("blockItemIn3d", block.legacyBlock())) {
                 models.put(itemLocation, new LegacyBakedModel(block, 0, itemBase, false).forItems(byMeta));
             }
         }
-        LOGGER.info("Legacy blocks with custom render types: {} block state models baked from RenderBlocks", replaced);
+        LOGGER.info("Legacy blocks drawn by RenderBlocks: {} block state models", replaced);
         int stackIcons = 0;
         for (net.minecraft.world.item.Item item : ForgeRegistries.ITEMS) {
             if (!(item instanceof retrofit.forge.world.LegacyStackItem legacy) || legacy.legacyItem() == null) {
@@ -136,11 +137,14 @@ public final class LegacyClientSetup {
         int mapped = 0;
         int missing = 0;
         java.util.List<String> missingNames = new java.util.ArrayList<>();
+        java.util.Map<String, java.util.List<String>> missingByMod = new java.util.TreeMap<>();
         for (int kind = 0; kind < 2; kind++) {
             for (String name : LegacyBridge.iconNames(kind)) {
                 TextureAtlasSprite sprite = atlas.getSprite(new ResourceLocation(LegacyAssetPack.spriteId(ICON_KINDS[kind], name)));
                 if (sprite.contents().name().equals(MissingTextureAtlasSprite.getLocation())) {
                     missing++;
+                    missingByMod.computeIfAbsent(name.indexOf(':') > 0 ? name.substring(0, name.indexOf(':')).toLowerCase(java.util.Locale.ROOT) : "minecraft",
+                            mod -> new java.util.ArrayList<>()).add(ICON_KINDS[kind] + "/" + name);
                     if (missingNames.size() < 40) {
                         missingNames.add(ICON_KINDS[kind] + "/" + name);
                     }
@@ -152,6 +156,13 @@ public final class LegacyClientSetup {
         }
         LOGGER.info("Legacy icons placed in the block atlas: {} ({} without a texture file{})", mapped, missing,
                 missingNames.isEmpty() ? "" : ": " + String.join(", ", missingNames) + (missing > missingNames.size() ? ", ..." : ""));
+        if (!missingByMod.isEmpty()) {
+            StringBuilder byMod = new StringBuilder();
+            missingByMod.forEach((mod, names) -> byMod.append("\n  ").append(mod).append(": ").append(names.size()).append(", e.g. ")
+                    .append(String.join(", ", names.subList(0, Math.min(3, names.size())))));
+            LOGGER.info("Legacy icons without a texture file, by mod:{}", byMod);
+        }
+        LegacyBridge.call("iconsPlaced"); // mods' icons made from these at stitch time take their real places
         LegacyStackIconModel.clear();
         LegacyBridge.call("setModernIconSource", (java.util.function.BiFunction<Integer, Integer, float[]>) LegacyClientSetup::modernBlockSprite);
     }
@@ -174,10 +185,19 @@ public final class LegacyClientSetup {
     }
 
     /** Once per frame, before anything renders: put the legacy viewer at the camera. */
+    /** The graphics mode legacy code was last told (see LegacyRendering.setFancyGraphics): it starts fancy. */
+    private static boolean legacyFancy = true;
+
     private static void onRenderLevel(RenderLevelStageEvent event) {
         Minecraft minecraft = Minecraft.getInstance();
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_SKY || minecraft.level == null || RetrofitMod.runtime() == null) {
             return;
+        }
+        boolean fancy = minecraft.options.graphicsMode().get() != net.minecraft.client.GraphicsStatus.FAST;
+        if (fancy != legacyFancy) {
+            legacyFancy = fancy;
+            LegacyBridge.call("setFancyGraphics", fancy);
+            minecraft.levelRenderer.allChanged(); // legacy blocks drawn again with the new leaves
         }
         Camera camera = event.getCamera();
         synchronized (LegacyBridge.renderLock()) {

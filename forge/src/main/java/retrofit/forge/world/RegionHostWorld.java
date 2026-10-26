@@ -6,6 +6,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -27,8 +28,10 @@ import java.util.Map;
  *
  * The deep pass ({@link #deep}): 1.7.10 worlds ended at y 0, 1.20.1's go down to -64. Generators
  * run a second time over the region seen 64 blocks lower (legacy y 0 is host y -64), with another
- * seed, and only their ores land, only in stone and deepslate below y 0: legacy ores fill the
- * deepslate layer as densely as the layer above, and nothing else (structures, plants) doubles.
+ * seed, and only their ores land, only in stone and deepslate below y 0, and in the bedrock floor
+ * (bedrock ores, HBM's above all, are written at legacy y 0 and read the tile entity back right
+ * away, so their placement must not be refused): legacy ores fill the deepslate layer as densely
+ * as the layer above, and nothing else (structures, plants) doubles.
  */
 final class RegionHostWorld implements HostWorld {
     private final WorldGenLevel region;
@@ -74,14 +77,19 @@ final class RegionHostWorld implements HostWorld {
         });
     }
 
-    /** Deep pass: an ore into stone or deepslate below y 0 (host coordinates); nothing else. */
+    /**
+     * Deep pass: an ore into stone or deepslate below y 0 (host coordinates), or into the bedrock
+     * floor: 1.7.10's bedrock ores sit on the y 0 layer, which lands here at the world's bottom.
+     * Nothing else, and never into air.
+     */
     private boolean deepAccepts(BlockPos pos, Object legacyBlock, int meta) {
         if (pos.getY() >= 0 || !isOre(legacyBlock, meta)) {
             return false;
         }
         BlockState current = region.getBlockState(pos);
         return current.is(net.minecraft.tags.BlockTags.BASE_STONE_OVERWORLD) || current.is(net.minecraft.tags.BlockTags.DEEPSLATE_ORE_REPLACEABLES)
-                || current.is(net.minecraft.tags.BlockTags.STONE_ORE_REPLACEABLES);
+                || current.is(net.minecraft.tags.BlockTags.STONE_ORE_REPLACEABLES)
+                || current.is(Blocks.BEDROCK);
     }
 
     private boolean readable(int x, int y, int z) {

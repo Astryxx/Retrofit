@@ -25,6 +25,13 @@ public class HelloClientEvents {
     }
 
     @SubscribeEvent
+    public void onHudPre(RenderGameOverlayEvent.Pre event) {
+        if (event.type == RenderGameOverlayEvent.ElementType.ALL) {
+            Minecraft.func_71410_x().field_71466_p.func_78261_a("1.7.10 HUD pre fires", 4, 14, 0x55FF55); // drawStringWithShadow
+        }
+    }
+
+    @SubscribeEvent
     public void onHud(RenderGameOverlayEvent.Post event) {
         if (event.type == RenderGameOverlayEvent.ElementType.ALL) {
             Minecraft.func_71410_x().field_71466_p.func_78261_a("1.7.10 HUD: key pressed " + presses + " times", 4, 4, 0xFFAA00); // drawStringWithShadow

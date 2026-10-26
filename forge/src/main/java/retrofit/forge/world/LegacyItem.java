@@ -111,40 +111,66 @@ public class LegacyItem extends Item implements LegacyStackItem {
     }
 
     /** Legacy items name each subtype separately (getUnlocalizedName(ItemStack)). */
+    /** The legacy item's enchantment glint (see LegacyFoil). */
+    @Override
+    public boolean isFoil(ItemStack stack) {
+        return super.isFoil(stack) || LegacyFoil.isFoil(stack, this);
+    }
+
     @Override
     public String getDescriptionId(ItemStack stack) {
         int meta = hasSubtypes ? meta(stack) : 0;
         return translationKeys.computeIfAbsent(meta, m -> LegacyBridge.itemTranslationKey(legacyItem, m));
     }
 
-    /** Recent display names, by subtype and tag (tooltips ask every frame). */
-    private final java.util.Map<Object, net.minecraft.network.chat.Component> names = java.util.Collections.synchronizedMap(
-            new java.util.LinkedHashMap<Object, net.minecraft.network.chat.Component>(16, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(java.util.Map.Entry<Object, net.minecraft.network.chat.Component> eldest) {
-                    return size() > 512;
-                }
-            });
+    private final Names names = new Names();
 
-    /** The mod's own name for the stack (see the legacy bridge's itemDisplayName); the translated key if that fails. */
     @Override
     public net.minecraft.network.chat.Component getName(ItemStack stack) {
-        Object key = java.util.Arrays.asList(stack.getTag() == null ? null : stack.getTag().toString(), stack.getDamageValue());
-        net.minecraft.network.chat.Component cached = names.get(key);
-        if (cached != null) {
-            return cached;
+        return names.of(stack, getDescriptionId(stack), () -> super.getName(stack));
+    }
+
+    /**
+     * Display names of a legacy item kind (items, block items, armor): the mod's own name for the stack
+     * (see the legacy bridge's itemDisplayName: its getItemStackDisplayName, which builds names from
+     * the stack, as for subtypes and materials); the translated key if that fails. Recent ones are kept
+     * by subtype and tag, as tooltips ask every frame.
+     */
+    static final class Names {
+        private final java.util.Map<Object, net.minecraft.network.chat.Component> recent = java.util.Collections.synchronizedMap(
+                new java.util.LinkedHashMap<Object, net.minecraft.network.chat.Component>(16, 0.75f, true) {
+                    @Override
+                    protected boolean removeEldestEntry(java.util.Map.Entry<Object, net.minecraft.network.chat.Component> eldest) {
+                        return size() > 512;
+                    }
+                });
+
+        net.minecraft.network.chat.Component of(ItemStack stack, String descriptionId,
+                java.util.function.Supplier<net.minecraft.network.chat.Component> translated) {
+            Object key = java.util.Arrays.asList(stack.getTag() == null ? null : stack.getTag().toString(), stack.getDamageValue());
+            net.minecraft.network.chat.Component cached = recent.get(key);
+            if (cached != null) {
+                return cached;
+            }
+            net.minecraft.network.chat.Component name;
+            try {
+                Object legacy = LegacyStacks.toLegacy(stack);
+                String text = legacy == null ? null : LegacyBridge.call("itemDisplayName", legacy);
+                if (text == null || text.isEmpty() || text.equals(descriptionId)) {
+                    name = translated.get();
+                } else if (net.minecraft.locale.Language.getInstance().has(text)) {
+                    // a key the mod's code didn't find on the legacy side (IC2 puts its names there itself, and a
+                    // resource reload takes them out again), which the asset pack has: its translation
+                    name = net.minecraft.network.chat.Component.translatable(text);
+                } else {
+                    name = net.minecraft.network.chat.Component.literal(text);
+                }
+            } catch (RuntimeException e) {
+                name = translated.get();
+            }
+            recent.put(key, name);
+            return name;
         }
-        net.minecraft.network.chat.Component name;
-        try {
-            Object legacy = LegacyStacks.toLegacy(stack);
-            String text = legacy == null ? null : LegacyBridge.call("itemDisplayName", legacy);
-            name = text == null || text.isEmpty() || text.equals(getDescriptionId(stack))
-                    ? super.getName(stack) : net.minecraft.network.chat.Component.literal(text);
-        } catch (RuntimeException e) {
-            name = super.getName(stack);
-        }
-        names.put(key, name);
-        return name;
     }
 
     // ---- Behaviour (see LegacyItemUse) ----

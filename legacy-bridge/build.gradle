@@ -38,3 +38,15 @@ tasks.named('compileStubsJava') {
 dependencies {
     compileOnly sourceSets.stubs.output
 }
+
+// The bridge compiled against Forge 1.7.10 as other developers have it (no members that transformers add
+// at run time): ./gradlew :legacy-bridge:checkAgainstCleanForge. Checks only; the build uses compileJava.
+tasks.register('checkAgainstCleanForge', JavaCompile) {
+    dependsOn ':harness:dumpCleanSrgJar', 'compileStubsJava'
+    source = sourceSets.main.java
+    def dump = rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar')
+    classpath = sourceSets.main.compileClasspath.filter { it != dump } + files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg-clean.jar'))
+    destinationDirectory = layout.buildDirectory.dir('clean-forge-check')
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options' << '-Xmaxerrs' << '1000'
+}

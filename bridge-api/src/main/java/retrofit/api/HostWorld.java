@@ -67,6 +67,20 @@ public interface HostWorld {
         return true;
     }
 
+    /**
+     * A host block legacy code sees as Retrofit's stand-in (one 1.7.10 never had), as binary NBT:
+     * {"State": its block state, "Entity": its block entity's data, if any}. Carried by the
+     * stand-in's tile entity, so mods that move blocks (pistons, frames) move the real block.
+     */
+    default byte[] hostBlockData(int x, int y, int z) {
+        return null;
+    }
+
+    /** Places a host block legacy code carried (see {@link #hostBlockData}); false if it can't. */
+    default boolean setHostBlockData(int x, int y, int z, byte[] data) {
+        return false;
+    }
+
     /** The inventory of a host block entity that isn't a legacy one (vanilla chests, furnaces...), or null. */
     default HostInventory getHostInventory(int x, int y, int z) {
         return null;

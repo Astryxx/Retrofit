@@ -1,0 +1,14 @@
+// Two 1.7.10 test mods that both want biome ids 100 and 101 (A takes them in preInit; B checks
+// them in init with Erebus's exact refusal, registers, and re-checks in postInit).
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+dependencies {
+    compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+}
+
+tasks.named('compileJava') {
+    dependsOn ':harness:dumpSrgJar'
+}

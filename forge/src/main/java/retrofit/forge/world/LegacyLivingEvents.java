@@ -11,6 +11,8 @@ import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.player.ArrowLooseEvent;
+import net.minecraftforge.event.entity.player.ArrowNockEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -30,7 +32,11 @@ public final class LegacyLivingEvents {
     private static final int JUMP = 16;
     private static final int HEAL = 32;
     private static final int BREAK_SPEED = 64;
+    private static final int ARROW_NOCK = 128;
+    private static final int ARROW_LOOSE = 256;
     private static Integer wanted;
+    private static final boolean DEBUG_INTERACTIONS = Boolean.getBoolean("retrofit.debugInteractions");
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     private LegacyLivingEvents() {
     }
@@ -137,6 +143,57 @@ public final class LegacyLivingEvents {
             } catch (RuntimeException e) {
                 report("LivingFallEvent", e);
             }
+        }
+    }
+
+    /**
+     * Both sides, as the bow is drawn on both: a mod that draws it itself (for arrows of its own, with
+     * no vanilla ones) has the player use the bow.
+     */
+    @SubscribeEvent
+    public static void onArrowNock(ArrowNockEvent event) {
+        if (event.getAction() != null || !wants(ARROW_NOCK)) {
+            return;
+        }
+        try {
+            Object bow = LegacyStacks.toLegacy(event.getBow());
+            boolean drawn = bow != null && LegacyBridge.<Boolean>call("arrowNock", LegacyPlayers.mirror(event.getEntity(), true), bow);
+            if (DEBUG_INTERACTIONS) {
+                LOGGER.info("[Interactions] arrow nock on the {}: drawn by a legacy mod {}", event.getLevel().isClientSide ? "client" : "server", drawn);
+            }
+            if (drawn) {
+                event.getEntity().startUsingItem(event.getHand());
+                event.setAction(net.minecraft.world.InteractionResultHolder.consume(event.getBow()));
+            }
+        } catch (RuntimeException e) {
+            report("ArrowNockEvent", e);
+        }
+    }
+
+    /** A mod that fires the bow itself (spawning its own arrow, using up its own ammunition) stops the vanilla arrow. */
+    @SubscribeEvent(priority = EventPriority.HIGH)
+    public static void onArrowLoose(ArrowLooseEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || !wants(ARROW_LOOSE)) {
+            return;
+        }
+        try {
+            Object bow = LegacyStacks.toLegacy(event.getBow());
+            if (bow == null) {
+                return;
+            }
+            Object mirror = LegacyPlayers.mirror(player, true);
+            int charge = LegacyBridge.call("arrowLoose", mirror, bow, event.getCharge());
+            if (DEBUG_INTERACTIONS) {
+                LOGGER.info("[Interactions] arrow loose with charge {}: {}", event.getCharge(), charge < 0 ? "fired by a legacy mod" : "charge " + charge);
+            }
+            if (charge < 0) {
+                event.setCanceled(true);
+            } else {
+                event.setCharge(charge);
+            }
+            LegacyPlayers.writeBack(player, mirror); // the arrows it used up
+        } catch (RuntimeException e) {
+            report("ArrowLooseEvent", e);
         }
     }
 

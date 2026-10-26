@@ -69,6 +69,31 @@ public final class LegacyEntityTypes {
         return NAMES.get(type);
     }
 
+    /**
+     * A legacy entity from its own saved NBT (its 1.7.10 name, e.g. "thetitans.WitherBossTitan",
+     * where the data came from a spawner or other stored state rather than a live entity object):
+     * its host entity, positioned from that NBT and holding it for the first tick's loading.
+     */
+    static net.minecraft.world.entity.Entity hostFromNbt(String legacyName, net.minecraft.nbt.CompoundTag legacyNbt,
+                                                         net.minecraft.world.level.Level level) {
+        EntityType<?> type = byName(legacyName);
+        if (type == null) {
+            return null;
+        }
+        net.minecraft.world.entity.Entity host = type.create(level);
+        if (!(host instanceof LegacyEntityCarrier carrier)) {
+            return null;
+        }
+        net.minecraft.nbt.ListTag pos = legacyNbt.getList("Pos", 6);
+        net.minecraft.nbt.ListTag rotation = legacyNbt.getList("Rotation", 5);
+        if (pos.size() == 3) {
+            host.moveTo(pos.getDouble(0), pos.getDouble(1), pos.getDouble(2),
+                    rotation.size() == 2 ? rotation.getFloat(0) : 0, rotation.size() == 2 ? rotation.getFloat(1) : 0);
+        }
+        carrier.core().adoptNbt(legacyNbt);
+        return host;
+    }
+
     /** 1.20.1 vanilla ids whose 1.7.10 names differ from the capitalised path. */
     private static final Map<String, String> VANILLA_LEGACY_NAMES = Map.ofEntries(
             Map.entry("minecraft:zombified_piglin", "PigZombie"), Map.entry("minecraft:cave_spider", "CaveSpider"),

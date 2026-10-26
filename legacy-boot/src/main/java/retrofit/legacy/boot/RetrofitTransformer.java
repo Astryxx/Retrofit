@@ -172,6 +172,7 @@ public class RetrofitTransformer implements IClassTransformer {
         if (transformedName.startsWith("cpw.mods.fml.common.")) {
             basicClass = FmlFixes.apply(transformedName, basicClass);
         }
+        basicClass = LegacyIds.apply(transformedName, basicClass);
         if (indexOf(basicClass, LAMBDA_FACTORY) >= 0 && (new ClassReader(basicClass).getAccess() & Opcodes.ACC_INTERFACE) != 0) {
             basicClass = interfaceSelfReferences(basicClass);
         }

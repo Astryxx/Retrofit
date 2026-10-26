@@ -40,6 +40,46 @@ public final class Entities {
     private Entities() {
     }
 
+    /** Every name 1.7.10's EntityList registers its own entity classes under. */
+    private static final java.util.Set<String> VANILLA_NAMES = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "Item", "XPOrb", "LeashKnot", "Painting", "Arrow", "Snowball", "Fireball", "SmallFireball", "ThrownEnderpearl",
+            "EyeOfEnderSignal", "ThrownPotion", "ThrownExpBottle", "ThrownEgg", "ItemFrame", "WitherSkull", "PrimedTnt",
+            "FallingSand", "FireworksRocketEntity", "Boat", "Minecart", "MinecartRideable", "MinecartChest", "MinecartFurnace",
+            "MinecartTNT", "MinecartHopper", "MinecartSpawner", "MinecartCommandBlock", "Mob", "Monster", "Creeper", "Skeleton",
+            "Spider", "Giant", "Zombie", "Slime", "Ghast", "PigZombie", "Enderman", "CaveSpider", "Silverfish", "Blaze",
+            "LavaSlime", "EnderDragon", "WitherBoss", "Bat", "Witch", "Pig", "Sheep", "Cow", "Chicken", "Squid", "Wolf",
+            "MushroomCow", "SnowMan", "Ozelot", "VillagerGolem", "EntityHorse", "Villager", "EnderCrystal"));
+
+    private static final Map<Class<?>, Boolean> VANILLA_CLASSES = new java.util.concurrent.ConcurrentHashMap<Class<?>, Boolean>();
+
+    /**
+     * True for 1.7.10's own entity classes. Package names can't tell them from a mod's: mods put their
+     * classes under net.minecraft.* too (The Titans: net.minecraft.theTitans.* and, for its entities,
+     * net.minecraft.entity.titan.*, .misc, .projectile...), and those are mod entities all the same, with
+     * names like "thetitans.WitherBossTitan" that 1.20.1 cannot use as an entity id (upper case is
+     * forbidden). A class is vanilla only if it sits in net.minecraft.entity.* and is the very class one of
+     * vanilla's own EntityList names (Zombie, Boat...) stands for.
+     */
+    @SuppressWarnings("unchecked")
+    static boolean vanillaEntityClass(Class<?> type) {
+        if (!type.getName().startsWith("net.minecraft.entity.")) {
+            return false;
+        }
+        Boolean known = VANILLA_CLASSES.get(type);
+        if (known == null) {
+            known = Boolean.FALSE;
+            Map<String, Class<?>> byName = (Map<String, Class<?>>) EntityList.field_75625_b; // stringToClassMapping
+            for (String name : VANILLA_NAMES) {
+                if (byName.get(name) == type) {
+                    known = Boolean.TRUE;
+                    break;
+                }
+            }
+            VANILLA_CLASSES.put(type, known);
+        }
+        return known;
+    }
+
     // ---- Types ----
 
     /**
@@ -53,7 +93,7 @@ public final class Entities {
         // classToStringMapping: one name per class (mods often register a class under two names).
         for (Map.Entry<Class<?>, String> entry : ((Map<Class<?>, String>) EntityList.field_75626_c).entrySet()) {
             Class<?> type = entry.getKey();
-            if (type.getName().startsWith("net.minecraft.")) {
+            if (vanillaEntityClass(type)) {
                 continue;
             }
             float width = 0.6f;
@@ -118,7 +158,7 @@ public final class Entities {
     /** The registered name of a legacy entity ("modid.Name"), or null for vanilla classes. */
     public static String entityName(Object entity) {
         String name = EntityList.func_75621_b((Entity) entity); // getEntityString
-        return name == null || entity.getClass().getName().startsWith("net.minecraft.") ? null : name;
+        return name == null || vanillaEntityClass(entity.getClass()) || entity instanceof HostCreatureProxies.Proxy ? null : name;
     }
 
     // ---- Life ----
@@ -185,7 +225,10 @@ public final class Entities {
 
     public static void entityLeave(Object entity) {
         Entity legacy = (Entity) entity;
-        legacy.field_70170_p.field_72996_f.remove(legacy);
+        legacy.func_70106_y(); // setDead: mods watching entities themselves (boss bars, spawn caches) let go of a dead one
+        if (legacy.field_70170_p != null) {
+            legacy.field_70170_p.field_72996_f.remove(legacy); // loadedEntityList
+        }
     }
 
     /**
@@ -211,6 +254,12 @@ public final class Entities {
         return entityState(legacy);
     }
 
+    /** Where riders sit, above the entity's feet: getMountedYOffset, which is from posY, yOffset above them. */
+    public static double mountedOffset(Object entity) {
+        Entity legacy = (Entity) entity;
+        return legacy.func_70042_X() + legacy.field_70129_M;
+    }
+
     public static double[] entityState(Object entity) {
         Entity legacy = (Entity) entity;
         boolean living = legacy instanceof EntityLivingBase;
@@ -223,7 +272,7 @@ public final class Entities {
                 living ? body.func_110143_aJ() : 0, living ? body.func_110138_aP() : 0,
                 legacy.field_70130_N, legacy.field_70131_O,
                 legacy.field_70128_L ? 1 : 0, legacy.field_70122_E ? 1 : 0,
-                legacy.func_70042_X(), // getMountedYOffset: where riders sit
+                mountedOffset(legacy),
         };
     }
 
@@ -314,13 +363,19 @@ public final class Entities {
             java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Entity, net.minecraft.item.ItemStack[]>());
 
     /**
-     * Sync data for clients: the DataWatcher entries (changed ones, or all) and the equipment slots
-     * that changed (held item and armor: mobs holding swords, wearing pumpkins); null if nothing changed.
+     * Sync data for clients: the DataWatcher entries (changed ones, or all), the equipment slots
+     * that changed (held item and armor: mobs holding swords, wearing pumpkins), and the watchable
+     * attributes that changed (1.7.10 sent those as S20PacketEntityProperties: mods keep boss
+     * health and the like in custom attributes marked with setShouldWatch(true) and read them on
+     * the client, so without them a client copy's attributes stay at their constructor values);
+     * null if nothing changed.
      */
     private static byte[] syncData(Entity entity, boolean all) throws IOException {
         List<?> entries = all ? entity.func_70096_w().func_75685_c() : entity.func_70096_w().func_75688_b(); // getAllWatched, getChanged
         int changedSlots = 0;
         net.minecraft.item.ItemStack[] now = null;
+        java.util.Collection<?> attributeInstances = null;
+        boolean clearAttributes = false;
         if (entity instanceof net.minecraft.entity.EntityLivingBase) {
             net.minecraft.item.ItemStack[] sent = SENT_EQUIPMENT.get(entity);
             now = new net.minecraft.item.ItemStack[5];
@@ -332,8 +387,17 @@ public final class Entities {
                 }
             }
             SENT_EQUIPMENT.put(entity, now);
+            net.minecraft.entity.ai.attributes.BaseAttributeMap attributes = ((net.minecraft.entity.EntityLivingBase) entity).func_110140_aT(); // getAttributeMap
+            if (all) {
+                attributeInstances = attributes.func_111146_a(); // getAllAttributes (the watchable ones are picked when writing)
+            } else if (attributes instanceof net.minecraft.entity.ai.attributes.ServersideAttributeMap) {
+                // The instances that changed since the last send, as 1.7.10's EntityTrackerEntry read them.
+                attributeInstances = ((net.minecraft.entity.ai.attributes.ServersideAttributeMap) attributes).func_111161_b(); // getAttributeInstanceSet
+                clearAttributes = true;
+            }
         }
-        if ((entries == null || entries.isEmpty()) && changedSlots == 0) {
+        if ((entries == null || entries.isEmpty()) && changedSlots == 0
+                && (attributeInstances == null || attributeInstances.isEmpty())) {
             return null;
         }
         ByteBuf buffer = Unpooled.buffer();
@@ -348,15 +412,53 @@ public final class Entities {
                 packet.func_150788_a(now[slot]); // writeItemStackToBuffer
             }
         }
+        writeAttributes(packet, attributeInstances);
+        if (clearAttributes && attributeInstances != null) {
+            attributeInstances.clear(); // the set is the live one; 1.7.10's EntityTrackerEntry cleared it after sending
+        }
         return bytes(buffer);
     }
 
-    /** DataWatcher entries and equipment changed since the last call; null if none. */
+    /** Watchable attribute base values and modifiers, in S20PacketEntityProperties' shape. */
+    private static void writeAttributes(PacketBuffer packet, java.util.Collection<?> instances) throws IOException {
+        int count = 0;
+        if (instances != null) {
+            for (Object object : instances) {
+                net.minecraft.entity.ai.attributes.IAttributeInstance instance = (net.minecraft.entity.ai.attributes.IAttributeInstance) object;
+                if (instance.func_111123_a().func_111111_c()) { // getAttribute().getShouldWatch()
+                    count++;
+                }
+            }
+        }
+        packet.writeInt(count);
+        if (instances == null) {
+            return;
+        }
+        for (Object object : instances) {
+            net.minecraft.entity.ai.attributes.IAttributeInstance instance = (net.minecraft.entity.ai.attributes.IAttributeInstance) object;
+            if (!instance.func_111123_a().func_111111_c()) { // not one the client should follow
+                continue;
+            }
+            packet.func_150785_a(instance.func_111123_a().func_111108_a()); // getAttribute().getAttributeUnlocalizedName()
+            packet.writeDouble(instance.func_111125_b()); // getBaseValue
+            java.util.Collection<?> modifiers = instance.func_111122_c(); // getModifiers
+            packet.writeShort(modifiers.size());
+            for (Object object2 : modifiers) {
+                net.minecraft.entity.ai.attributes.AttributeModifier modifier = (net.minecraft.entity.ai.attributes.AttributeModifier) object2;
+                packet.writeLong(modifier.func_111167_a().getMostSignificantBits()); // getID
+                packet.writeLong(modifier.func_111167_a().getLeastSignificantBits());
+                packet.writeDouble(modifier.func_111164_d()); // getAmount
+                packet.writeByte(modifier.func_111169_c()); // getOperation
+            }
+        }
+    }
+
+    /** DataWatcher entries, equipment and watchable attributes changed since the last call; null if none. */
     public static byte[] entityWatcherChanges(Object entity) throws IOException {
         return syncData((Entity) entity, false);
     }
 
-    /** All DataWatcher entries and equipment (for spawning on a client). */
+    /** All DataWatcher entries, equipment and watchable attributes (for spawning on a client). */
     public static byte[] entityWatcherAll(Object entity) throws IOException {
         return syncData((Entity) entity, true);
     }
@@ -379,6 +481,32 @@ public final class Entities {
             if ((changedSlots & 1 << slot) != 0) {
                 net.minecraft.item.ItemStack stack = packet.func_150791_c(); // readItemStackFromBuffer
                 ((Entity) entity).func_70062_b(slot, stack); // setCurrentItemOrArmor
+            }
+        }
+        int attributeCount = packet.readInt();
+        if (attributeCount > 0 && entity instanceof net.minecraft.entity.EntityLivingBase) {
+            net.minecraft.entity.ai.attributes.BaseAttributeMap attributes = ((net.minecraft.entity.EntityLivingBase) entity).func_110140_aT(); // getAttributeMap
+            for (int i = 0; i < attributeCount; i++) {
+                String name = packet.func_150789_c(64); // readStringFromBuffer
+                double value = packet.readDouble();
+                int modifierCount = packet.readShort();
+                java.util.UUID[] ids = new java.util.UUID[modifierCount];
+                double[] amounts = new double[modifierCount];
+                int[] operations = new int[modifierCount];
+                for (int m = 0; m < modifierCount; m++) {
+                    ids[m] = new java.util.UUID(packet.readLong(), packet.readLong());
+                    amounts[m] = packet.readDouble();
+                    operations[m] = packet.readByte();
+                }
+                net.minecraft.entity.ai.attributes.IAttributeInstance instance = attributes.func_111152_a(name); // getAttributeInstanceByName
+                if (instance == null) {
+                    continue; // not registered on the client
+                }
+                instance.func_142049_d(); // removeAllModifiers
+                instance.func_111128_a(value); // setBaseValue
+                for (int m = 0; m < modifierCount; m++) {
+                    instance.func_111121_a(new net.minecraft.entity.ai.attributes.AttributeModifier(ids[m], "retrofit.sync", amounts[m], operations[m])); // applyModifier
+                }
             }
         }
     }
@@ -510,7 +638,7 @@ public final class Entities {
                 for (Object element : biome.func_76747_a(type)) { // getSpawnableList
                     BiomeGenBase.SpawnListEntry entry = (BiomeGenBase.SpawnListEntry) element;
                     String name = (String) ((Map<Class<?>, String>) EntityList.field_75626_c).get(entry.field_76300_b); // classToStringMapping
-                    if (name != null && !entry.field_76300_b.getName().startsWith("net.minecraft.")) {
+                    if (name != null && !vanillaEntityClass(entry.field_76300_b)) {
                         spawns.add(new Object[]{name, type.ordinal(), entry.field_76292_a, entry.field_76301_c, entry.field_76299_d});
                     }
                 }

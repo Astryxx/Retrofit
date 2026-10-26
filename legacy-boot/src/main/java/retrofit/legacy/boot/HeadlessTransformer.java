@@ -31,14 +31,26 @@ public class HeadlessTransformer implements IClassTransformer {
     /** Hook name prefix: pass {@code this} instead of the first argument. */
     private static final String SELF = "this:";
 
+    /**
+     * Whether the legacy bridge is on this side's classpath. The dump runs (harness dumpSrgJar) boot
+     * without it, and their classes must stay untouched, while vanilla itself calls some redirected
+     * methods while loading (BiomeGenBase.getBiomeGenArray in Forge's init) - so without the bridge,
+     * only stubs apply, whose targets live in this jar.
+     */
+    private static final boolean BRIDGE_PRESENT = HeadlessTransformer.class.getClassLoader()
+            .getResource("retrofit/legacy/bridge/Biomes.class") != null;
+
     /** class -> (method name + descriptor -> Hooks method taking the first argument, or NO_HOOK). */
     private static final Map<String, Map<String, String>> STUBS = new HashMap<String, Map<String, String>>();
     /** class -> (method name + descriptor -> "owner/internal/Name.method" of the static target). */
     private static final Map<String, Map<String, String>> REDIRECTS = new HashMap<String, Map<String, String>>();
+    /** class -> (constructor descriptor -> "owner/internal/Name.method" called at its end, with the new object). */
+    private static final Map<String, Map<String, String>> CONSTRUCTORS = new HashMap<String, Map<String, String>>();
     private static final String GUIS = "retrofit/legacy/bridge/Guis.";
     /** Client-only targets live apart, so dedicated servers never load classes that name client types. */
     private static final String CLIENT_GUIS = "retrofit/legacy/bridge/ClientGuis.";
     private static final String NETWORK = "retrofit/legacy/bridge/Network.";
+    private static final String BIOMES = "retrofit/legacy/bridge/Biomes.";
 
     static {
         stub("net.minecraft.client.Minecraft", "func_110436_a()V", SELF + "refreshResources"); // refreshResources
@@ -101,9 +113,20 @@ public class HeadlessTransformer implements IClassTransformer {
         redirect(cache, "isSideSolid(IIILnet/minecraftforge/common/util/ForgeDirection;Z)Z", glue + "isSideSolid");
         // A dimension's world, asked for before anyone went there: its 1.20.1 level's (see the bridge's Dimensions).
         redirect("net.minecraftforge.common.DimensionManager", "initDimension(I)V", "retrofit/legacy/bridge/Dimensions.initDimension");
+        // A mod registering a dimension id another mod registered first (1.7.10 mods often shipped clashing
+        // default ids, and this threw and left the whole mod out): the bridge warns and skips the clash instead.
+        redirect("net.minecraftforge.common.DimensionManager", "registerDimension(II)V", "retrofit/legacy/bridge/Dimensions.registerDimension");
         // Mod packets: FML's outbound handler hands each packet to the host's channel.
         redirect("cpw.mods.fml.common.network.FMLOutboundHandler",
                 "write(Lio/netty/channel/ChannelHandlerContext;Ljava/lang/Object;Lio/netty/channel/ChannelPromise;)V", NETWORK + "outbound");
+
+        // Mods that number their own biomes check the shared biome array for their ids and refuse to
+        // load when another mod took one (Erebus and Advent of Ascension both default to 100; on
+        // 1.7.10 the player renumbered a config): the bridge shows each mod the biomes it registered
+        // itself, and every biome construction reports itself to it (Biomes.record).
+        redirect("net.minecraft.world.biome.BiomeGenBase", "func_150565_n()[Lnet/minecraft/world/biome/BiomeGenBase;", BIOMES + "viewedArray"); // getBiomeGenArray
+        constructorHook("net.minecraft.world.biome.BiomeGenBase", "<init>(I)V", BIOMES + "record");
+        constructorHook("net.minecraft.world.biome.BiomeGenBase", "<init>(IZ)V", BIOMES + "record"); // Forge's, which (I)V calls into
     }
 
     private static void redirect(String className, String method, String target) {
@@ -124,11 +147,21 @@ public class HeadlessTransformer implements IClassTransformer {
         methods.put(method, hook);
     }
 
+    private static void constructorHook(String className, String constructor, String target) {
+        Map<String, String> constructors = CONSTRUCTORS.get(className);
+        if (constructors == null) {
+            constructors = new HashMap<String, String>();
+            CONSTRUCTORS.put(className, constructors);
+        }
+        constructors.put(constructor, target);
+    }
+
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
         Map<String, String> methods = STUBS.get(transformedName);
-        Map<String, String> redirects = REDIRECTS.get(transformedName);
-        if (basicClass == null || methods == null && redirects == null) {
+        Map<String, String> redirects = BRIDGE_PRESENT ? REDIRECTS.get(transformedName) : null;
+        Map<String, String> constructors = BRIDGE_PRESENT ? CONSTRUCTORS.get(transformedName) : null;
+        if (basicClass == null || methods == null && redirects == null && constructors == null) {
             return basicClass;
         }
         ClassNode node = new ClassNode();
@@ -137,16 +170,40 @@ public class HeadlessTransformer implements IClassTransformer {
             MethodNode method = (MethodNode) element;
             String hook = methods == null ? null : methods.get(method.name + method.desc);
             String target = redirects == null ? null : redirects.get(method.name + method.desc);
+            String constructor = constructors == null ? null : constructors.get(method.name + method.desc);
             if (hook != null) {
                 replaceBody(method, hook);
                 System.out.println("[Retrofit] Stubbed " + transformedName + "." + method.name + method.desc);
             } else if (target != null) {
                 redirectBody(node.name, method, target);
+            } else if (constructor != null) {
+                hookConstructorBody(node.name, method, constructor);
             }
         }
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         node.accept(writer);
         return writer.toByteArray();
+    }
+
+    /** The constructor ends with "Target.method(this)" before each return (the object is ready). */
+    private static void hookConstructorBody(String owner, MethodNode method, String target) {
+        int dot = target.lastIndexOf('.');
+        String ownerName = target.substring(0, dot);
+        String methodName = target.substring(dot + 1);
+        String desc = "(L" + owner + ";)V";
+        boolean hooked = false;
+        for (org.objectweb.asm.tree.AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() == Opcodes.RETURN) { // constructors are void, so RETURN is their only exit
+                InsnList call = new InsnList(); // a fresh copy per return: lists belong to one place
+                call.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                call.add(new MethodInsnNode(Opcodes.INVOKESTATIC, ownerName, methodName, desc, false));
+                method.instructions.insertBefore(insn, call);
+                hooked = true;
+            }
+        }
+        if (hooked) {
+            System.out.println("[Retrofit] Hooked " + owner + "." + method.name + method.desc + " -> " + target);
+        }
     }
 
     /** The body becomes "return Target.method(this?, args...)". */

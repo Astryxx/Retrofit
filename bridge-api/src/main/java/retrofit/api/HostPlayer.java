@@ -62,6 +62,13 @@ public interface HostPlayer {
     default void changeDimension(int dimension, Object legacyTeleporter) {
     }
 
+    /**
+     * Legacy code moved the player's mirror to another dimension (legacy id) itself, as mods' own teleports
+     * do; the player follows, to where the code put the mirror. After the current tick's work, as above.
+     */
+    default void followDimension(int dimension) {
+    }
+
     /** Client: the open legacy container GUI clicked a slot (GuiContainer.handleMouseClick; legacy click modes). */
     void clickSlot(int windowId, int slotId, int button, int mode);
 }

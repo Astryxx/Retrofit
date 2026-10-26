@@ -10,17 +10,19 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.4.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.5.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) and put `retrofit-forge-0.4.1-beta.jar` in `mods/`.
-2. Put 1.7.10 Forge mod jars in `mods/` with your other mods (as launchers like CurseForge do), or in
-   `retrofit/mods/` inside the game directory. 1.7.10 mods in `mods/` are linked into `retrofit/mods`
+1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.5.1-beta.jar` in `mods/`.
+2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory, or in `mods/` with your
+   other mods (as launchers like CurseForge do). 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
-   title screen says so.
+   title screen says so. Forge 1.20.1 itself reads a version from the file name of every jar in
+   `mods/` and stops the game before any mod loads when it can't (`HBM-NTM-.1.0.27_X5645_H261.jar`:
+   "Version string does not start with a number"); put such a mod in `retrofit/mods/`, or rename it.
 3. Start the game. If the launcher doesn't have Minecraft 1.7.10 and Forge 10.13.4.1614, the title
    screen asks whether to download them and their libraries (about 50 MB, from Mojang, Forge's
    Maven and Maven Central; nothing is downloaded without a yes), and 1.7.10 mods load after a
@@ -57,14 +59,17 @@ together, in singleplayer and on a dedicated server with a client connected.
 | IndustrialCraft 2 2.2.828 | Works: machines with their textures, 72 machine GUIs, cables, ores, crops |
 | GregTech 5 Unofficial 5.09.31 (+ IndustrialCraft 2) | Works: machines placed from their items with their GUIs (steam and electric machines, multiblock controllers, battery buffers), cables and pipes, 2,700+ items, ore veins in world generation (62,000 ore blocks in the test area), IC2's machine recipes in GregTech's machines |
 | Lycanite's Mobs 1.13.0.5 | Works: 110 creatures across all its sub-mods, natural spawning |
-| Galacticraft 3.0.12 (Core and Planets) | Works: launch pads, rockets placed, boarded and launched, the Moon, Mars and Asteroids as dimensions. Space stations don't work yet |
+| Galacticraft 3.0.12 (Core and Planets) | Works: launch pads, rockets placed, boarded and launched, the Moon, Mars and Asteroids as dimensions, space stations made and reached |
 | Rival Rebels 1.7.10Z1 | Loads; both creative tabs |
 | Fisk's Superheroes 2.4.0 | Loads and runs (its JavaScript heroes through the Nashorn engine Retrofit provides); suits draw with their own models |
 | CodeChickenCore 1.4.22 + NotEnoughItems 2.8.160 (GTNH) | Loads and runs (coremods). NEI's item panel only appears on 1.7.10 screens; use JEI on 1.20.1 screens |
 
-1.7.10 mods' own config files are in `retrofit/config`. ID clashes between mods are the same as
-in a 1.7.10 pack. For example, Witchery and RotaryCraft both use potion ID 35 by default, and
-DragonAPI then refuses to start until one is changed there.
+1.7.10 mods' own config files are in `retrofit/config`. Enchantment, potion and biome ID clashes
+between mods don't need fixing there: a mod asking for an ID another mod already has gets a free one
+(the log says which). Mods that check their biome IDs are free before taking them (Erebus and Advent
+of Ascension both default to 100) see the vanilla biomes and their own while they load, so both load.
+A dimension ID another mod registered first is skipped with a log line instead of leaving the mod out.
+Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
 
 ### What works
 
@@ -76,11 +81,11 @@ DragonAPI then refuses to start until one is changed there.
 | Items | Subtypes, the mods' own item names, durability, use on blocks and in the air (either hand), use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel, enchantments (mods' own become 1.20.1 enchantments), each mod's own creative tab | Items used over time work in the main hand only |
 | Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick; pieces with their own model (getArmorModel) draw it | Dyed armor's colour |
 | GUIs | Container GUIs (FML openGui, and container mods open themselves, as IC2 does) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
-| Entities | Mod creatures and things with their own AI and pathfinding, damage both ways, death and drops, saving, the mod's own renderer, spawn eggs, natural spawning from the 1.7.10 biome lists, leads, riding (the player on legacy mounts, legacy creatures on each other); vanilla entities legacy code spawns (arrows, mobs) become 1.20.1 ones; 1.7.10 spawn setup (equipment, variants) for mobs 1.20.1 spawns; pathfinding below y 0 | |
+| Entities | Mod creatures and things with their own AI and pathfinding, damage both ways, death and drops, saving, the mod's own renderer, spawn eggs, natural spawning from the 1.7.10 biome lists, leads, riding (the player on legacy mounts, legacy creatures on each other); vanilla entities legacy code spawns (arrows, mobs) become 1.20.1 ones; 1.7.10 spawn setup (equipment, variants) for mobs 1.20.1 spawns; pathfinding below y 0; a carrier another 1.20.1 mod removes (entity removers, lag clearers) takes its legacy entity out of the legacy world, dead, so mods tracking entities themselves (boss bars) let go; watchable attributes (bosses' own health attributes) reach client copies, as 1.7.10 synced them; 1.7.10's vanilla-style boss bar (BossStatus) shows in 1.20.1's boss bar overlay | |
 | Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, flight, chat, teleports, damage from legacy mobs, permission levels, potion effects both ways (mod potions' attribute modifiers too), extended properties saved with the player; FakePlayers; RenderPlayerEvent (Pre, Specials, Post) around the local player's model | Render events for other players |
-| World | Mod world generators (ores, structures, generated chests), world saved data, chunk load/unload/data events with per-chunk mod data, chunk access, per-world ID maps (stable when mods change), mods' dimensions as 1.20.1 dimensions (their generators, creatures, fog and sky colours, Teleporters), ForgeChunkManager chunk loading; ores also generated below y 0 in the overworld | Generation is serialized |
+| World | Mod world generators (ores, structures, generated chests), world saved data, chunk load/unload/data events with per-chunk mod data, chunk access, per-world ID maps (stable when mods change), mods' dimensions as 1.20.1 dimensions (their generators, creatures, fog and sky colours, Teleporters), also those made while playing (space stations, pocket dimensions), ForgeChunkManager chunk loading; ores also generated below y 0 in the overworld | Generation is serialized |
 | Recipes | Every crafting recipe (through the legacy recipe list, mods' own recipe classes included), furnace recipes, fuel; shaped and shapeless crafting recipes (vanilla and Ore Dictionary ones) in the recipe book, JEI, REI and EMI | Recipes of mods' own recipe classes (IC2's, Tinkers' tools) craft but don't show in the recipe book or viewers |
-| Events | FML ticks (server, world, player, client, render), login/logout/respawn/dimension, server lifecycle, PlayerInteractEvent, living events (attack, hurt, death, fall, jump, heal, break speed, update), EntityJoinWorldEvent, item tooltips, world load/save, chunk events, texture stitching, key bindings and KeyInputEvent, HUD (RenderGameOverlayEvent.Post), RenderWorldLastEvent, RenderPlayerEvent, DrawBlockHighlightEvent | |
+| Events | FML ticks (server, world, player, client, render), login/logout/respawn/dimension, server lifecycle, PlayerInteractEvent, living events (attack, hurt, death, fall, jump, heal, break speed, update), EntityJoinWorldEvent, item tooltips, world load/save, chunk events, texture stitching, key bindings and KeyInputEvent, HUD (RenderGameOverlayEvent Pre and Post, in GuiIngameForge's order), RenderWorldLastEvent, RenderPlayerEvent, DrawBlockHighlightEvent | |
 | Commands | Commands registered in FMLServerStartingEvent, with tab completion; usable from command blocks and data pack functions | |
 | Achievements | Mods' achievements as advancements, a tab per achievement page | |
 | Sounds | Mod sounds.json and .ogg files; common 1.7.10 vanilla sound names mapped | |
@@ -149,13 +154,14 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.4.1-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.5.1-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...
 ./gradlew :forge:runClient -PtestServer=127.0.0.1:25565 -PworldTest   # ...and its client
 ./gradlew :forge:runClient -PmodSweep -Pcorpus=thaumcraft,baubles   # mod sweep (below) for some corpus mods
 python -I tools/check_server_side.py   # after :harness:dumpServerSrgJar: no client-only 1.7.10 calls on servers
+./gradlew :legacy-bridge:checkAgainstCleanForge   # the bridge compiles against Forge 1.7.10 as other developers have it
 ```
 
 Dev runs load the 1.7.10 mods in `corpus/` (not in git; `.jar` and `.zip`). `-Pcorpus=a,b` picks
@@ -181,7 +187,10 @@ and writes a Java Flight Recorder profile (`forge/run/perf.jfr`); `-PmodernMods=
 adds 1.20.1 mods from Modrinth (jei, mekanism, mekanism-generators, moonlight, every-compat).
 
 Legacy-side code compiles against `run/legacy-srg/*.jar`, which `:harness:dumpSrgJar` (and
-`dumpServerSrgJar`) build from your own install. They contain Mojang code: local only, never
+`dumpServerSrgJar`) build from your own install. Those hold the classes as the running game has them,
+with what transformers add at run time (Forge's event constructors among it);
+`:harness:dumpCleanSrgJar` builds them with only what Forge 1.7.10's development setup applies, which
+`checkAgainstCleanForge` compiles the bridge against, so it builds against Forge 1.7.10 as others have it. They contain Mojang code: local only, never
 committed or published. Real 1.7.10 mods for testing go in `corpus/` (not in git).
 
 ## License

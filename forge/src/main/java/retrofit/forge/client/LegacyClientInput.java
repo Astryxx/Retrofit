@@ -161,9 +161,9 @@ public final class LegacyClientInput {
             }
         }
 
-        /** Whether mods draw on the HUD or in the world; checked now and then (listeners rarely change). */
+        /** Whether mods draw on the HUD or in the world; checked now and then (listeners rarely change; boss bars come and go). */
         private static void refresh() {
-            if (frames++ % 200 == 0) {
+            if (frames++ % 20 == 0) {
                 try {
                     hud = LegacyBridge.call("listensFor", 0);
                     worldLast = LegacyBridge.call("listensFor", 1);
@@ -179,20 +179,30 @@ public final class LegacyClientInput {
                 return;
             }
             refresh();
-            if (!hud) {
-                return;
-            }
-            var window = Minecraft.getInstance().getWindow();
-            try {
-                synchronized (LegacyBridge.renderLock()) {
-                    int vertices = LegacyBridge.call("drawOverlay", event.getPartialTick(), window.getWidth(), window.getHeight(),
-                            (int) window.getGuiScale());
-                    Object[] markers = LegacyBridge.call("guiMarkers");
-                    LegacyGuiRenderer.draw(event.getGuiGraphics(), vertices, markers, null);
+            if (hud) {
+                var window = Minecraft.getInstance().getWindow();
+                try {
+                    synchronized (LegacyBridge.renderLock()) {
+                        int vertices = LegacyBridge.call("drawOverlay", event.getPartialTick(), window.getWidth(), window.getHeight(),
+                                (int) window.getGuiScale());
+                        Object[] markers = LegacyBridge.call("guiMarkers");
+                        LegacyGuiRenderer.draw(event.getGuiGraphics(), vertices, markers, null);
+                    }
+                } catch (Throwable e) {
+                    failed = true;
+                    LegacyBridge.reportClientFailure("HUD drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
+                    return;
                 }
-            } catch (Throwable e) {
-                failed = true;
-                LegacyBridge.reportClientFailure("HUD drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
+            }
+            // 1.7.10's vanilla-style boss bar (BossStatus, gated by GuiIngameForge.renderBossHealth)
+            // shows through the host's own boss bar overlay, whether or not mods draw on the HUD: the
+            // legacy side runs its timer down and reports the state once per HUD frame.
+            if (LegacyBridge.isReady()) {
+                try {
+                    LegacyBossBar.update(LegacyBridge.call("bossBar"));
+                } catch (RuntimeException e) {
+                    LegacyBridge.reportClientFailure("the legacy boss bar", e);
+                }
             }
         }
 

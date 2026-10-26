@@ -103,7 +103,8 @@ public final class Dimensions {
     /**
      * DimensionManager.initDimension (redirected), for mods that ask for a dimension's world
      * (MinecraftServer.worldServerForDimension) before anyone went there: the bridged world of
-     * its 1.20.1 level. Dimensions mods make while playing (Galacticraft's space stations) have none.
+     * its 1.20.1 level, which the host makes now for a dimension registered while playing
+     * (Galacticraft's space stations, pocket dimensions).
      */
     public static void initDimension(int dimension) {
         if (DimensionManager.getWorld(dimension) != null) {
@@ -112,7 +113,65 @@ public final class Dimensions {
         java.util.function.IntFunction<Object> worlds = hostWorlds;
         if (worlds == null || worlds.apply(dimension) == null) {
             System.out.println("[Retrofit] A 1.7.10 mod asked for dimension " + dimension + ", which has no 1.20.1 level"
-                    + " (dimensions mods add while playing aren't supported yet)");
+                    + (DimensionManager.isDimensionRegistered(dimension) ? " (it could not be made; see the log)" : " (no mod registered it)"));
+        }
+    }
+
+    /** The ids of every registered dimension (the host makes the levels of those it has none of). */
+    public static int[] registeredDimensions() {
+        Integer[] ids = DimensionManager.getStaticDimensionIDs();
+        int[] result = new int[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            result[i] = ids[i];
+        }
+        return result;
+    }
+
+    /** A registered dimension's {provider type, average ground level}, for the host to make its level; null if not registered. */
+    public static int[] dimensionInfo(int dimension) {
+        if (!DimensionManager.isDimensionRegistered(dimension)) {
+            return null;
+        }
+        int ground = 64;
+        try {
+            ground = ((net.minecraft.world.World) WorldGen.genWorld(dimension)).field_73011_w.func_76557_i(); // provider.getAverageGroundLevel
+        } catch (RuntimeException e) {
+            // the overworld's
+        }
+        return new int[]{DimensionManager.getProviderType(dimension), ground};
+    }
+
+    /**
+     * DimensionManager.registerDimension (redirected). Forge's own, except that a second
+     * registration of a dimension id - 1.7.10 mods often shipped clashing default ids, and Forge's
+     * version threw and left the whole mod out - warns and skips instead: the first wins.
+     */
+    @SuppressWarnings("unchecked")
+    public static void registerDimension(int id, int providerType) {
+        try {
+            java.lang.reflect.Field providersField = DimensionManager.class.getDeclaredField("providers");
+            providersField.setAccessible(true);
+            java.util.Hashtable<Integer, Class<? extends WorldProvider>> providers =
+                    (java.util.Hashtable<Integer, Class<? extends WorldProvider>>) providersField.get(null);
+            if (!providers.containsKey(providerType)) {
+                throw new IllegalArgumentException("Failed to register dimension for id " + id + ", provider type " + providerType + " does not exist");
+            }
+            java.lang.reflect.Field dimensionsField = DimensionManager.class.getDeclaredField("dimensions");
+            dimensionsField.setAccessible(true);
+            java.util.Hashtable<Integer, Integer> dimensions = (java.util.Hashtable<Integer, Integer>) dimensionsField.get(null);
+            if (dimensions.containsKey(id)) {
+                System.out.println("[Retrofit] Dimension id " + id + " is registered already; a mod's second registration of it"
+                        + " (provider type " + providerType + ") is skipped, and that mod's dimension will not exist");
+                return;
+            }
+            dimensions.put(id, providerType);
+            if (id >= 0) {
+                java.lang.reflect.Field mapField = DimensionManager.class.getDeclaredField("dimensionMap");
+                mapField.setAccessible(true);
+                ((java.util.BitSet) mapField.get(null)).set(id);
+            }
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Retrofit] Could not register dimension " + id + " (provider type " + providerType + "): " + e);
         }
     }
 
@@ -135,11 +194,14 @@ public final class Dimensions {
 
     /** The provider's sky colour at noon (getSkyColor), if it doesn't need a viewer for it. */
     private static int skyColor(WorldProvider provider) {
+        java.lang.invoke.MethodType signature = java.lang.invoke.MethodType.methodType(net.minecraft.util.Vec3.class,
+                net.minecraft.entity.Entity.class, float.class);
+        if (!Overrides.overrides(provider.getClass(), WorldProvider.class, "getSkyColor", signature)) {
+            return -1; // the default: the biome's sky, which the host already has
+        }
         try {
-            java.lang.reflect.Method method = provider.getClass().getMethod("getSkyColor", net.minecraft.entity.Entity.class, float.class);
-            if (method.getDeclaringClass() == WorldProvider.class) {
-                return -1; // the default: the biome's sky, which the host already has
-            }
+            // looked up on WorldProvider and called on the provider: the mod's override runs
+            java.lang.reflect.Method method = WorldProvider.class.getMethod("getSkyColor", net.minecraft.entity.Entity.class, float.class);
             return rgb((net.minecraft.util.Vec3) method.invoke(provider, null, 1f));
         } catch (Throwable t) {
             return -1;
@@ -236,6 +298,40 @@ public final class Dimensions {
     }
 
     /** Tests: a player's mirror travels as mods send players (EntityPlayerMP.travelToDimension). */
+    /** Tests: a dimension of the given provider type registered now, as mods register theirs while playing; its id. */
+    public static int registerTestDimension(int providerType) {
+        int id = DimensionManager.getNextFreeDimId();
+        DimensionManager.registerDimension(id, providerType);
+        return id;
+    }
+
+    /**
+     * Tests: a legacy mod's static method called by name, as its own code calls it (Galacticraft's space
+     * station API); the argument WORLD stands for the player's world. Null if the mod isn't there.
+     */
+    public static Object testCallMod(String className, String method, Object legacyPlayer, Object[] args) throws Exception {
+        Class<?> type;
+        try {
+            type = Class.forName(className, true, Dimensions.class.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+        Object[] actual = args.clone();
+        for (int i = 0; i < actual.length; i++) {
+            if ("WORLD".equals(actual[i])) {
+                actual[i] = ((net.minecraft.entity.Entity) legacyPlayer).field_70170_p; // worldObj
+            } else if ("PLAYER".equals(actual[i])) {
+                actual[i] = legacyPlayer;
+            }
+        }
+        for (java.lang.reflect.Method candidate : type.getMethods()) {
+            if (candidate.getName().equals(method) && candidate.getParameterTypes().length == actual.length) {
+                return candidate.invoke(null, actual);
+            }
+        }
+        throw new NoSuchMethodException(className + "." + method);
+    }
+
     public static void testTravel(Object legacyPlayer, int dimension) {
         ((net.minecraft.entity.player.EntityPlayerMP) legacyPlayer).func_71027_c(dimension); // travelToDimension
     }

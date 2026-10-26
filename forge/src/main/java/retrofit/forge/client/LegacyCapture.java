@@ -52,6 +52,10 @@ public final class LegacyCapture {
     public static final int UNLIT = 1 << 19;
     /** See the legacy Capture: a line segment a, b as the quad a, b, b, a. */
     public static final int LINES = 1 << 20;
+    /** See the legacy Capture: GL_CULL_FACE on, and culling the other way round. */
+    public static final int CULLED = 1 << 21, REVERSED = 1 << 22;
+    /** See the legacy Capture: glDepthFunc(GL_EQUAL). */
+    public static final int DEPTH_EQUAL = 1 << 23;
     public static final int TEXTURE_MASK = 0xFFFF;
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -59,6 +63,8 @@ public final class LegacyCapture {
     private static MethodHandle states;
     private static MethodHandle lights;
     private static MethodHandle textureName;
+    private static MethodHandle uploadedVersion;
+    private static MethodHandle uploadedPixels;
     private static final Map<Integer, ResourceLocation> TEXTURES = new HashMap<>();
     private static List<ZipFile> sources;
 
@@ -75,6 +81,9 @@ public final class LegacyCapture {
         states = lookup.findStatic(capture, "states", MethodType.methodType(int[].class));
         lights = lookup.findStatic(capture, "lights", MethodType.methodType(int[].class));
         textureName = lookup.findStatic(capture, "textureName", MethodType.methodType(String.class, int.class));
+        Class<?> gl = RetrofitMod.runtime().rootLoader().loadClass("retrofit.legacy.gl.GL11");
+        uploadedVersion = lookup.findStatic(gl, "uploadedVersion", MethodType.methodType(int.class, String.class));
+        uploadedPixels = lookup.findStatic(gl, "uploadedPixels", MethodType.methodType(Object[].class, String.class));
     }
 
     public static float[] data() throws Throwable {
@@ -115,10 +124,20 @@ public final class LegacyCapture {
         Matrix3f normal = pose.normal();
         VertexConsumer out = null;
         int current = -1;
+        java.util.Set<RenderType> drawn = new java.util.LinkedHashSet<>();
         for (int v = 0; v + 3 < vertices; v += 4) {
             if (state[v] != current || out == null) {
                 current = state[v];
-                out = buffers.getBuffer((current & LINES) != 0 ? RenderType.lines() : sky ? skyType(current) : renderType(current));
+                RenderType type = (current & LINES) != 0 ? RenderType.lines() : sky ? skyType(current) : renderType(current);
+                if ((current & DEPTH_EQUAL) != 0 && !sky && buffers instanceof MultiBufferSource.BufferSource source) {
+                    // drawn over what came before it only: that has to be in the depth buffer first
+                    for (RenderType before : drawn) {
+                        source.endBatch(before);
+                    }
+                    drawn.clear();
+                }
+                drawn.add(type);
+                out = buffers.getBuffer(type);
             }
             if ((current & LINES) != 0) { // one segment: its two ends, the normal along it (as LevelRenderer's outlines)
                 int a = v * FLOATS_PER_VERTEX, b = (v + 1) * FLOATS_PER_VERTEX;
@@ -132,8 +151,9 @@ public final class LegacyCapture {
                 }
                 continue;
             }
+            boolean reversed = !sky && (current & REVERSED) != 0;
             for (int corner = 0; corner < 4; corner++) {
-                int i = v + corner;
+                int i = v + (reversed ? 3 - corner : corner);
                 int o = i * FLOATS_PER_VERTEX;
                 out.vertex(position, d[o], d[o + 1], d[o + 2])
                         .color(d[o + 8], d[o + 9], d[o + 10], d[o + 11])
@@ -178,13 +198,20 @@ public final class LegacyCapture {
 
     private static RenderType renderType(int state) throws Throwable {
         ResourceLocation texture = (state & UNTEXTURED) != 0 ? white() : texture(state & TEXTURE_MASK);
+        boolean culled = (state & CULLED) != 0, depthEqual = (state & DEPTH_EQUAL) != 0;
         if ((state & ADDITIVE) != 0) {
-            return LegacyRenderTypes.additive(texture);
+            return LegacyRenderTypes.of(texture, LegacyRenderTypes.Shading.ADDITIVE, culled, depthEqual);
         }
         if ((state & UNLIT) != 0) {
-            return LegacyRenderTypes.unlit(texture);
+            return LegacyRenderTypes.of(texture, LegacyRenderTypes.Shading.UNLIT, culled, depthEqual);
         }
-        return (state & BLEND) != 0 ? RenderType.entityTranslucent(texture) : RenderType.entityCutoutNoCull(texture);
+        if (depthEqual) {
+            return LegacyRenderTypes.of(texture, LegacyRenderTypes.Shading.LIT, culled, true);
+        }
+        if ((state & BLEND) != 0) {
+            return culled ? RenderType.entityTranslucentCull(texture) : RenderType.entityTranslucent(texture);
+        }
+        return culled ? RenderType.entityCutout(texture) : RenderType.entityCutoutNoCull(texture);
     }
 
     private static final String HOST_SKIN = "retrofit:host_skin";
@@ -254,9 +281,50 @@ public final class LegacyCapture {
         if (legacy.startsWith("minecraft:skins/")) {
             return namedSkin(legacy.substring("minecraft:skins/".length())); // looked up each time too
         }
+        int version = (int) uploadedVersion.invokeExact(legacy);
+        if (version >= 0) {
+            return uploaded(legacy, version); // made from pixels: looked up each time, as it may change
+        }
         ResourceLocation texture = load(legacy);
         TEXTURES.put(index, texture);
         return texture;
+    }
+
+    /** A texture legacy code made from pixels, as the host has it, and the upload it has. */
+    private record Uploaded(ResourceLocation id, DynamicTexture texture, int version) {
+    }
+
+    private static final Map<String, Uploaded> UPLOADS = new HashMap<>();
+
+    /**
+     * A texture legacy code made from pixels (glTexImage2D: DragonAPI's sprite sheets, 1.7.10's
+     * DynamicTexture), as a DynamicTexture of the host, uploaded again whenever legacy code changes it.
+     */
+    private static ResourceLocation uploaded(String legacy, int version) throws Throwable {
+        Uploaded known = UPLOADS.get(legacy);
+        if (known != null && known.version() == version) {
+            return known.id();
+        }
+        Object[] pixels = (Object[]) uploadedPixels.invokeExact(legacy);
+        int width = (Integer) pixels[0], height = (Integer) pixels[1];
+        int[] argb = (int[]) pixels[2];
+        DynamicTexture texture = known != null && known.texture().getPixels() != null && known.texture().getPixels().getWidth() == width
+                && known.texture().getPixels().getHeight() == height ? known.texture() : null;
+        ResourceLocation id = known != null ? known.id() : new ResourceLocation(RetrofitMod.MOD_ID, "legacy_gl/" + legacy.replaceAll("[^a-z0-9_./-]", "_"));
+        if (texture == null) {
+            texture = new DynamicTexture(width, height, false);
+            Minecraft.getInstance().getTextureManager().register(id, texture);
+        }
+        NativeImage image = texture.getPixels();
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int c = argb[y * width + x];
+                image.setPixelRGBA(x, y, (c & 0xFF00FF00) | ((c >> 16) & 0xFF) | ((c & 0xFF) << 16)); // NativeImage stores ABGR
+            }
+        }
+        texture.upload();
+        UPLOADS.put(legacy, new Uploaded(id, texture, (Integer) pixels[3]));
+        return id;
     }
 
     /** "domain:path" as 1.7.10 resolved it: assets/<domain>/<path>, from a mod jar or the 1.7.10 jar. */

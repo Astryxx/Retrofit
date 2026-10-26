@@ -53,6 +53,9 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
             return;
         }
         pose.pushPose();
+        // the host's pose so far: the poses below are 1.7.10's, and their normals are worked out (see exactNormals)
+        org.joml.Matrix4f hostPose = new org.joml.Matrix4f(pose.last().pose());
+        org.joml.Matrix3f hostNormal = new org.joml.Matrix3f(pose.last().normal());
         synchronized (LegacyBridge.renderLock()) {
             try {
                 boolean custom = LegacyBridge.hasItemRenderer(item.legacyItem(), meta, type);
@@ -72,6 +75,7 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                             pose.scale(1, 1, -1);
                             pose.mulPose(Axis.XP.rotationDegrees(210));
                             pose.mulPose(Axis.YP.rotationDegrees(45));
+                            pose.mulPose(Axis.YP.rotationDegrees(-90)); // RenderItem and renderInventoryItem turn the block a quarter before drawing
                         }
                     } else if (type.equals("EQUIPPED_FIRST_PERSON")) {
                         // ItemInHandRenderer has made 1.7.10's first translation; then ItemRenderer.renderItemInFirstPerson's
@@ -86,9 +90,9 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                         pose.mulPose(Axis.YP.rotationDegrees(-180));
                         pose.mulPose(Axis.XP.rotationDegrees(90));
                         pose.translate(-0.0625f, 0.4375f, 0.0625f);
-                        // RenderPlayer.renderEquippedItems: the block pose for item blocks only (renderers of
-                        // swords and guns often ask for BLOCK_3D too; 1.7.10 held those as items)
-                        if (!custom || (helpers & BLOCK_3D) != 0 && stack.getItem() instanceof LegacyBlockItem) {
+                        // RenderPlayer.renderEquippedItems: the block pose for renderers asking for BLOCK_3D
+                        // (whatever the item) and for item blocks drawn in 3D
+                        if (!custom || (helpers & BLOCK_3D) != 0) {
                             pose.translate(0, 0.1875f, -0.3125f);
                             pose.mulPose(Axis.XP.rotationDegrees(20));
                             pose.mulPose(Axis.YP.rotationDegrees(45));
@@ -117,6 +121,10 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                     int vertices = legacy != null ? LegacyBridge.call("renderItemStack", legacy, type)
                             : custom ? LegacyBridge.renderItem(item.legacyItem(), meta, type)
                             : LegacyBridge.call("renderBlockItem", block, blockMeta(item, meta), meta);
+                    if (DEBUG_ITEM != null && key.contains(DEBUG_ITEM) && type.equals("INVENTORY")) {
+                        debugDump(key, vertices);
+                    }
+                    exactNormals(pose.last(), hostPose, hostNormal);
                     LegacyCapture.draw(pose.last(), buffers, vertices, light, overlay, custom && !type.equals("INVENTORY")); // block items: light of the isolated world
                 }
             } catch (Throwable t) {
@@ -127,13 +135,57 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
         pose.popPose();
     }
 
+    /**
+     * The normal matrix for the 1.7.10 poses applied since the host's ({@code hostPose}), worked out
+     * exactly: the inverse transpose of those transforms, at unit length, after the host's own normals.
+     * 1.7.10's poses mirror (its GUI's y points down, and RenderItem flips z), and PoseStack.scale
+     * only approximates the normals of mirroring scales: legacy items came out dark.
+     */
+    private static void exactNormals(PoseStack.Pose pose, org.joml.Matrix4f hostPose, org.joml.Matrix3f hostNormal) {
+        org.joml.Matrix3f legacy = new org.joml.Matrix3f(new org.joml.Matrix4f(hostPose).invert().mul(pose.pose())).invert().transpose();
+        float length = legacy.getScale(new org.joml.Vector3f()).x; // the poses scale evenly: every column has this length
+        pose.normal().set(new org.joml.Matrix3f(hostNormal).mul(legacy.scale(1 / length)));
+    }
+
+    /** -Dretrofit.debugItem=<part of an item's id>: logs what the legacy renderer drew for such items in GUIs, once each. */
+    private static final String DEBUG_ITEM = System.getProperty("retrofit.debugItem");
+    private static final Set<String> DUMPED = Collections.synchronizedSet(new HashSet<>());
+
+    private static void debugDump(String key, int vertices) throws Throwable {
+        if (!DUMPED.add(key)) {
+            return;
+        }
+        float[] d = LegacyCapture.data();
+        int[] states = LegacyCapture.states();
+        StringBuilder out = new StringBuilder();
+        for (int v = 0; v < Math.min(vertices, 24); v += 4) {
+            int o = v * LegacyCapture.FLOATS_PER_VERTEX;
+            out.append(String.format(" [n %.2f %.2f %.2f rgba %.2f %.2f %.2f %.2f state %x]", d[o + 5], d[o + 6], d[o + 7],
+                    d[o + 8], d[o + 9], d[o + 10], d[o + 11], states[v] >>> 16));
+        }
+        LOGGER.info("[Debug] item {}: {} vertices{}", key, vertices, out);
+    }
+
     // IItemRenderer.ItemRendererHelper bits, and the item's own (see the legacy bridge's LegacyRendering.itemRendererHelpers)
     private static final int EQUIPPED_BLOCK = 1 << 2, BLOCK_3D = 1 << 3, INVENTORY_BLOCK = 1 << 4, FULL_3D = 1 << 30, ROTATE_AROUND = 1 << 29;
 
-    /** ForgeHooksClient.renderEquippedItem: renderers asking for EQUIPPED_BLOCK draw a block from 0 to 1; block items are centred already. */
+    /**
+     * ForgeHooksClient.renderEquippedItem, for renderers held in a hand: those asking for
+     * EQUIPPED_BLOCK draw a block from 0 to 1, the others get the pose of a flat held item. Block
+     * items (not custom) are centred already.
+     */
     private static void equippedBlock(PoseStack pose, boolean custom, int helpers) {
-        if (custom && (helpers & EQUIPPED_BLOCK) != 0) {
+        if (!custom) {
+            return;
+        }
+        if ((helpers & EQUIPPED_BLOCK) != 0) {
             pose.translate(-0.5, -0.5, -0.5);
+        } else {
+            pose.translate(0, -0.3, 0);
+            pose.scale(1.5f, 1.5f, 1.5f);
+            pose.mulPose(Axis.YP.rotationDegrees(50));
+            pose.mulPose(Axis.ZP.rotationDegrees(335));
+            pose.translate(-0.9375, -0.0625, 0);
         }
     }
     private static final java.util.Map<String, Integer> HELPERS = new java.util.concurrent.ConcurrentHashMap<>();

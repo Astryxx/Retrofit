@@ -1,7 +1,163 @@
 # Changelog
 
-## 0.5.0-beta (in progress)
+## 0.5.1-beta (in progress)
 
+- **Dimensions mods make while playing work** (Galacticraft's space stations, and any mod's pocket or
+  personal dimensions made the same way): a dimension registered after the server started gets a
+  1.20.1 level then, with the mod's generator, saved with the world. It comes back when the mod registers
+  it again after a restart, and players who left the game there come back there.
+- **A mod's own teleports take the player along**: mods that move a player to another dimension
+  themselves (as Galacticraft does, rather than through transferPlayerToDimension) now move the real
+  player too, to where the mod put them; before, the player stayed behind and fell.
+- A server's dimensions share one world data store (`mapStorage`), as on 1.7.10: dimensions made while
+  playing saw nothing the others kept there (Galacticraft: "bad home planet ID").
+- Server worlds have the `theChunkProviderServer` mods reach for (Galacticraft loads the arrival chunk
+  through it; it was null), its loaded-chunk map answering for the host's chunks (IC2 looks its
+  machines' chunks up there).
+- **Riders sit where the mount puts them**, also below its top (Galacticraft's rockets: inside, not on
+  the nose), on clients too.
+- **Entities are drawn where 1.7.10 drew them**, their `yOffset` above their feet: Galacticraft's
+  rockets stand on the launch pad, not sunk into it.
+
+- **Mod dimensions generate blocks past id 4095 as themselves**: the 1.7.10 chunks their generators
+  fill keep the bits of a block id past 12 beside them (0.5.0 widened block ids, which those chunks
+  could not hold).
+- The legacy side compiles against Forge 1.7.10 as other developers have it (thanks to a fellow mod
+  developer): it used an event constructor Forge only adds at run time. `checkAgainstCleanForge` checks.
+- **Biome ids no longer clash**, as enchantment and potion ids no longer do: 1.7.10 let a biome taking another's id replace it (the other
+  mod's world generation then made the wrong biome); it gets a free id below 256 instead (logged).
+- **Mods that check their biome ids before taking them load together** (thanks to a fellow mod
+  developer): Erebus and Advent of Ascension both default to biome 100, and Erebus refused to load
+  ("can not use biome ID 100 because it's being used by ..."). While a mod loads, 1.7.10's biome array
+  (getBiomeGenArray) shows it the vanilla biomes and its own, at the ids it asked for, so its checks
+  pass (HBM's own check of its dimensions' biomes too, which left a dimension out); its biomes still get
+  free ids in the real array, so each mod's world generation finds its own.
+- **A dimension id another mod registered first is skipped** with a warning (thanks to a fellow mod
+  developer): Forge's registerDimension threw, and 1.7.10 left the whole second mod out.
+- **Textures mods make at run time show** (Extra Utilities' Tinkers' Construct parts of its materials,
+  450 icons): a texture in no mod's jar is asked of 1.7.10's resource manager, with the resource packs
+  mods add there.
+- The Pistronics piston play test checks against real 1.7.10: its pistons move nothing in the test's
+  layout there either, and Retrofit leaves the same blocks, 1.20.1's prismarine among them.
+- **Block items and armor show their mods' own names** (RotaryCraft's and Extra Utilities' blocks,
+  ManaMetal's armor), as items already did: their names were the keys (`tile.block.beam.name`, not
+  "Beam Block"). A name a mod's code gives as a key 1.20.1 can translate is translated (IC2 keeps its
+  names on the legacy side itself, and a resource reload took them out again: "ic2.blockAlloy.name").
+  Checked against real 1.7.10's names for the same mods: 187 names differed, these.
+- **Boss health bars and HUD drawing follow 1.7.10's order** (thanks to a fellow mod developer): the
+  HUD's Pre events are fired too, BOSSHEALTH is among the elements (where The Titans draws its bosses'
+  bars), a cancelled Pre skips its element's Post, and a cancelled Pre(ALL) skips the rest, as Forge
+  1.7.10's GuiIngameForge did.
+- **1.7.10's vanilla-style boss bar shows in 1.20.1's boss bar overlay** (thanks to a fellow mod
+  developer): the bar bosses set through BossStatus (Thaumcraft's, Witchery's and others using
+  vanilla's) is one entry there, named and filled as 1.7.10 drew it, and counts down as there, so it
+  goes when the boss does. GuiIngameForge.renderBossHealth and a cancelled Pre(BOSSHEALTH) turn it off,
+  as mods with their own bar (The Titans) do.
+- **Legacy entities another mod removes leave with their carriers** (thanks to a fellow mod
+  developer): entity removers and lag clearers take entities out of the level without remove(), and
+  the client's removal path doesn't call it either. Each tick finds such carriers and takes their legacy
+  entities out of the legacy world, dead, as 1.7.10 did: The Titans' boss bars let go of removed titans.
+- **Watchable attributes reach client copies** (thanks to a fellow mod developer), as 1.7.10's entity
+  tracker sent them: The Titans keep their bosses' health in an attribute of their own, so their bars
+  filled up again on clients. The network protocol is 3; client and server builds must match.
+- **The legacy profiler exists while mods load** (thanks to a fellow mod developer): The Titans keep
+  Minecraft.mcProfiler from their boss bar's constructor, and it was null until the first frame.
+- **Mods' HUD code doesn't run as in-game on the title screen** (thanks to a fellow mod developer):
+  with no player, `currentScreen` was null, which mods read as "in game" before using `thePlayer`
+  (Advent of Ascension failed every frame); a blank screen stands in, as 1.7.10's menus were screens.
+  What tick and render-tick handlers draw where nothing reads it is cleared, so it no longer piles up
+  until memory runs out (AoA's notice board on the title screen).
+- **A mod left out late keeps its textures and names.** A mod that fails after registering its blocks
+  and items (Thaumcraft, in postInit) keeps them, but its jar was left out of the asset pack with it:
+  they drew as missing textures and showed their keys as names.
+
+## 0.5.0-beta
+
+- **Mod entities whose classes squat in net.minecraft.\* spawn.** Mods that put their classes
+  outside their own package but under net.minecraft (The Titans: net.minecraft.theTitans.*) were
+  taken for vanilla entities: no 1.20.1 entity type was built for them, and spawning one (its spawn
+  eggs) failed with `ResourceLocationException: Non [a-z0-9/._-] character in path of location:
+  minecraft:thetitans.WitherBossTitan` after DataFixerUpper logged `Unsupported key`. A class now
+  counts as vanilla only if it is the class one of 1.7.10's own EntityList names (Zombie, Boat...)
+  stands for (The Titans keeps its entities in net.minecraft.entity.titan.* too), so such mods'
+  entities register and spawn like any other legacy entity, and their biome spawns count too.
+  Entity data that reaches the host's vanilla conversion under a legacy name (spawners and other
+  stored state keep them; 1.20.1 then logs `Skipping Entity with id`) is hosted as the legacy
+  entity it names, loaded from its own NBT, and a name that names no 1.20.1 entity at all fails
+  that one spawn with a clear log line instead of a stack trace or a silent skip.
+- **Empty item tags stay empty.** A legacy item's tag that was empty became null on its way back to
+  the mod, so mods that create the tag in `onUpdate` when it is null lost what they kept in it. A
+  tag that held only Retrofit's own bookkeeping (subtype, damage) still becomes null, so stacking is
+  unchanged.
+- **The resource pack repository exists while mods load**, as Minecraft's constructor made it: mods
+  that read it in preInit (Hbm's manual loader, from a reload listener) found it null, since the
+  bridge created it only once the client started.
+- **Mods that fail while loading are left out with mixins installed too.** A mixin (with UniMixins)
+  rewrites FML's LoadController as newer bytecode, and Retrofit then left it unchanged, so one mod
+  that threw in preInit stopped every 1.7.10 mod again.
+- **Enchantment and potion ids no longer clash.** Mods choose these ids by hand, and two mods often
+  chose the same one: 1.7.10 then refused the second enchantment (Advent of Ascension's and Ars
+  Magica 2's, both 100: the mod failed to load) and let the second potion silently replace the
+  first. They live in 1.20.1's registries by name, so a mod asking for a taken id now gets a free
+  one (logged), and keeps its own whenever it is free. Potion ids may go past 1.7.10's 32.
+- **Mods' potion effects are 1.20.1 effects by name** (Witchery's paralysis is `retrofit:paralysis`),
+  as their enchantments already were, instead of by number (`retrofit:legacy_potion_32`): numbers
+  change when mods are added or removed, and saved effects then pointed at another potion. Effects
+  saved under the old numbered names are dropped once; an enchantment or potion sharing another's
+  name gets `_2`, `_3`..., not its number.
+- **No more running out of ids.** Global entity ids (254, sized for 1.7.10's spawn packets) and
+  block ids (4096, sized for its chunks) are sized for packets and storage 1.20.1 replaces; large
+  modpacks used them up and the next mod failed ("No more entity indicies left": The Titans;
+  "maximum id range exceeded": Fisk's Superheroes after HBM's blocks). Entity ids now go up to
+  32766 and block ids up to 31999, the lowest free one first as before, so packs that fit keep
+  their ids.
+- **Worlds no longer hang while loading when a mod forces chunks early.** Custom Mob Spawner makes
+  one of every entity as a world loads, and HBM's missiles force their chunk from their
+  constructor; Forge loaded that chunk on the spot, and the server waited for it forever. Forced
+  chunks now load on the server's next tasks, as on 1.7.10.
+- **Legacy blocks keep their textures with mods that pick GL texture units** (ManaMetal, before every
+  Tessellator draw): OpenGlHelper's texture units were left 0, both read as the lightmap's, and the
+  block texture's coordinates went there. Every legacy block and block item drew as one flat colour,
+  or not at all in large packs.
+- **Moving a 1.7.10 mod from `mods/` to `retrofit/mods/` no longer deletes it.** Retrofit links the
+  1.7.10 mods of `mods/` into `retrofit/mods/` and removed a link once its mod left `mods/`, even when the
+  file there was now the player's own copy, moved in. A file there that is no longer the one linked
+  stays; one that still is moves to `retrofit/mods-removed/` (the log says so), never deleted.
+- **Worlds load after a mod dimension goes away.** A world keeps the dimensions it was played with,
+  and 1.20.1 refused to load it once one of them was no longer provided (its mod taken out, or a mod
+  that numbers its dimensions by the next free id, which moves when mods change: "Failed to get
+  element ResourceKey[minecraft:dimension_type / retrofit:legacy_dim_2595]"). Retrofit remembers the
+  mod dimensions a game has had (`retrofit/legacy-dimensions.txt`, and those of worlds played before)
+  and keeps their types, so the world loads, with that dimension empty, as 1.7.10 loaded it without.
+- **Dedicated servers start with Pistronics** (and other mods whose blocks only know how they are drawn
+  on clients): asked for its render type on a server, one such block stopped the server from starting.
+- A class asked for again after it was found nowhere fails at once, without recording another stack
+  trace: mods ask for an absent mod's class over and over (Thaumcraft, at every step of working out
+  aspects through all recipes), and each miss cost as much as the stack was deep.
+- Legacy rendering starts from a fresh RenderBlocks state for every block and item, as 1.7.10's chunk
+  rebuilds did: a mod leaving an override texture, rotations or locked bounds behind no longer spoils
+  what is drawn after it.
+- **1.20.1-only blocks no longer read as air in small packs.** Retrofit's stand-ins for them (prismarine,
+  deepslate, 1.20.1 mods' blocks) were only looked for past the 256 vanilla ids; with few mods installed
+  FML numbers them below that (and mod blocks too, in mods' dimensions). Legacy code saw air there and
+  built over them.
+- **Hits on 1.20.1 creatures show at once**: legacy code reading a creature's health right after hurting
+  it saw the health from before the hit until the end of the tick (Pistronics' petrify arrows never
+  made statues of what they killed).
+- **Creatures near a player who just teleported stay.** The player's legacy self followed only when
+  the player ticked, after the world's creatures, so for one tick they measured the distance to where
+  the player had been, and monsters there despawned as 1.7.10 despawns monsters far from every player.
+- A 1.20.1 block that legacy code moves with its tile entity (as Pistronics' pistons move blocks) is
+  put back as itself: the stand-in put down without it clears the place, and putting it down again
+  over itself changes nothing, as on 1.7.10.
+- Minecraft's default resource pack exists while mods load (Extra Utilities reads vanilla's
+  bedrock texture from it for its Tinkers' Construct parts, and failed for every tool part).
+- **Bedrock ores generate** (HBM's): they are written on 1.7.10's bottom layer, which the deep ore
+  pass puts in the bedrock floor, where only stone and deepslate were accepted. The mod read the
+  ore's tile entity back and crashed the chunk's generation.
+- Legacy blocks and items whose names land on a vanilla id (a name without a mod id: "air") get a
+  number at the end, as two legacy names that differ only in case do, instead of replacing
+  vanilla's.
 - **Runs on NeoForge 1.20.1** (47.1) as well as Forge: the same jar, client and server, tested with
   the play test's mods.
 - **Coremods see the class loading they were written for.** While transformers run, the call stack
@@ -28,16 +184,53 @@
   17 mods of the tested ones use this): the item model asks the item for each stack's icons.
 - **Icons from mods' own atlases** (FiskHeroes' suits, from its hero atlas) and **items showing
   block icons** (fluid containers) find their textures.
-- **Weapons and tools with their own renderers are held in the hand.** Renderers that ask for
-  every render helper (OreSpawn's swords and guns) were held with the pose 1.7.10 used only for
-  blocks, shrunk and mirrored away from the hand.
+- **Compared against real 1.7.10.** A test-only 1.7.10 mod (`testmods/reference1710`) plays the
+  same scenes in real Minecraft 1.7.10 as Retrofit's play test (items in the hand, blocks placed in
+  the world, every item in a gallery), so the two are compared screenshot for screenshot. The fixes
+  below came from those comparisons, each checked against 1.7.10's own code.
+- **Items in the hand are posed as on 1.7.10**: item renderers that don't draw a block get 1.7.10's
+  held-item pose (they floated beside the hand); OreSpawn's weapons, among others, now match
+  1.7.10 exactly in first and third person.
+- **Items in inventories are posed as on 1.7.10**: block items face the way 1.7.10 showed them (its
+  GUI turns blocks a quarter further than 1.20.1's), and blocks drawn by their mods' item renderers
+  are no longer off centre.
+- **Block items are drawn as 1.7.10 drew them as items**: flat when 1.7.10 drew them flat (plants,
+  rails, blocks drawn by their tile entity, which were invisible or tiny), by their renderers'
+  inventory drawing with the right texture for each damage value, with the bounds of their item
+  (pressure plates), and with the block's colour (leaves, grass).
+- **Blocks smaller than a cube** drawn as plain blocks (cakes, carpets, plates) have their shape,
+  in the world too; they were whole cubes.
+- **Connected textures and other icons mods make from icons** (Chisel's pillars and circuits) use
+  the icons' real places: mods take those at the stitch event, which comes again once the icons
+  are placed, as on every 1.7.10 resource reload.
+- **Vanilla's item drawing works inside mods' renderers** (FiskHeroes' charged items): the atlases
+  are registered as 1.7.10 registered them, so RenderItem finds them by sprite number.
+- **Legacy items are lit as 1.20.1 lights items.** Items drawn by their mods' renderers (and blocks
+  drawn by their own block renderers) were drawn with mirrored poses whose normals came out wrong,
+  so they were much darker than everything else in inventories and in the hand.
+- **Items drawn by their renderers in inventories are lit, coloured and masked as on 1.7.10**:
+  Forge drew flat ones unlit and in the stack's colour (GregTech's and IC2's items were half as
+  bright), and the GL emulation now keeps face culling (models no longer show their insides) and
+  drawing over what is already there only (GregTech's fluids in cells covered the whole slot).
+- **Textures mods make from pixels show** (DragonAPI's sprite sheets: RotaryCraft's items and
+  armor), and the GL calls taking doubles (`glRotated`, `glColor4d`, ...) and reading the matrix
+  back work: they did nothing, so RotaryCraft's items were skewed.
+- Block items whose damage picks the block without the item saying it has subtypes (IC2's sixteen
+  foam walls) show and place each one, as the mod's item says.
+- **Leaves follow the graphics setting** (fancy leaves are see-through), and blocks opaque only on
+  fast graphics no longer hide the faces behind them.
+- **Items that shimmer on 1.7.10** (enchanted, or always: Witchery's urns) have the glint; flat items
+  whose hand is drawn by their mod's renderer are no longer shaded in GUIs.
+- Galacticraft (and other mods whose items name an absent mod's API) no longer stop the client from
+  starting: Retrofit asks about mods' methods one at a time, never the whole class.
 - Other players' skins (and heads mods draw by player name) use their 1.20.1 skins.
 - Extra Utilities no longer crashes the client when one of its machines is placed (it reads 1.7.10's
   sound manager, which Retrofit now provides, idle).
 - Legacy blocks that draw something their block model can't show (untextured, with their own
   texture, or with an icon that has no file) are logged once each, and the icons without a texture
   file are named in the log. `-Dretrofit.debugItem=<name>` makes the harness print where an item's
-  renderer draws in each render type.
+  renderer draws in each render type, and the client log what such items draw in GUIs; the play test
+  passes `-PdebugItem` and `-PdebugBlock` on.
 
 ## 0.4.1-beta
 

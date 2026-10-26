@@ -1,6 +1,7 @@
 package retrofit.forge.world;
 
 import com.mojang.logging.LogUtils;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.BlockItem;
@@ -41,6 +42,8 @@ public final class LegacyContent {
     private static final List<LegacyArmorItem> ARMOR = new ArrayList<>();
     private static final Map<LegacyBlock, String> LEGACY_NAMES = new IdentityHashMap<>();
     private static final Map<Object, LegacyBlock> BY_LEGACY = new IdentityHashMap<>();
+    /** Legacy item name (an item block's is its block's) -> its 1.20.1 id: see {@link #uniqueId}. */
+    private static final Map<String, ResourceLocation> ITEM_IDS = new java.util.HashMap<>();
     private static final Map<Level, Object> WORLDS = new WeakHashMap<>();
 
     private static BlockEntityType<LegacyBlockEntity> blockEntityType;
@@ -104,6 +107,7 @@ public final class LegacyContent {
             } catch (ReflectiveOperationException e) {
                 throw new IllegalStateException("Retrofit could not connect to the legacy bridge", e);
             }
+            java.util.Set<ResourceLocation> taken = new java.util.HashSet<>();
             for (String name : LegacyBridge.modBlockNames()) {
                 if (name.equals("retrofit:modern_block") || name.equals("retrofit:modern_open_block")) {
                     continue; // Retrofit's stand-ins for 1.20.1 mods' blocks in legacy code
@@ -111,22 +115,21 @@ public final class LegacyContent {
                 Object legacyBlock = LegacyBridge.block(name);
                 LegacyBlock block = LegacyBlock.create(legacyBlock, LegacyBridge.blockRenderInfo(legacyBlock),
                         LegacyBridge.call("blockInfo", legacyBlock));
-                helper.register(toResourceLocation(name), block);
+                helper.register(uniqueId(name, taken), block);
                 BLOCKS.add(block);
                 LEGACY_NAMES.put(block, name);
                 BY_LEGACY.put(legacyBlock, block);
             }
             LOGGER.info("Registered {} legacy blocks", BLOCKS.size());
-            java.util.Set<ResourceLocation> taken = new java.util.HashSet<>();
-            for (LegacyBlock block : BLOCKS) {
-                taken.add(toResourceLocation(LEGACY_NAMES.get(block)));
-            }
             LegacyWoodSets.registerBlocks(helper, taken);
         });
         event.register(Registries.ITEM, helper -> {
+            java.util.Set<ResourceLocation> taken = new java.util.HashSet<>();
             for (LegacyBlock block : BLOCKS) {
-                helper.register(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block),
-                        new LegacyBlockItem(block, LegacyBridge.item(LEGACY_NAMES.get(block))));
+                ResourceLocation id = net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block);
+                taken.add(id);
+                ITEM_IDS.put(LEGACY_NAMES.get(block), id);
+                helper.register(id, new LegacyBlockItem(block, LegacyBridge.item(LEGACY_NAMES.get(block))));
             }
             LegacyWoodSets.registerItems(helper);
             for (String name : LegacyBridge.modItemNames()) {
@@ -135,14 +138,16 @@ public final class LegacyContent {
                 }
                 Object legacyItem = LegacyBridge.item(name);
                 int[] armor = LegacyBridge.call("armorInfo", legacyItem);
+                ResourceLocation id = uniqueId(name, taken);
+                ITEM_IDS.put(name, id);
                 if (armor[0] >= 0) {
                     LegacyArmorItem item = new LegacyArmorItem(legacyItem, LegacyBridge.itemInfo(legacyItem), armor);
-                    helper.register(toResourceLocation(name), item);
+                    helper.register(id, item);
                     ARMOR.add(item);
                     continue;
                 }
                 LegacyItem item = new LegacyItem(legacyItem, LegacyBridge.itemInfo(legacyItem));
-                helper.register(toResourceLocation(name), item);
+                helper.register(id, item);
                 ITEMS.add(item);
             }
             LOGGER.info("Registered {} legacy items ({} armor pieces)", ITEMS.size() + ARMOR.size(), ARMOR.size());
@@ -251,6 +256,33 @@ public final class LegacyContent {
                 });
             }
         }
+    }
+
+    /**
+     * The 1.20.1 id for a legacy name, one not in {@code taken} (which it joins): 1.7.10 told names
+     * apart by case (Nevermine's item "Ivory" and block "ivory"), 1.20.1 ids are lower case, so the
+     * later of two such names gets a number. So does a name that lands on a vanilla id (one with no
+     * mod id, such as "air", is minecraft:air): Forge would let it replace vanilla's entry. Block ids
+     * are their items' ids too, so both registries count. Registration follows the legacy
+     * registries' order, the same on clients and servers with the same mods.
+     */
+    private static ResourceLocation uniqueId(String legacyName, java.util.Set<ResourceLocation> taken) {
+        ResourceLocation base = toResourceLocation(legacyName);
+        ResourceLocation id = base;
+        for (int n = 2; taken.contains(id) || BuiltInRegistries.BLOCK.containsKey(id) || BuiltInRegistries.ITEM.containsKey(id); n++) {
+            id = new ResourceLocation(base.getNamespace(), base.getPath() + "_" + n);
+        }
+        taken.add(id);
+        if (id != base) {
+            LOGGER.info("Legacy name {} shares its 1.20.1 id with another; it is {}", legacyName, id);
+        }
+        return id;
+    }
+
+    /** The 1.20.1 id of a legacy item (an item block's: its block's name), as registered. */
+    public static ResourceLocation itemId(String legacyName) {
+        ResourceLocation id = ITEM_IDS.get(legacyName);
+        return id != null ? id : toResourceLocation(legacyName);
     }
 
     /** Legacy names are "modid:name" but may use characters 1.20.1 forbids (e.g. upper case). */

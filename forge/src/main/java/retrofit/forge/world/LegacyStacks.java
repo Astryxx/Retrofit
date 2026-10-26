@@ -85,7 +85,7 @@ public final class LegacyStacks {
         if (name.startsWith("minecraft:")) {
             return vanilla(name, count, damage, tag);
         }
-        Item item = ForgeRegistries.ITEMS.getValue(LegacyContent.toResourceLocation(name));
+        Item item = ForgeRegistries.ITEMS.getValue(LegacyContent.itemId(name));
         if (!(item instanceof LegacyStackItem legacyItem)) {
             return ItemStack.EMPTY;
         }
@@ -162,12 +162,17 @@ public final class LegacyStacks {
                 return null;
             }
             CompoundTag tag = stack.getTag() == null ? null : stack.getTag().copy();
+            byte[] legacyTag = null;
             if (tag != null) {
+                boolean bookkeeping = tag.contains(LegacyItem.META_TAG) || tag.contains("Damage");
                 tag.remove(LegacyItem.META_TAG);
                 tag.remove("Damage");
                 legacyEnchantments(tag);
+                // An empty tag stays empty, not null: mods create one in onUpdate when it's null and read it
+                // back later. A tag that held only Retrofit's bookkeeping was null on the legacy stack.
+                legacyTag = tag.isEmpty() && bookkeeping ? null : toBytes(tag);
             }
-            return LegacyBridge.makeStackOf(legacyItem.legacyItem(), stack.getCount(), legacyItem.meta(stack), bytesOrNull(tag));
+            return LegacyBridge.makeStackOf(legacyItem.legacyItem(), stack.getCount(), legacyItem.meta(stack), legacyTag);
         }
         Object[] legacy = reverseTable().get(stack.getItem());
         if (legacy == null) {

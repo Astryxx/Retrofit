@@ -51,9 +51,11 @@ final class FmlFixes {
     private static byte[] change(byte[] bytes, String name, String desc, Change change) {
         ClassNode node = new ClassNode();
         new ClassReader(bytes).accept(node, 0);
-        if (node.version > Opcodes.V1_6) {
+        // Mixins rewrite FML's classes as newer bytecode (LoadController, with UniMixins). A call put first
+        // leaves the method's stack map frames as they were; only the replaced EventBus.post body has none.
+        if (change == Change.ISOLATE_LISTENERS && node.version > Opcodes.V1_6) {
             System.out.println("[Retrofit] " + node.name + " is newer bytecode than FML 1.7.10's; not changed");
-            return bytes; // the replaced bodies have no stack map frames, which Java 7+ classes need
+            return bytes; // the replaced body has no stack map frames, which Java 7+ classes need
         }
         boolean changed = false;
         for (Object element : node.methods) { // ASM 5 uses raw lists

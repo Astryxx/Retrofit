@@ -10,6 +10,7 @@ import java.security.CodeSigner;
 import java.security.CodeSource;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * LaunchClassLoader that also applies {@link RetrofitTransformer}'s Java 17 fixes to
@@ -28,6 +29,13 @@ public class RetrofitLaunchClassLoader extends LaunchClassLoader {
     private final Set<String> classLoaderExceptions;
     private final Set<String> transformerExceptions;
     private final Map<String, Class<?>> cachedClasses;
+    /**
+     * Names found nowhere. Asked for again, they fail at once with an exception that records no stack
+     * trace: recording one costs as much as the stack is deep, and mods ask for a missing mod's class
+     * at every step of deep recursions (Thaumcraft, working out aspects through a large pack's recipes,
+     * spent minutes on it). Forgotten when the classpath grows (FML adds mods' jars as it finds them).
+     */
+    private final Set<String> missing = ConcurrentHashMap.newKeySet();
 
     public RetrofitLaunchClassLoader(URL[] sources) {
         super(sources);
@@ -39,6 +47,9 @@ public class RetrofitLaunchClassLoader extends LaunchClassLoader {
     /** ClassLoader.loadClass for a loader with no parent (as LaunchClassLoader is), with the additions. */
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        if (missing.contains(name)) {
+            throw new Missing(name);
+        }
         synchronized (getClassLoadingLock(name)) {
             Class<?> type = findLoadedClass(name);
             if (type == null) {
@@ -53,6 +64,7 @@ public class RetrofitLaunchClassLoader extends LaunchClassLoader {
                 } catch (ClassNotFoundException e) {
                     type = platformClass(name);
                     if (type == null) {
+                        missing.add(name);
                         throw e;
                     }
                 }
@@ -64,6 +76,31 @@ public class RetrofitLaunchClassLoader extends LaunchClassLoader {
         }
     }
 
+    @Override
+    public void addURL(URL url) {
+        super.addURL(url);
+        missing.clear();
+    }
+
+    @Override
+    public void clearNegativeEntries(Set<String> entriesToClear) {
+        super.clearNegativeEntries(entriesToClear);
+        missing.removeAll(entriesToClear);
+    }
+
+    /** A repeated miss (see {@link #missing}): no stack trace. */
+    private static final class Missing extends ClassNotFoundException {
+        Missing(String name) {
+            super(name);
+        }
+
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+            return this;
+        }
+    }
+
+    /** What ClassLoader.loadClass asks first for a loader without a parent: the JDK's own classes; null if not one. */
     private static Class<?> bootstrapClass(String name) {
         try {
             return Class.forName(name, false, null);

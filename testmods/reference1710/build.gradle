@@ -1,0 +1,17 @@
+// A 1.7.10 Forge mod for real 1.7.10, never for Retrofit: it plays the same scenes as Retrofit's
+// play test (see retrofit.forge.test.PlayTest's comparison) and takes the same screenshots, so the
+// two can be put side by side. See README in this folder.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+dependencies {
+    compileOnly files(rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg.jar'))
+    compileOnly('net.minecraft:launchwrapper:1.12') { transitive = false }
+    compileOnly 'org.lwjgl.lwjgl:lwjgl:2.9.1'
+}
+
+tasks.named('compileJava') {
+    dependsOn ':harness:dumpSrgJar'
+}

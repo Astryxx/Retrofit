@@ -29,7 +29,7 @@ import java.util.function.Supplier;
  */
 public final class LegacyNetwork {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final String PROTOCOL = "2"; // 2: entity sync carries equipment
+    private static final String PROTOCOL = "3"; // 3: entity sync carries watchable attributes
     private static SimpleChannel channel;
     private static String version;
 

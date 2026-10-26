@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.4.1-beta'
+version = '0.5.1-beta'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -73,6 +73,15 @@ minecraft {
                 property 'retrofit.playTest', 'true' // retrofit.forge.test.PlayTest: the corpus mods played through the client
                 property 'retrofit.debugInteractions', 'true'
                 property 'retrofit.debugEntities', 'true'
+                if (project.hasProperty('debugItem')) {
+                    property 'retrofit.debugItem', project.property('debugItem').toString() // LegacyItemRenderer's dumps
+                }
+                if (project.hasProperty('debugBlock')) {
+                    property 'retrofit.debugBlock', project.property('debugBlock').toString() // LegacyBakedModel's dumps
+                }
+                if (project.hasProperty('compare')) {
+                    property 'retrofit.compare', project.property('compare').toString() // PlayTest.compare: the reference scenes
+                }
             }
             if (project.hasProperty('modSweep') || project.hasProperty('worldTest') || project.hasProperty('background') || project.hasProperty('downloadTest')
                     || project.hasProperty('playTest')) {

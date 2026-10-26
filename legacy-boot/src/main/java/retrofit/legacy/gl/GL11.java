@@ -1,6 +1,7 @@
 package retrofit.legacy.gl;
 
 import java.nio.ByteBuffer;
+import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
 import java.util.ArrayList;
@@ -39,10 +40,16 @@ public final class GL11 {
     private static final int GL_LIGHTING = 0x0B50;
     private static final int GL_ONE = 1;
     private static final int GL_TEXTURE_2D = 0x0DE1;
+    private static final int GL_CULL_FACE = 0x0B44;
+    private static final int GL_CW = 0x0900;
+    private static final int GL_FRONT = 0x0404;
+    private static final int GL_EQUAL = 0x0202;
     private static final int GL_VENDOR = 0x1F00;
     private static final int GL_RENDERER = 0x1F01;
     private static final int GL_VERSION = 0x1F02;
     private static final int GL_MAX_TEXTURE_SIZE = 0x0D33;
+    private static final int GL_CURRENT_COLOR = 0x0B00;
+    private static final int GL_MODELVIEW_MATRIX = 0x0BA6;
 
     private static final List<Matrix4> stack = new ArrayList<Matrix4>();
     private static Matrix4 modelview = new Matrix4();
@@ -56,6 +63,10 @@ public final class GL11 {
     private static boolean additive;
     /** GL_LIGHTING: off for things drawn without shading (glows, beams, flat sprites). */
     private static boolean lighting = true;
+    /** GL_CULL_FACE (on in 1.7.10's world and GUIs), and which faces it drops: glFrontFace(GL_CW), glCullFace(GL_FRONT). */
+    private static boolean cullFace = true, frontClockwise, cullFront;
+    /** glDepthFunc(GL_EQUAL): drawn over what is already there only (masked fluids, glints). */
+    private static boolean depthEqual;
     /** Packed lightmap coordinates set by legacy code, or -1 for the host's light. */
     private static int light = -1;
     private static final List<float[]> attribStack = new ArrayList<float[]>();
@@ -118,6 +129,10 @@ public final class GL11 {
         textured = true;
         additive = false;
         lighting = true;
+        cullFace = true;
+        frontClockwise = false;
+        cullFront = false;
+        depthEqual = false;
         light = -1;
         attribStack.clear();
     }
@@ -162,9 +177,133 @@ public final class GL11 {
     }
 
     public static void glBindTexture(int target, int texture) {
-        String location = target == GL_TEXTURE_2D ? TEXTURE_NAMES.get(texture) : null;
+        if (target != GL_TEXTURE_2D) {
+            return;
+        }
+        boundTexture = texture;
+        String location = TEXTURE_NAMES.get(texture);
         if (location != null) {
             bindLegacyTexture(location);
+        }
+    }
+
+    // ---- Textures made from pixels ----
+
+    private static final int GL_RGBA = 0x1908, GL_BGRA = 0x80E1, GL_UNSIGNED_BYTE = 0x1401, GL_UNSIGNED_INT_8_8_8_8_REV = 0x8367;
+
+    /** The texture id last bound: the one glTexImage2D fills (legacy code binds, then uploads). */
+    private static volatile int boundTexture;
+
+    /** A texture legacy code made from pixels (DragonAPI's sprite sheets, 1.7.10's DynamicTexture), ARGB, top row first. */
+    private static final class Pixels {
+        final int width;
+        final int height;
+        final int[] argb;
+        /** Counts the uploads, so the host knows to upload it again. */
+        volatile int version;
+
+        Pixels(int width, int height) {
+            this.width = width;
+            this.height = height;
+            this.argb = new int[width * height];
+        }
+    }
+
+    /** Uploaded textures by the name their id has (see textureId; "retrofit:gl/<id>" for ids no texture names). */
+    private static final Map<String, Pixels> UPLOADED = new java.util.concurrent.ConcurrentHashMap<String, Pixels>();
+
+    public static void glTexImage2D(int target, int level, int internalFormat, int width, int height, int border, int format, int type,
+                                    java.nio.IntBuffer pixels) {
+        if (target == GL_TEXTURE_2D && level == 0) {
+            Pixels texture = define(width, height);
+            put(texture, 0, 0, width, height, format, type, pixels, null);
+        }
+    }
+
+    public static void glTexImage2D(int target, int level, int internalFormat, int width, int height, int border, int format, int type,
+                                    ByteBuffer pixels) {
+        if (target == GL_TEXTURE_2D && level == 0) {
+            Pixels texture = define(width, height);
+            put(texture, 0, 0, width, height, format, type, null, pixels);
+        }
+    }
+
+    public static void glTexSubImage2D(int target, int level, int x, int y, int width, int height, int format, int type, java.nio.IntBuffer pixels) {
+        Pixels texture = target == GL_TEXTURE_2D && level == 0 ? UPLOADED.get(nameOfBound()) : null;
+        if (texture != null) {
+            put(texture, x, y, width, height, format, type, pixels, null);
+        }
+    }
+
+    public static void glTexSubImage2D(int target, int level, int x, int y, int width, int height, int format, int type, ByteBuffer pixels) {
+        Pixels texture = target == GL_TEXTURE_2D && level == 0 ? UPLOADED.get(nameOfBound()) : null;
+        if (texture != null) {
+            put(texture, x, y, width, height, format, type, null, pixels);
+        }
+    }
+
+    /** A new image for the bound texture, which from now on is drawn with it. */
+    private static Pixels define(int width, int height) {
+        String name = nameOfBound();
+        Pixels texture = new Pixels(Math.max(1, width), Math.max(1, height));
+        UPLOADED.put(name, texture);
+        bindLegacyTexture(name);
+        return texture;
+    }
+
+    private static String nameOfBound() {
+        int id = boundTexture;
+        String name = TEXTURE_NAMES.get(id);
+        if (name == null) {
+            name = "retrofit:gl/" + id;
+            TEXTURE_NAMES.put(id, name);
+            NAMED_TEXTURES.put(name, id);
+        }
+        return name;
+    }
+
+    /** Copies a block of pixels in (nothing for formats legacy textures don't use, or no pixels: an empty allocation). */
+    private static void put(Pixels texture, int x, int y, int width, int height, int format, int type, java.nio.IntBuffer ints, ByteBuffer bytes) {
+        boolean argbInts = ints != null && format == GL_BGRA && type == GL_UNSIGNED_INT_8_8_8_8_REV;
+        boolean rgbaBytes = bytes != null && format == GL_RGBA && type == GL_UNSIGNED_BYTE;
+        boolean bgraBytes = bytes != null && format == GL_BGRA && type == GL_UNSIGNED_BYTE;
+        if (!argbInts && !rgbaBytes && !bgraBytes) {
+            return;
+        }
+        int start = ints != null ? ints.position() : bytes.position();
+        for (int row = 0; row < height && y + row < texture.height; row++) {
+            for (int column = 0; column < width && x + column < texture.width; column++) {
+                int i = row * width + column;
+                int argb;
+                if (argbInts) {
+                    argb = ints.get(start + i);
+                } else {
+                    int o = start + i * 4;
+                    int c0 = bytes.get(o) & 0xFF, c1 = bytes.get(o + 1) & 0xFF, c2 = bytes.get(o + 2) & 0xFF, a = bytes.get(o + 3) & 0xFF;
+                    argb = rgbaBytes ? a << 24 | c0 << 16 | c1 << 8 | c2 : a << 24 | c2 << 16 | c1 << 8 | c0;
+                }
+                texture.argb[(y + row) * texture.width + x + column] = argb;
+            }
+        }
+        texture.version++;
+    }
+
+    /** How often the texture of a name has been uploaded to; -1 if it is no texture legacy code made from pixels. */
+    public static int uploadedVersion(String name) {
+        Pixels texture = UPLOADED.get(name);
+        return texture == null ? -1 : texture.version;
+    }
+
+    /** {width, height, ARGB pixels (a copy), version} of an uploaded texture, or null. */
+    public static Object[] uploadedPixels(String name) {
+        Pixels texture = UPLOADED.get(name);
+        return texture == null ? null : new Object[]{texture.width, texture.height, texture.argb.clone(), texture.version};
+    }
+
+    public static void glDeleteTextures(int texture) {
+        String name = TEXTURE_NAMES.get(texture);
+        if (name != null) {
+            UPLOADED.remove(name);
         }
     }
 
@@ -290,6 +429,10 @@ public final class GL11 {
         });
     }
 
+    public static void glRotated(double angle, double x, double y, double z) {
+        glRotatef((float) angle, (float) x, (float) y, (float) z);
+    }
+
     public static void glScalef(final float x, final float y, final float z) {
         if (recording == null) { // common case: no allocation
             if (matrixMode == GL_MODELVIEW) {
@@ -325,6 +468,14 @@ public final class GL11 {
         });
     }
 
+    public static void glMultMatrix(DoubleBuffer matrix) {
+        FloatBuffer values = FloatBuffer.allocate(16);
+        for (int i = 0; i < 16; i++) {
+            values.put(i, (float) matrix.get(matrix.position() + i));
+        }
+        glMultMatrix(values);
+    }
+
     // ---- Current colour ----
 
     public static void glColor4f(final float r, final float g, final float b, final float a) {
@@ -347,6 +498,14 @@ public final class GL11 {
 
     public static void glColor3f(float r, float g, float b) {
         glColor4f(r, g, b, 1);
+    }
+
+    public static void glColor4d(double r, double g, double b, double a) {
+        glColor4f((float) r, (float) g, (float) b, (float) a);
+    }
+
+    public static void glColor3d(double r, double g, double b) {
+        glColor4f((float) r, (float) g, (float) b, 1);
     }
 
     // ---- Display lists ----
@@ -583,7 +742,9 @@ public final class GL11 {
                 currentColour ? blue : d[o + 10],
                 currentColour ? alpha : d[o + 11],
                 texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED)
-                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT) | (lines ? Capture.LINES : 0), vertexLight);
+                        | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT) | (lines ? Capture.LINES : 0)
+                        | (cullFace ? Capture.CULLED : 0) | (cullFace && frontClockwise != cullFront ? Capture.REVERSED : 0)
+                        | (depthEqual ? Capture.DEPTH_EQUAL : 0), vertexLight);
     }
 
     // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----
@@ -617,6 +778,10 @@ public final class GL11 {
         normalX = nx;
         normalY = ny;
         normalZ = nz;
+    }
+
+    public static void glNormal3d(double nx, double ny, double nz) {
+        glNormal3f((float) nx, (float) ny, (float) nz);
     }
 
     public static void glVertex3f(float x, float y, float z) {
@@ -763,17 +928,23 @@ public final class GL11 {
                     lighting = enabled;
                 }
             });
+        } else if (cap == GL_CULL_FACE) {
+            submit(new Op() {
+                public void run() {
+                    cullFace = enabled;
+                }
+            });
         }
     }
 
     public static boolean glIsEnabled(int cap) {
-        return cap == GL_BLEND ? blend : cap == GL_LIGHTING ? lighting : cap == GL_TEXTURE_2D && textured;
+        return cap == GL_BLEND ? blend : cap == GL_LIGHTING ? lighting : cap == GL_CULL_FACE ? cullFace : cap == GL_TEXTURE_2D && textured;
     }
 
     public static void glPushAttrib(int mask) {
         submit(new Op() {
             public void run() {
-                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0, additive ? 1 : 0, lighting ? 1 : 0});
+                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0, additive ? 1 : 0, lighting ? 1 : 0, cullFace ? 1 : 0, depthEqual ? 1 : 0});
             }
         });
     }
@@ -793,6 +964,8 @@ public final class GL11 {
                     textured = saved[7] != 0;
                     additive = saved[8] != 0;
                     lighting = saved[9] != 0;
+                    cullFace = saved[10] != 0;
+                    depthEqual = saved[11] != 0;
                 }
             }
         });
@@ -809,6 +982,24 @@ public final class GL11 {
 
     public static int glGetInteger(int name) {
         return name == GL_MAX_TEXTURE_SIZE ? 16384 : 0;
+    }
+
+    public static boolean glGetBoolean(int name) {
+        return glIsEnabled(name);
+    }
+
+    /**
+     * The modelview matrix and current colour as legacy code last left them (FiskHeroes' beams and
+     * DragonAPI's effects read the matrix back to face the camera); other queries leave params as they are.
+     */
+    public static void glGetFloat(int name, FloatBuffer params) {
+        float[] values = name == GL_MODELVIEW_MATRIX ? modelview.m
+                : name == GL_CURRENT_COLOR ? new float[]{red, green, blue, alpha} : null;
+        if (values != null) {
+            for (int i = 0; i < values.length; i++) {
+                params.put(params.position() + i, values[i]);
+            }
+        }
     }
 
     /**
@@ -849,7 +1040,28 @@ public final class GL11 {
     public static void glShadeModel(int mode) {
     }
 
-    public static void glCullFace(int mode) {
+    public static void glCullFace(final int mode) {
+        submit(new Op() {
+            public void run() {
+                cullFront = mode == GL_FRONT;
+            }
+        });
+    }
+
+    public static void glDepthFunc(final int func) {
+        submit(new Op() {
+            public void run() {
+                depthEqual = func == GL_EQUAL;
+            }
+        });
+    }
+
+    public static void glFrontFace(final int mode) {
+        submit(new Op() {
+            public void run() {
+                frontClockwise = mode == GL_CW;
+            }
+        });
     }
 
 }

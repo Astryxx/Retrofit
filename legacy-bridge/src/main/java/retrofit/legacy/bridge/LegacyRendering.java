@@ -34,6 +34,7 @@ import java.util.Map;
  */
 public final class LegacyRendering {
     private static final String BLOCK_ATLAS = "minecraft:textures/atlas/blocks.png";
+    private static final int GL_LIGHTING = 0x0B50;
     private static final Map<Class<?>, Boolean> HAS_TESR = new HashMap<Class<?>, Boolean>();
 
     private static RenderBlocks renderBlocks;
@@ -47,16 +48,36 @@ public final class LegacyRendering {
     }
 
     /**
+     * The shared RenderBlocks as a new one is, for {@code world}: 1.7.10 made one for every chunk rebuild
+     * (and RenderItem kept its own), so a mod that left an override texture, flipped or rotated faces or
+     * locked bounds behind spoiled only its own drawing. Here every legacy block, item and renderer that
+     * came after drew with it (ManaMetal's: every legacy block one flat colour, or not at all).
+     */
+    private static void freshRenderBlocks(net.minecraft.world.IBlockAccess world) {
+        if (renderBlocks == null) {
+            renderBlocks = new RenderBlocks(world);
+        }
+        RenderBlocks r = renderBlocks;
+        r.field_147845_a = world; // blockAccess
+        r.field_147840_d = null; // overrideBlockTexture
+        r.field_147842_e = false; // flipTexture
+        r.field_152631_f = false;
+        r.field_147837_f = false; // renderAllFaces
+        r.field_147844_c = true; // useInventoryTint
+        r.field_147838_g = false; // renderFromInside
+        r.field_147847_n = false; // lockBlockBounds
+        r.field_147849_o = false; // partialRenderBounds
+        r.field_147875_q = r.field_147873_r = r.field_147871_s = r.field_147869_t = r.field_147867_u = r.field_147865_v = 0; // uvRotate*
+    }
+
+    /**
      * Renders a block as 1.7.10's chunk renderer would, at the origin of an otherwise empty
      * world; returns the number of captured vertices (positions in block space, UVs in the
      * block atlas).
      */
     public static int bakeBlock(Object block, int meta) {
         World world = IsolatedHost.with(block, meta);
-        if (renderBlocks == null) {
-            renderBlocks = new RenderBlocks(world);
-        }
-        renderBlocks.field_147845_a = world; // blockAccess
+        freshRenderBlocks(world);
         Capture.begin();
         GL11.bindLegacyTexture(BLOCK_ATLAS);
         Tessellator tessellator = Tessellator.field_78398_a;
@@ -79,10 +100,7 @@ public final class LegacyRendering {
      */
     public static int renderBlockItem(Object block, int meta, int damage) {
         World world = IsolatedHost.with(block, meta);
-        if (renderBlocks == null) {
-            renderBlocks = new RenderBlocks(world);
-        }
-        renderBlocks.field_147845_a = world; // blockAccess
+        freshRenderBlocks(world);
         Capture.begin();
         GL11.bindLegacyTexture(BLOCK_ATLAS);
         try {
@@ -170,10 +188,7 @@ public final class LegacyRendering {
             regionWorld.setHost(region);
         }
         Block block = regionWorld.func_147439_a(x, y, z); // getBlock
-        if (renderBlocks == null) {
-            renderBlocks = new RenderBlocks(regionWorld);
-        }
-        renderBlocks.field_147845_a = regionWorld; // blockAccess
+        freshRenderBlocks(regionWorld);
         Capture.begin();
         GL11.bindLegacyTexture(BLOCK_ATLAS);
         Tessellator tessellator = Tessellator.field_78398_a;
@@ -243,18 +258,25 @@ public final class LegacyRendering {
         net.minecraft.world.ColorizerFoliage.func_77467_a(foliage); // setFoliageBiomeColorizer
     }
 
+    /**
+     * Fancy or fast graphics, as RenderGlobal.loadRenderers passed them on: to the game settings and
+     * to vanilla's leaves, which mods' leaves follow (transparent or solid). Hold Bridge.LOCK.
+     */
+    public static void setFancyGraphics(boolean fancy) {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        if (minecraft.field_71474_y != null) {
+            minecraft.field_71474_y.field_74347_j = fancy; // gameSettings.fancyGraphics
+        }
+        net.minecraft.init.Blocks.field_150362_t.func_150122_b(fancy); // leaves.setGraphicsLevel
+        net.minecraft.init.Blocks.field_150361_u.func_150122_b(fancy); // leaves2
+    }
+
     /** Whether a block has colours of its own (overrides colorMultiplier or getRenderColor, as leaves and grass do). */
     public static boolean blockTinted(Object block) {
-        for (Class<?> type = block.getClass(); type != null && type != Block.class; type = type.getSuperclass()) {
-            for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
-                String name = method.getName();
-                if (name.equals("func_149720_d") && method.getParameterTypes().length == 4
-                        || name.equals("func_149741_i") && method.getParameterTypes().length == 1) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        Class<?> type = block.getClass();
+        return Overrides.overrides(type, Block.class, "func_149720_d", java.lang.invoke.MethodType.methodType(int.class, // colorMultiplier
+                net.minecraft.world.IBlockAccess.class, int.class, int.class, int.class))
+                || Overrides.overrides(type, Block.class, "func_149741_i", java.lang.invoke.MethodType.methodType(int.class, int.class)); // getRenderColor
     }
 
     /** Whether a tile entity has a special renderer (cached per class). */
@@ -287,12 +309,17 @@ public final class LegacyRendering {
         return Capture.vertexCount();
     }
 
-    /** Runs an entity's legacy renderer (RenderManager) at the origin; returns the number of captured vertices. */
+    /**
+     * Runs an entity's legacy renderer (RenderManager) with its feet at the origin; returns the number of
+     * captured vertices. 1.7.10 drew entities at posY, yOffset above their feet (Galacticraft's rockets: 1.5),
+     * so they are drawn that much higher, as there.
+     */
     public static int renderEntity(Object entity, float yaw, float partialTicks) {
         environment();
         Capture.begin();
         try {
-            RenderManager.field_78727_a.func_147939_a((net.minecraft.entity.Entity) entity, 0, 0, 0, yaw, partialTicks, false); // func_147939_a: renderEntityWithPosYaw, no hitbox
+            net.minecraft.entity.Entity legacy = (net.minecraft.entity.Entity) entity;
+            RenderManager.field_78727_a.func_147939_a(legacy, 0, legacy.field_70129_M, 0, yaw, partialTicks, false); // renderEntityWithPosYaw at yOffset, no hitbox
         } catch (RuntimeException e) {
             resetTessellator();
             throw e;
@@ -372,14 +399,21 @@ public final class LegacyRendering {
             return 0;
         }
         GL11.bindLegacyTexture(BLOCK_ATLAS);
-        if (renderBlocks == null) {
-            renderBlocks = new RenderBlocks();
-        }
+        freshRenderBlocks(null); // as RenderItem's own: no world
         // EQUIPPED renderers get the holder (the host's own holder is not known here: the local player)
         Object holder = renderType == IItemRenderer.ItemRenderType.EQUIPPED || renderType == IItemRenderer.ItemRenderType.EQUIPPED_FIRST_PERSON
                 ? net.minecraft.client.Minecraft.func_71410_x().field_71439_g : null; // thePlayer
         Object[] data = renderType == IItemRenderer.ItemRenderType.INVENTORY
                 ? new Object[]{renderBlocks} : new Object[]{renderBlocks, holder};
+        if (renderType != IItemRenderer.ItemRenderType.ENTITY) {
+            // ForgeHooksClient.renderInventoryItem (in colour), RenderPlayer and ItemRenderer: the stack's first colour
+            int color = stack.func_77973_b().func_82790_a(stack, 0); // getItem().getColorFromItemStack
+            GL11.glColor4f((color >> 16 & 255) / 255f, (color >> 8 & 255) / 255f, (color & 255) / 255f, 1);
+        }
+        if (renderType == IItemRenderer.ItemRenderType.INVENTORY
+                && !renderer.shouldUseRenderHelper(renderType, stack, IItemRenderer.ItemRendererHelper.INVENTORY_BLOCK)) {
+            GL11.glDisable(GL_LIGHTING); // renderInventoryItem draws flat items unlit
+        }
         try {
             renderer.renderItem(renderType, stack, data);
         } catch (RuntimeException e) {
@@ -492,6 +526,7 @@ public final class LegacyRendering {
             minecraftTimer = (net.minecraft.util.Timer) timer.get(minecraft);
             LegacyIcons.registerAtlases(textures);
             settings = minecraft.field_71474_y != null ? minecraft.field_71474_y : (GameSettings) allocate(GameSettings.class);
+            setFancyGraphics(true); // 1.20.1's default; the host says when its setting differs
             minecraft.field_71446_o = textures; // renderEngine
             TileEntityRendererDispatcher.field_147556_a.field_147553_e = textures;
             RenderManager.field_78727_a.field_78724_e = textures;
@@ -592,9 +627,10 @@ public final class LegacyRendering {
                 continue;
             }
             Class<?> type = field.getType();
-            Object empty = type.isAssignableFrom(com.google.common.collect.HashBiMap.class) ? com.google.common.collect.HashBiMap.create()
+            // the plainest collection the field takes (a Map gets a HashMap, only a BiMap a BiMap)
+            Object empty = type.isAssignableFrom(java.util.HashMap.class) ? new java.util.HashMap<Object, Object>()
+                    : type.isAssignableFrom(com.google.common.collect.HashBiMap.class) ? com.google.common.collect.HashBiMap.create()
                     : type.isAssignableFrom(com.google.common.collect.HashMultimap.class) ? com.google.common.collect.HashMultimap.create()
-                    : type.isAssignableFrom(java.util.HashMap.class) ? new java.util.HashMap<Object, Object>()
                     : type.isAssignableFrom(java.util.ArrayList.class) ? new java.util.ArrayList<Object>()
                     : type.isAssignableFrom(java.util.HashSet.class) ? new java.util.HashSet<Object>()
                     : null;

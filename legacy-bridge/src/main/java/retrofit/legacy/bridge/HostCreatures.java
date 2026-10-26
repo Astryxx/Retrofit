@@ -26,6 +26,42 @@ public final class HostCreatures {
     private HostCreatures() {
     }
 
+    /**
+     * EntityList.getEntityString names a stand-in as its 1.7.10 class ("Creeper"): mods that save a
+     * copy of a creature by name (Pistronics' statues) save the vanilla one. Only lookups answer for
+     * stand-ins; the map's entries, which list the registered entities, stay as they are.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static void nameStandIns() {
+        try {
+            java.lang.reflect.Field field = net.minecraft.entity.EntityList.class.getDeclaredField("field_75626_c"); // classToStringMapping
+            Map names = (Map) field.get(null);
+            if (!(names instanceof StandInNames)) {
+                retrofit.legacy.compat.FinalFields.set(field, null, new StandInNames(names));
+            }
+        } catch (Exception e) {
+            System.out.println("[Retrofit] Stand-ins for 1.20.1 creatures will have no entity names: " + e);
+        }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static final class StandInNames extends HashMap {
+        StandInNames(Map names) {
+            super(names);
+        }
+
+        @Override
+        public Object get(Object key) {
+            Object name = super.get(key);
+            if (name == null && key instanceof Class && HostCreatureProxies.Proxy.class.isAssignableFrom((Class<?>) key)) {
+                for (Class<?> type = ((Class<?>) key).getSuperclass(); type != null && name == null; type = type.getSuperclass()) {
+                    name = super.get(type);
+                }
+            }
+            return name;
+        }
+    }
+
     private static HostCreatureProxies.Core core(Entity proxy) {
         return ((HostCreatureProxies.Proxy) proxy).core();
     }

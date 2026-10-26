@@ -117,6 +117,20 @@ public class LegacyArmorItem extends ArmorItem implements LegacyStackItem {
         return tickFlags;
     }
 
+    /** The legacy item's enchantment glint (see LegacyFoil). */
+    @Override
+    public boolean isFoil(ItemStack stack) {
+        return super.isFoil(stack) || LegacyFoil.isFoil(stack, this);
+    }
+
+    private final LegacyItem.Names names = new LegacyItem.Names();
+
+    /** The mod's own name for the stack (armor names itself by material and piece), as for items (see LegacyItem.Names). */
+    @Override
+    public net.minecraft.network.chat.Component getName(ItemStack stack) {
+        return names.of(stack, getDescriptionId(stack), () -> super.getName(stack));
+    }
+
     @Override
     public String getDescriptionId(ItemStack stack) {
         return translationKey;

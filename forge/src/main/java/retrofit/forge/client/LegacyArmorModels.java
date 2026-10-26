@@ -38,6 +38,12 @@ public final class LegacyArmorModels implements IClientItemExtensions {
     private LegacyArmorModels() {
     }
 
+    /** Pieces drawn by a Forge item renderer as items (DragonAPI's sprite sheets), as other legacy items. */
+    @Override
+    public net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer getCustomRenderer() {
+        return LegacyItemRenderer.get();
+    }
+
     @Override
     public Model getGenericArmorModel(LivingEntity entity, ItemStack stack, EquipmentSlot slot, HumanoidModel<?> original) {
         if (failed || RetrofitMod.runtime() == null || plain.contains(stack.getItem())) {
@@ -79,9 +85,10 @@ public final class LegacyArmorModels implements IClientItemExtensions {
                 return;
             }
             float partialTick = Minecraft.getInstance().getFrameTime();
-            float bodyYaw = Mth.rotLerp(partialTick, entity.yBodyRotO, entity.yBodyRot);
-            float headYaw = Mth.rotLerp(partialTick, entity.yHeadRotO, entity.yHeadRot) - bodyYaw;
-            float pitch = Mth.lerp(partialTick, entity.xRotO, entity.getXRot());
+            // the head as the host posed it for this drawing (the inventory's preview turns the player
+            // for one drawing only: worked out from the entity, the hood twitched between both poses)
+            float headYaw = original.head.yRot * Mth.RAD_TO_DEG;
+            float pitch = original.head.xRot * Mth.RAD_TO_DEG;
             int flags = (entity.isCrouching() ? 1 : 0) | (entity.isPassenger() ? 2 : 0) | (entity.isBaby() ? 4 : 0);
             int legacySlot = switch (slot) {
                 case HEAD -> 0;

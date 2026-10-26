@@ -1,5 +1,7 @@
 package retrofit.host;
 
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -8,9 +10,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
@@ -68,20 +72,26 @@ public final class LegacyModFiles {
 
     /**
      * Links the 1.7.10 mods of {@code modsFolder} into {@code legacyMods}; returns their file names.
-     * Links made before whose mod is gone are removed.
+     * A link whose mod left the mods folder is moved to {@code retrofit/mods-removed}, never deleted: it
+     * may be the player's own copy now (moving a mod from mods/ to retrofit/mods leaves the same file
+     * where the link was, which nothing tells apart). A file there that is no longer the one linked
+     * (another size or time) is the player's own, and stays.
      */
     public static List<String> linkFromModsFolder(Path modsFolder, Path legacyMods) throws IOException {
         Files.createDirectories(legacyMods);
         Path list = legacyMods.resolve(LIST);
-        Set<String> previous = new LinkedHashSet<>();
+        // name -> {size, last modified} of each file linked last time; null for lists of older versions (names only)
+        Map<String, long[]> previous = new LinkedHashMap<>();
         if (Files.isRegularFile(list)) {
             for (String line : Files.readAllLines(list, StandardCharsets.UTF_8)) {
-                if (!line.isBlank()) {
-                    previous.add(line.trim());
+                String[] parts = line.trim().split("\t");
+                if (!parts[0].isEmpty()) {
+                    previous.put(parts[0], parts.length == 3 ? new long[]{Long.parseLong(parts[1]), Long.parseLong(parts[2])} : null);
                 }
             }
         }
         List<String> linked = new ArrayList<>();
+        List<String> record = new ArrayList<>();
         if (Files.isDirectory(modsFolder)) {
             try (Stream<Path> files = Files.list(modsFolder)) {
                 for (Path file : (Iterable<Path>) files.sorted()::iterator) {
@@ -91,7 +101,7 @@ public final class LegacyModFiles {
                         continue;
                     }
                     Path target = legacyMods.resolve(name);
-                    if (Files.exists(target) && !previous.contains(name)) {
+                    if (Files.exists(target) && !previous.containsKey(name)) {
                         continue; // the player has it in retrofit/mods too: that one counts
                     }
                     if (!Files.exists(target) || Files.size(target) != Files.size(file) || Files.getLastModifiedTime(target).compareTo(Files.getLastModifiedTime(file)) != 0) {
@@ -103,15 +113,25 @@ public final class LegacyModFiles {
                         }
                     }
                     linked.add(name);
+                    record.add(name + "\t" + Files.size(target) + "\t" + Files.getLastModifiedTime(target).toMillis());
                 }
             }
         }
-        for (String name : previous) {
-            if (!linked.contains(name)) {
-                Files.deleteIfExists(legacyMods.resolve(name)); // its mod left the mods folder
+        for (Map.Entry<String, long[]> entry : previous.entrySet()) {
+            String name = entry.getKey();
+            Path left = legacyMods.resolve(name);
+            long[] was = entry.getValue();
+            if (linked.contains(name) || was == null || !Files.isRegularFile(left)
+                    || Files.size(left) != was[0] || Files.getLastModifiedTime(left).toMillis() != was[1]) {
+                continue; // still linked, or not the file linked (the player's own now), or no record of it
             }
+            Path removed = legacyMods.resolveSibling("mods-removed");
+            Files.createDirectories(removed);
+            Files.move(left, removed.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+            LoggerFactory.getLogger("Retrofit").info("{} left the mods folder, so it no longer loads; it is in {} (move it to {} to load it again)",
+                    name, removed, legacyMods);
         }
-        Files.write(list, linked, StandardCharsets.UTF_8);
+        Files.write(list, record, StandardCharsets.UTF_8);
         return linked;
     }
 

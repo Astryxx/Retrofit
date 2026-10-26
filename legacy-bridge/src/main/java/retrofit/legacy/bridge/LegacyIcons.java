@@ -35,8 +35,10 @@ public final class LegacyIcons {
      * locationItemsTexture), for mods that look sprites up there or bind them by id.
      */
     static void registerAtlases(net.minecraft.client.renderer.texture.TextureManager textures) {
-        textures.func_110579_a(TextureMap.field_110575_b, BLOCKS); // loadTexture(locationBlocksTexture)
-        textures.func_110579_a(TextureMap.field_110576_c, ITEMS);  // locationItemsTexture
+        // loadTextureMap, as Minecraft.startGame did: it also records each atlas by sprite number, which
+        // getResourceLocation(spriteNumber) answers from (RenderItem binds the atlas of an item that way)
+        textures.func_130088_a(TextureMap.field_110575_b, BLOCKS); // loadTextureMap(locationBlocksTexture)
+        textures.func_130088_a(TextureMap.field_110576_c, ITEMS);  // locationItemsTexture
         try {
             java.lang.reflect.Field blocks = net.minecraft.client.Minecraft.class.getDeclaredField("field_147128_au"); // textureMapBlocks
             blocks.setAccessible(true);
@@ -172,6 +174,22 @@ public final class LegacyIcons {
         return (kind == 0 ? BLOCKS : ITEMS).basePaths.get(name);
     }
 
+    /**
+     * TextureStitchEvent.Post again, once the icons know their place in the host's atlas: mods work
+     * out icons of their own from others there and keep the numbers (Chisel's connected textures
+     * cut sub-icons out of a sheet's UVs), which at the first Post were only placeholders. 1.7.10
+     * sent Post on every resource reload too.
+     */
+    public static void iconsPlaced() {
+        for (Recorder atlas : new Recorder[]{BLOCKS, ITEMS}) {
+            try {
+                net.minecraftforge.client.ForgeHooksClient.onTextureStitchedPost(atlas);
+            } catch (Throwable t) {
+                System.out.println("[Retrofit] A texture stitch handler failed: " + t);
+            }
+        }
+    }
+
     /** Names of all recorded block (kind 0) or item (kind 1) icons. */
     public static String[] iconNames(int kind) {
         return (kind == 0 ? BLOCKS : ITEMS).icons.keySet().toArray(new String[0]);
@@ -248,6 +266,13 @@ public final class LegacyIcons {
      */
     public static String[] itemPassTextures(Object item, int meta, int max) {
         Item legacy = (Item) item;
+        if (stackIcons(item)) {
+            // items that only answer for stacks (Pistronics': getIconFromDamage is null), asked as RenderItem asks
+            String[] textures = stackPassTextures(new ItemStack(legacy, 1, meta), max);
+            if (textures.length > 0 && textures[0] != null) {
+                return textures;
+            }
+        }
         try {
             if (!legacy.func_77623_v()) { // requiresMultipleRenderPasses
                 return new String[]{itemTexture(item, meta)};
@@ -269,16 +294,8 @@ public final class LegacyIcons {
      */
     public static boolean stackIcons(Object item) {
         Class<?> type = item.getClass();
-        return declarer(type, "getIcon", ItemStack.class, int.class) != Item.class
-                || declarer(type, "func_77650_f", ItemStack.class) != Item.class; // getIconIndex
-    }
-
-    private static Class<?> declarer(Class<?> type, String name, Class<?>... parameters) {
-        try {
-            return type.getMethod(name, parameters).getDeclaringClass();
-        } catch (NoSuchMethodException | RuntimeException e) {
-            return Item.class;
-        }
+        return Overrides.overrides(type, Item.class, "getIcon", java.lang.invoke.MethodType.methodType(IIcon.class, ItemStack.class, int.class))
+                || Overrides.overrides(type, Item.class, "func_77650_f", java.lang.invoke.MethodType.methodType(IIcon.class, ItemStack.class)); // getIconIndex
     }
 
     /**
@@ -303,13 +320,35 @@ public final class LegacyIcons {
         }
     }
 
-    /** An item stack's colour for a render pass (getColorFromItemStack), 0xFFFFFF for none. */
+    /**
+     * An item stack's colour for a render pass, 0xFFFFFF for none: getColorFromItemStack, and for an
+     * item block drawn in 3D the block's own colour (RenderBlocks.renderBlockAsItem tinted it with
+     * getRenderColor: leaves, grass).
+     */
     public static int itemColor(Object stack, int pass) {
         try {
             ItemStack legacy = (ItemStack) stack;
-            return legacy.func_77973_b().func_82790_a(legacy, pass); // getItem().getColorFromItemStack
+            Item item = legacy.func_77973_b(); // getItem
+            int color = item.func_82790_a(legacy, pass); // getColorFromItemStack
+            if ((color & 0xFFFFFF) == 0xFFFFFF && item instanceof net.minecraft.item.ItemBlock) {
+                Block block = Block.func_149634_a(item); // getBlockFromItem
+                if (LegacyRendering.blockItemIn3d(block)) {
+                    color = block.func_149741_i(item.func_77647_b(legacy.func_77960_j())); // getRenderColor(getMetadata(damage))
+                }
+            }
+            return color;
         } catch (Throwable t) {
             return 0xFFFFFF;
+        }
+    }
+
+    /** Whether a stack shimmers with the enchantment glint (Forge's Item.hasEffect for the first pass). */
+    public static boolean itemHasEffect(Object stack) {
+        try {
+            ItemStack legacy = (ItemStack) stack;
+            return legacy.func_77973_b().hasEffect(legacy, 0);
+        } catch (Throwable t) {
+            return false;
         }
     }
 

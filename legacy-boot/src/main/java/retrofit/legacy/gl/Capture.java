@@ -27,6 +27,12 @@ public final class Capture {
     public static final int UNLIT = 1 << 19;
     /** A line segment a, b, as the quad a, b, b, a. */
     public static final int LINES = 1 << 20;
+    /** Drawn with GL_CULL_FACE on: faces turned away are dropped. */
+    public static final int CULLED = 1 << 21;
+    /** Culled the other way (glFrontFace(GL_CW) or glCullFace(GL_FRONT)): the quad's corners reversed show what GL kept. */
+    public static final int REVERSED = 1 << 22;
+    /** Drawn with glDepthFunc(GL_EQUAL): only over what was drawn at the same depth before. */
+    public static final int DEPTH_EQUAL = 1 << 23;
     public static final int TEXTURE_MASK = 0xFFFF;
 
     private static float[] data = new float[FLOATS_PER_VERTEX * 1024];

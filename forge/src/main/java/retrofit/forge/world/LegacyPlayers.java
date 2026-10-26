@@ -51,6 +51,7 @@ public final class LegacyPlayers {
         host.player = player;
         Object mirror = LegacyBridge.call("player", world, host, player.getUUID().toString(), player.getGameProfile().getName());
         sync(player, mirror);
+        host.synced = player.position();
         if (withInventory) {
             LegacyBridge.call("setInventory", mirror, (Object) host.legacyInventory(player.getInventory()));
         }
@@ -59,6 +60,38 @@ public final class LegacyPlayers {
         }
         return mirror;
     }
+
+    /**
+     * Start of a server level's tick: mirrors of players who went far since their last sync (a teleport,
+     * which 1.20.1 does between ticks) are placed where the players now are. Players tick after the level's
+     * entities, so legacy creatures would otherwise measure the distance to the old place for a tick, and
+     * monsters 128 blocks from it despawned right where the player arrived, as 1.7.10 despawns them.
+     */
+    public static void placeTeleported(net.minecraft.server.level.ServerLevel level) {
+        Object world = LegacyContent.legacyWorld(level);
+        for (ServerPlayer player : level.players()) {
+            Host host = SERVER_HOSTS.get(player.getUUID());
+            if (host == null || host.synced == null || host.synced.distanceToSqr(player.position()) < TELEPORTED * TELEPORTED) {
+                continue;
+            }
+            Object mirror = LegacyBridge.call("player", world, host, player.getUUID().toString(), player.getGameProfile().getName());
+            LegacyBridge.call("entityPlace", mirror, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
+            host.synced = player.position();
+        }
+    }
+
+    /** Where the player's mirror in a level is (feet), as legacy code left it: {x, y, z, yaw, pitch}; null if it has none. */
+    static double[] mirrorPlace(ServerPlayer player, net.minecraft.server.level.ServerLevel level) {
+        Host host = SERVER_HOSTS.get(player.getUUID());
+        if (host == null) {
+            return null;
+        }
+        Object mirror = LegacyBridge.call("player", LegacyContent.legacyWorld(level), host, player.getUUID().toString(), player.getGameProfile().getName());
+        return LegacyBridge.call("entityState", mirror);
+    }
+
+    /** Farther than a player moves in a tick: a teleport. */
+    private static final double TELEPORTED = 16;
 
     private static void sync(Player player, Object mirror) {
         int flags = (player.isShiftKeyDown() ? SNEAKING : 0) | (player.getAbilities().instabuild ? CREATIVE : 0)
@@ -395,6 +428,8 @@ public final class LegacyPlayers {
     /** What the legacy mirror asks of the real player. */
     private static final class Host implements HostPlayer {
         volatile Player player;
+        /** Where the player was when the mirror last followed it. */
+        volatile net.minecraft.world.phys.Vec3 synced;
         /** The inventory last converted, slot by slot, and its legacy stacks: only changed slots are converted again. */
         private final ItemStack[] convertedFrom = new ItemStack[SLOTS];
         private final Object[] converted = new Object[SLOTS];
@@ -454,6 +489,13 @@ public final class LegacyPlayers {
         public void changeDimension(int dimension, Object legacyTeleporter) {
             if (player instanceof ServerPlayer server) {
                 LegacyDimensions.travel(server, dimension, legacyTeleporter);
+            }
+        }
+
+        @Override
+        public void followDimension(int dimension) {
+            if (player instanceof ServerPlayer server) {
+                LegacyDimensions.follow(server, dimension);
             }
         }
 

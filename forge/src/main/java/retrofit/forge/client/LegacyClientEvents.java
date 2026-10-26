@@ -7,6 +7,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import retrofit.forge.RetrofitMod;
 import retrofit.forge.world.LegacyBridge;
+import retrofit.forge.world.LegacyEntityCore;
 import retrofit.forge.world.LegacyPlayers;
 
 /**
@@ -25,6 +26,9 @@ public final class LegacyClientEvents {
             return;
         }
         boolean start = event.phase == TickEvent.Phase.START;
+        if (start) {
+            run(() -> LegacyEntityCore.sweepRemovedCarriers(true)); // carriers removed without remove() (other mods' removal tools)
+        }
         run(() -> {
             if (start && Minecraft.getInstance().player != null) {
                 // with the inventory: client renderers and HUDs read what the player holds and wears (Thaumcraft's goggles)
@@ -96,7 +100,13 @@ public final class LegacyClientEvents {
         }
         // render tick handlers draw (Thaumcraft's research popups) with the one legacy Tessellator chunk builders share
         synchronized (LegacyBridge.renderLock()) {
-            run(() -> LegacyBridge.call("renderTick", start, partialTicks));
+            if (start) {
+                run(() -> LegacyBridge.call("renderTick", true, partialTicks));
+            } else {
+                // No HUD or screen ran this frame's end (the host has no player: menus, loading
+                // screens), so nothing reads what its handlers draw; fire it with that discarded.
+                run(() -> LegacyBridge.call("renderTickEndDiscarded", partialTicks));
+            }
         }
     }
 

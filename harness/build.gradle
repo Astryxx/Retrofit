@@ -64,6 +64,44 @@ tasks.register('dumpSrgJar', JavaExec) {
     ]
 }
 
+// The same classes with only what Forge 1.7.10's own development setup applies (see SrgJarDumper): code
+// that compiles against it compiles against Forge 1.7.10 as other developers have it.
+tasks.register('dumpCleanSrgJar', JavaExec) {
+    dependsOn ':legacy-boot:jar'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'retrofit.harness.HarnessMain'
+    def dumpGameDir = rootProject.file('run/legacy-dump')
+    def cleanJar = rootProject.file('run/legacy-srg/minecraft-1.7.10-forge-srg-clean.jar')
+    workingDir = dumpGameDir
+    outputs.file cleanJar
+    inputs.file project(':legacy-boot').tasks.jar.archiveFile
+    jvmArgs '-Dretrofit.cleanSrgDump=true'
+    doFirst { dumpGameDir.mkdirs() }
+    args = [
+        '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--game-dir', dumpGameDir.absolutePath,
+        '--dump-srg', cleanJar.absolutePath
+    ]
+}
+
+// Boot test with the bridge present: the mods in the game dir load under the full bridge
+// (biome id clash resolution and the rest of the bridge behavior), then a throwaway SRG dump
+// exits. Mods go in <game dir>/mods; the game dir starts empty like a player's would.
+tasks.register('bootTest', JavaExec) {
+    dependsOn ':legacy-boot:jar', ':legacy-bridge:jar'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'retrofit.harness.HarnessMain'
+    def bootGameDir = rootProject.file('run/legacy-boottest')
+    workingDir = bootGameDir
+    doFirst { bootGameDir.mkdirs() }
+    args = [
+        '--boot-jar', project(':legacy-boot').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--bridge-jar', project(':legacy-bridge').tasks.jar.archiveFile.get().asFile.absolutePath,
+        '--game-dir', bootGameDir.absolutePath,
+        '--dump-srg', new File(bootGameDir, 'throwaway-srg.jar').absolutePath
+    ]
+}
+
 // Boot test for the dedicated-server side: downloads the 1.7.10 server jar and Forge into its
 // own cache (run/legacy-server/.retrofit), like a fresh server would.
 tasks.register('runServerSide', JavaExec) {

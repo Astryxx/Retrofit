@@ -121,6 +121,37 @@ final class LevelHostWorld implements HostWorld {
     }
 
     @Override
+    public byte[] hostBlockData(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (!level.isLoaded(pos)) {
+            return null;
+        }
+        net.minecraft.nbt.CompoundTag data = new net.minecraft.nbt.CompoundTag();
+        data.put("State", net.minecraft.nbt.NbtUtils.writeBlockState(level.getBlockState(pos)));
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        if (blockEntity != null && !(blockEntity instanceof LegacyBlockEntity)) {
+            data.put("Entity", blockEntity.saveWithoutMetadata());
+        }
+        return LegacyStacks.toBytes(data);
+    }
+
+    @Override
+    public boolean setHostBlockData(int x, int y, int z, byte[] bytes) {
+        net.minecraft.nbt.CompoundTag data = LegacyStacks.fromBytes(bytes);
+        BlockState state = net.minecraft.nbt.NbtUtils.readBlockState(level.holderLookup(net.minecraft.core.registries.Registries.BLOCK), data.getCompound("State"));
+        BlockPos pos = new BlockPos(x, y, z);
+        if (state.isAir() || !level.setBlock(pos, state, 3)) {
+            return false;
+        }
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        if (blockEntity != null && data.contains("Entity")) {
+            blockEntity.load(data.getCompound("Entity"));
+            blockEntity.setChanged();
+        }
+        return true;
+    }
+
+    @Override
     public retrofit.api.HostInventory getHostInventory(int x, int y, int z) {
         BlockPos pos = new BlockPos(x, y, z);
         return level.isLoaded(pos) ? HostContainerInventory.at(level, pos) : null;
@@ -297,12 +328,18 @@ final class LevelHostWorld implements HostWorld {
 
     // ---- Light, height, biome, time, weather ----
 
-    /** Legacy chunk-loading tickets (see the legacy bridge's ChunkLoading), as Forge forced chunks owned by Retrofit. */
+    /**
+     * Legacy chunk-loading tickets (see the legacy bridge's ChunkLoading), as Forge forced chunks owned by Retrofit.
+     * Queued, never run on the spot: Forge loads a chunk it forces right away, and mods force chunks from places
+     * where the server can't wait for one (HBM's missiles from their constructors, which Custom Mob Spawner runs
+     * while the world loads: the server waited for that chunk forever). 1.7.10 too loaded forced chunks later.
+     */
     @Override
     public void forceChunk(int chunkX, int chunkZ, boolean forced) {
         if (level instanceof net.minecraft.server.level.ServerLevel server) {
-            server.getServer().execute(() -> net.minecraftforge.common.world.ForgeChunkManager.forceChunk(server, retrofit.forge.RetrofitMod.MOD_ID,
-                    CHUNK_OWNER, chunkX, chunkZ, forced, true));
+            net.minecraft.server.MinecraftServer minecraft = server.getServer();
+            minecraft.tell(new net.minecraft.server.TickTask(minecraft.getTickCount(), () -> net.minecraftforge.common.world.ForgeChunkManager
+                    .forceChunk(server, retrofit.forge.RetrofitMod.MOD_ID, CHUNK_OWNER, chunkX, chunkZ, forced, true)));
         }
     }
 
@@ -481,6 +518,14 @@ final class LevelHostWorld implements HostWorld {
             net.minecraft.nbt.CompoundTag legacy = LegacyStacks.fromBytes(legacyNbt);
             legacy.remove("UUIDMost");
             legacy.remove("UUIDLeast");
+            // A legacy mod's entity under its 1.7.10 name ("modid.Name", e.g. thetitans.WitherBossTitan): no
+            // 1.20.1 id spells that name, and the fixers know nothing of it ("Unsupported key"). Host it
+            // straight from its own NBT, as any other legacy entity; stored data (spawners, saved state)
+            // keeps such names too, whatever handed it here.
+            net.minecraft.world.entity.Entity hosted = LegacyEntityTypes.hostFromNbt(legacy.getString("id"), legacy, level);
+            if (hosted != null) {
+                return level.addFreshEntity(hosted);
+            }
             net.minecraft.world.item.ItemStack thrownPotion = legacy.getCompound("Potion").getShort("id") == 373 // 1.7.10's potion item
                     ? legacyPotion(legacy.getCompound("Potion").getShort("Damage")) : null;
             net.minecraft.nbt.CompoundTag fixed;
@@ -502,6 +547,19 @@ final class LevelHostWorld implements HostWorld {
             }
             if (thrownPotion != null) {
                 fixed.put("Item", thrownPotion.save(new net.minecraft.nbt.CompoundTag()));
+            }
+            String fixedId = fixed.getString("id");
+            net.minecraft.resources.ResourceLocation fixedKey = fixedId.isEmpty() ? null
+                    : net.minecraft.resources.ResourceLocation.tryParse(fixedId);
+            // (containsKey: the entity type registry is defaulted, so a lookup of an unknown id gives the pig)
+            if (fixedKey == null || !net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(fixedKey)) {
+                // 1.7.10 entity names are case sensitive and 1.20.1 ids are not: what the fixers left behind
+                // (a name that is neither a vanilla id nor a registered one, with case or characters 1.20.1
+                // forbids) names no 1.20.1 entity, where EntityType.create would throw or skip on the spot.
+                // Fail this one spawn cleanly instead.
+                LegacyErrors.report("entity " + fixedId, "converting a vanilla 1.7.10 entity",
+                        new IllegalStateException(fixedId + " names no 1.20.1 entity (case, characters, or unknown)"));
+                return false;
             }
             net.minecraft.world.entity.Entity entity = net.minecraft.world.entity.EntityType.create(fixed, level).orElse(null);
             if (entity == null) {

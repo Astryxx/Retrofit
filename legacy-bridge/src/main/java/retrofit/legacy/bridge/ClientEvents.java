@@ -1,8 +1,6 @@
 package retrofit.legacy.bridge;
 
 import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.eventhandler.Event;
-import cpw.mods.fml.common.eventhandler.EventBus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
@@ -44,7 +42,6 @@ public final class ClientEvents {
     private static List<KeyBinding> modKeys;
     private static Field pressed;
     private static Field pressTime;
-    private static int busId = -1;
 
     private ClientEvents() {
     }
@@ -188,25 +185,24 @@ public final class ClientEvents {
 
     // ---- Drawing ----
 
-    private static boolean listened(Event event) throws ReflectiveOperationException {
-        if (busId < 0) {
-            Field field = EventBus.class.getDeclaredField("busID");
-            field.setAccessible(true);
-            busId = field.getInt(MinecraftForge.EVENT_BUS);
-        }
-        return event.getListenerList().getListeners(busId).length > 0;
-    }
-
     /** Whether any mod listens for HUD (0) or world-last (1) drawing. */
-    public static boolean listensFor(int kind) throws ReflectiveOperationException {
-        // Listeners belong to the event class they subscribe to: mods subscribe to RenderGameOverlayEvent.Post.
-        return kind == 0 ? listened(new RenderGameOverlayEvent.Post()) || listened(new RenderGameOverlayEvent())
-                : listened(new RenderWorldLastEvent());
+    public static boolean listensFor(int kind) {
+        // Listeners belong to the event class they subscribe to: mods subscribe to Pre, Post or the event itself.
+        return kind == 0 ? Events.listenedTo(RenderGameOverlayEvent.Pre.class) || Events.listenedTo(RenderGameOverlayEvent.Post.class)
+                || Events.listenedTo(RenderGameOverlayEvent.class)
+                : Events.listenedTo(RenderWorldLastEvent.class);
     }
 
     /**
-     * The HUD as mods draw on it after 1.7.10's own (RenderGameOverlayEvent.Post for ALL, HOTBAR
-     * and EXPERIENCE), at the host's GUI scale; returns the captured vertex count. Hold Bridge.LOCK.
+     * The HUD as mods draw on it around 1.7.10's own, at the host's GUI scale; returns the
+     * captured vertex count. Hold Bridge.LOCK.
+     *
+     * 1.7.10's GuiIngameForge wraps the whole overlay in Pre(ALL) and Post(ALL), and runs each
+     * element as Pre(TYPE), what it draws, then Post(TYPE). Mods draw at Pre too (theTitans draws
+     * its boss bars there) or cancel Pre to skip a vanilla element, which then skips its Post.
+     * The host has already drawn its own HUD and cannot un-draw it, so a cancelled element only
+     * skips the legacy Post for it; the elements fired are 1.7.10's boss health, hotbar and
+     * experience.
      */
     public static int drawOverlay(float partialTicks, int windowWidth, int windowHeight, int guiScale) {
         Minecraft minecraft = Minecraft.func_71410_x();
@@ -223,14 +219,50 @@ public final class ClientEvents {
         RenderGameOverlayEvent parent = new RenderGameOverlayEvent(partialTicks, resolution, mouseX, mouseY);
         Capture.begin();
         try {
-            for (RenderGameOverlayEvent.ElementType type : new RenderGameOverlayEvent.ElementType[]{
-                    RenderGameOverlayEvent.ElementType.HOTBAR, RenderGameOverlayEvent.ElementType.EXPERIENCE, RenderGameOverlayEvent.ElementType.ALL}) {
-                MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Post(parent, type));
+            bossBarSuppressed = false;
+            if (MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Pre(parent, RenderGameOverlayEvent.ElementType.ALL))) {
+                bossBarSuppressed = true;
+                return Capture.vertexCount(); // as 1.7.10: Pre(ALL) cancelled skips the rest; what Pre(ALL) drew is kept
             }
+            for (RenderGameOverlayEvent.ElementType type : new RenderGameOverlayEvent.ElementType[]{
+                    RenderGameOverlayEvent.ElementType.BOSSHEALTH, RenderGameOverlayEvent.ElementType.HOTBAR, RenderGameOverlayEvent.ElementType.EXPERIENCE}) {
+                if (!MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Pre(parent, type))) {
+                    MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Post(parent, type));
+                } else if (type == RenderGameOverlayEvent.ElementType.BOSSHEALTH) {
+                    bossBarSuppressed = true; // as 1.7.10: a cancelled Pre(BOSSHEALTH) skips the vanilla bar (and its timer)
+                }
+            }
+            MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Post(parent, RenderGameOverlayEvent.ElementType.ALL));
         } finally {
             LegacyRendering.resetTessellatorIfDrawing();
         }
         return Capture.vertexCount();
+    }
+
+    /** Whether this frame's overlay events hid 1.7.10's vanilla boss bar (Pre(ALL) or Pre(BOSSHEALTH) cancelled). */
+    private static boolean bossBarSuppressed;
+
+    /**
+     * The vanilla-style boss bar 1.7.10's HUD drew: the last boss that rendered set BossStatus
+     * (name, health fraction, a timer that outlives the boss on screen for a moment), and
+     * GuiIngameForge.renderBossHealth gates the whole thing (mods drawing their own bar turn it
+     * off - theTitans), as does cancelling Pre(BOSSHEALTH) or Pre(ALL). The host's own boss bar
+     * overlay shows what this returns ({show, name, progress}); the timer runs down here, as the
+     * HUD ran it, only while the bar would actually draw.
+     */
+    public static Object[] bossBar() {
+        boolean show = false;
+        String name = null;
+        float progress = 0.0f;
+        if (!bossBarSuppressed && net.minecraftforge.client.GuiIngameForge.renderBossHealth
+                && net.minecraft.entity.boss.BossStatus.field_82827_c != null
+                && net.minecraft.entity.boss.BossStatus.field_82826_b > 0) {
+            net.minecraft.entity.boss.BossStatus.field_82826_b--; // the HUD frame that would have drawn it
+            show = true;
+            name = net.minecraft.entity.boss.BossStatus.field_82827_c;
+            progress = net.minecraft.entity.boss.BossStatus.field_82828_a;
+        }
+        return new Object[]{show, name, progress};
     }
 
     /**
@@ -251,6 +283,22 @@ public final class ClientEvents {
             LegacyRendering.resetTessellatorIfDrawing();
         }
         return Capture.vertexCount();
+    }
+
+    /**
+     * FML's RenderTickEvent end where nothing reads the drawing: the host has no player (its menus
+     * and loading screens — no HUD or screen ran drawRenderTickEnd this frame), so the handlers run
+     * and their capture is discarded. Without the clear, a handler drawing every frame (AoA's
+     * notice board) piles up vertices until the heap runs out. Hold Bridge.LOCK.
+     */
+    public static void renderTickEndDiscarded(float partialTicks) {
+        LegacyRendering.ensureEnvironment();
+        Capture.begin();
+        try {
+            Events.renderTick(false, partialTicks);
+        } finally {
+            LegacyRendering.resetTessellatorIfDrawing();
+        }
     }
 
     /** RenderWorldLastEvent, camera-relative as 1.7.10 drew it; returns the captured vertex count. Hold Bridge.LOCK. */

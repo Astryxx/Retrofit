@@ -70,6 +70,8 @@ public final class LegacyDimensions {
     private static final Logger LOGGER = LogUtils.getLogger();
     static final ResourceLocation GENERATOR_ID = new ResourceLocation(RetrofitMod.MOD_ID, "legacy");
     private static final String PREFIX = "legacy_dim_";
+    /** The dimension type and biome of dimensions made while playing whose provider type has none of its own. */
+    private static final String RUNTIME = "legacy_runtime";
 
     private LegacyDimensions() {
     }
@@ -116,7 +118,13 @@ public final class LegacyDimensions {
 
     // ---- Data pack ----
 
-    /** Dimension type, biome and dimension entries for each mod dimension. */
+    /**
+     * Dimension type, biome and dimension entries for each mod dimension; and the type and biome of
+     * every mod dimension this game has had before. A world keeps the dimensions it was played with in
+     * its level.dat, and 1.20.1 refuses to load it when one names a type or biome nobody provides (a
+     * mod taken out, or one numbering its dimensions by the next free id, which moves when mods change).
+     * On 1.7.10 such a world loaded without that dimension; here it loads with it empty.
+     */
     static void addTo(LegacyDataPack pack) {
         Object[][] dimensions;
         try {
@@ -125,75 +133,155 @@ public final class LegacyDimensions {
             LOGGER.error("Could not list the legacy mods' dimensions", e);
             return;
         }
+        java.util.Map<Integer, int[]> known = knownDimensions();
         for (Object[] dimension : dimensions) {
             int id = (Integer) dimension[0];
-            String name = (String) dimension[1];
-            int flags = (Integer) dimension[2];
-            boolean noSky = (flags & 1) != 0;
-            boolean hell = (flags & 2) != 0;
-            boolean respawn = (flags & 4) != 0;
-            String path = PREFIX + id;
-
-            JsonObject type = new JsonObject();
-            type.addProperty("ultrawarm", hell);
-            type.addProperty("natural", !hell);
-            type.addProperty("coordinate_scale", 1.0);
-            type.addProperty("has_skylight", !noSky);
-            type.addProperty("has_ceiling", noSky);
-            type.addProperty("ambient_light", hell ? 0.1 : 0.0);
-            type.addProperty("piglin_safe", false);
-            type.addProperty("bed_works", respawn);
-            type.addProperty("respawn_anchor_works", false);
-            type.addProperty("has_raids", false);
-            type.addProperty("min_y", 0); // 1.7.10 worlds: 0 to 255
-            type.addProperty("height", 256);
-            type.addProperty("logical_height", 256);
-            type.addProperty("infiniburn", "#minecraft:infiniburn_overworld");
-            // the overworld's or the nether's looks, with the mod's own sky renderer if it has one (client: LegacySkyEffects);
-            // clients without Retrofit's effects fall back to the overworld's
-            type.addProperty("effects", RetrofitMod.MOD_ID + (noSky ? ":legacy_nether" : ":legacy_overworld"));
-            JsonObject light = new JsonObject();
-            light.addProperty("type", "minecraft:uniform");
-            JsonObject range = new JsonObject();
-            range.addProperty("min_inclusive", 0);
-            range.addProperty("max_inclusive", 7);
-            light.add("value", range);
-            type.add("monster_spawn_light_level", light);
-            type.addProperty("monster_spawn_block_light_limit", 0);
-            pack.put(RetrofitMod.MOD_ID, "dimension_type/" + path + ".json", type.toString());
-
-            JsonObject biome = new JsonObject();
-            biome.addProperty("has_precipitation", !noSky && !hell);
-            biome.addProperty("temperature", hell ? 2.0 : 0.8);
-            biome.addProperty("downfall", 0.4);
-            JsonObject effects = new JsonObject();
             int fog = dimension.length > 4 ? (Integer) dimension[4] : -1; // the provider's own colours, where it has them
             int sky = dimension.length > 5 ? (Integer) dimension[5] : -1;
-            effects.addProperty("sky_color", sky >= 0 ? sky : fog >= 0 && noSky ? fog : hell ? 0x330808 : 0x78A7FF);
-            effects.addProperty("fog_color", fog >= 0 ? fog : hell ? 0x330808 : 0xC0D8FF);
-            effects.addProperty("water_color", 0x3F76E4);
-            effects.addProperty("water_fog_color", 0x050533);
-            biome.add("effects", effects);
-            biome.add("spawners", new JsonObject()); // creatures come from the mod's generator (Generator.getMobsAt)
-            biome.add("spawn_costs", new JsonObject());
-            biome.add("carvers", new JsonObject());
-            biome.add("features", new JsonArray());
-            pack.put(RetrofitMod.MOD_ID, "worldgen/biome/" + path + ".json", biome.toString());
-
-            JsonObject source = new JsonObject();
-            source.addProperty("type", "minecraft:fixed");
-            source.addProperty("biome", RetrofitMod.MOD_ID + ":" + path);
-            JsonObject generator = new JsonObject();
-            generator.addProperty("type", GENERATOR_ID.toString());
-            generator.addProperty("legacy_dimension", id);
-            generator.addProperty("ground_level", (Integer) dimension[3]);
-            generator.add("biome_source", source);
-            JsonObject stem = new JsonObject();
-            stem.addProperty("type", RetrofitMod.MOD_ID + ":" + path);
-            stem.add("generator", generator);
-            pack.put(RetrofitMod.MOD_ID, "dimension/" + path + ".json", stem.toString());
-            LOGGER.info("Legacy dimension {} ({}) is {}:{}", id, name, RetrofitMod.MOD_ID, path);
+            addDimension(pack, id, (String) dimension[1], (Integer) dimension[2], (Integer) dimension[3], fog, sky, true);
+            known.put(id, new int[]{(Integer) dimension[2], (Integer) dimension[3], fog, sky});
         }
+        for (java.util.Map.Entry<Integer, int[]> gone : known.entrySet()) {
+            boolean present = false;
+            for (Object[] dimension : dimensions) {
+                present |= (Integer) dimension[0] == gone.getKey().intValue();
+            }
+            if (!present) {
+                int[] look = gone.getValue();
+                addDimension(pack, gone.getKey(), "no longer provided", look[0], look[1], look[2], look[3], false);
+            }
+        }
+        saveKnownDimensions(known);
+        // for dimensions mods make while the game runs from a provider type that had none at start (see runtimeLevel)
+        addDimension(pack, RUNTIME, 0, "made while playing", 0, 64, -1, -1, false);
+    }
+
+    /** Every mod dimension this game directory has had: id -> {flags, ground level, fog, sky}. */
+    private static java.nio.file.Path knownDimensionsFile() {
+        return net.minecraftforge.fml.loading.FMLPaths.GAMEDIR.get().resolve("retrofit").resolve("legacy-dimensions.txt");
+    }
+
+    private static java.util.Map<Integer, int[]> knownDimensions() {
+        java.util.Map<Integer, int[]> known = new java.util.TreeMap<>();
+        try {
+            java.nio.file.Path file = knownDimensionsFile();
+            if (java.nio.file.Files.exists(file)) {
+                for (String line : java.nio.file.Files.readAllLines(file)) {
+                    String[] parts = line.trim().split(" ");
+                    if (parts.length == 5 && !line.startsWith("#")) {
+                        known.put(Integer.parseInt(parts[0]), new int[]{Integer.parseInt(parts[1]), Integer.parseInt(parts[2]),
+                                Integer.parseInt(parts[3]), Integer.parseInt(parts[4])});
+                    }
+                }
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            LOGGER.warn("Could not read the legacy dimensions this game had before", e);
+        }
+        // and those of worlds played before this list was kept: each has a folder in its world (a server's
+        // world folder, a client's saves), with the overworld's looks
+        java.nio.file.Path game = net.minecraftforge.fml.loading.FMLPaths.GAMEDIR.get();
+        for (java.nio.file.Path worlds : new java.nio.file.Path[]{game, game.resolve("saves")}) {
+            try (java.util.stream.Stream<java.nio.file.Path> list = java.nio.file.Files.exists(worlds) ? java.nio.file.Files.list(worlds) : java.util.stream.Stream.empty()) {
+                list.map(world -> world.resolve("dimensions").resolve(RetrofitMod.MOD_ID)).filter(java.nio.file.Files::isDirectory).forEach(folder -> {
+                    try (java.util.stream.Stream<java.nio.file.Path> dims = java.nio.file.Files.list(folder)) {
+                        dims.map(dim -> dim.getFileName().toString()).filter(name -> name.matches(PREFIX + "-?\\d+"))
+                                .forEach(name -> known.putIfAbsent(Integer.parseInt(name.substring(PREFIX.length())), new int[]{0, 64, -1, -1}));
+                    } catch (java.io.IOException e) {
+                        LOGGER.debug("Could not list {}", folder, e);
+                    }
+                });
+            } catch (java.io.IOException e) {
+                LOGGER.debug("Could not list {}", worlds, e);
+            }
+        }
+        return known;
+    }
+
+    private static void saveKnownDimensions(java.util.Map<Integer, int[]> known) {
+        StringBuilder out = new StringBuilder("# Mod dimensions this game has had (id flags ground fog sky), kept so worlds played in them still load\n");
+        known.forEach((id, look) -> out.append(id).append(' ').append(look[0]).append(' ').append(look[1]).append(' ')
+                .append(look[2]).append(' ').append(look[3]).append('\n'));
+        try {
+            java.nio.file.Files.writeString(knownDimensionsFile(), out);
+        } catch (java.io.IOException e) {
+            LOGGER.warn("Could not remember the legacy dimensions", e);
+        }
+    }
+
+    /** A mod dimension's type and biome, and (if {@code withStem}: its mod provides it) the dimension itself. */
+    private static void addDimension(LegacyDataPack pack, int id, String name, int flags, int groundLevel, int fog, int sky, boolean withStem) {
+        addDimension(pack, PREFIX + id, id, name, flags, groundLevel, fog, sky, withStem);
+    }
+
+    private static void addDimension(LegacyDataPack pack, String path, int id, String name, int flags, int groundLevel, int fog, int sky,
+                                     boolean withStem) {
+        boolean noSky = (flags & 1) != 0;
+        boolean hell = (flags & 2) != 0;
+        boolean respawn = (flags & 4) != 0;
+
+        JsonObject type = new JsonObject();
+        type.addProperty("ultrawarm", hell);
+        type.addProperty("natural", !hell);
+        type.addProperty("coordinate_scale", 1.0);
+        type.addProperty("has_skylight", !noSky);
+        type.addProperty("has_ceiling", noSky);
+        type.addProperty("ambient_light", hell ? 0.1 : 0.0);
+        type.addProperty("piglin_safe", false);
+        type.addProperty("bed_works", respawn);
+        type.addProperty("respawn_anchor_works", false);
+        type.addProperty("has_raids", false);
+        type.addProperty("min_y", 0); // 1.7.10 worlds: 0 to 255
+        type.addProperty("height", 256);
+        type.addProperty("logical_height", 256);
+        type.addProperty("infiniburn", "#minecraft:infiniburn_overworld");
+        // the overworld's or the nether's looks, with the mod's own sky renderer if it has one (client: LegacySkyEffects);
+        // clients without Retrofit's effects fall back to the overworld's
+        type.addProperty("effects", RetrofitMod.MOD_ID + (noSky ? ":legacy_nether" : ":legacy_overworld"));
+        JsonObject light = new JsonObject();
+        light.addProperty("type", "minecraft:uniform");
+        JsonObject range = new JsonObject();
+        range.addProperty("min_inclusive", 0);
+        range.addProperty("max_inclusive", 7);
+        light.add("value", range);
+        type.add("monster_spawn_light_level", light);
+        type.addProperty("monster_spawn_block_light_limit", 0);
+        pack.put(RetrofitMod.MOD_ID, "dimension_type/" + path + ".json", type.toString());
+
+        JsonObject biome = new JsonObject();
+        biome.addProperty("has_precipitation", !noSky && !hell);
+        biome.addProperty("temperature", hell ? 2.0 : 0.8);
+        biome.addProperty("downfall", 0.4);
+        JsonObject effects = new JsonObject();
+        effects.addProperty("sky_color", sky >= 0 ? sky : fog >= 0 && noSky ? fog : hell ? 0x330808 : 0x78A7FF);
+        effects.addProperty("fog_color", fog >= 0 ? fog : hell ? 0x330808 : 0xC0D8FF);
+        effects.addProperty("water_color", 0x3F76E4);
+        effects.addProperty("water_fog_color", 0x050533);
+        biome.add("effects", effects);
+        biome.add("spawners", new JsonObject()); // creatures come from the mod's generator (Generator.getMobsAt)
+        biome.add("spawn_costs", new JsonObject());
+        biome.add("carvers", new JsonObject());
+        biome.add("features", new JsonArray());
+        pack.put(RetrofitMod.MOD_ID, "worldgen/biome/" + path + ".json", biome.toString());
+        if (!withStem) {
+            if (!path.equals(RUNTIME)) {
+                LOGGER.info("Legacy dimension {} is no longer provided; worlds played in it still load ({}:{})", id, RetrofitMod.MOD_ID, path);
+            }
+            return;
+        }
+
+        JsonObject source = new JsonObject();
+        source.addProperty("type", "minecraft:fixed");
+        source.addProperty("biome", RetrofitMod.MOD_ID + ":" + path);
+        JsonObject generator = new JsonObject();
+        generator.addProperty("type", GENERATOR_ID.toString());
+        generator.addProperty("legacy_dimension", id);
+        generator.addProperty("ground_level", groundLevel);
+        generator.add("biome_source", source);
+        JsonObject stem = new JsonObject();
+        stem.addProperty("type", RetrofitMod.MOD_ID + ":" + path);
+        stem.add("generator", generator);
+        pack.put(RetrofitMod.MOD_ID, "dimension/" + path + ".json", stem.toString());
+        LOGGER.info("Legacy dimension {} ({}) is {}:{}", id, name, RetrofitMod.MOD_ID, path);
     }
 
     /** Server levels of mod dimensions get their legacy world right away: mods look dimensions up by id (DimensionManager.getWorld). */
@@ -219,10 +307,29 @@ public final class LegacyDimensions {
         }
         MinecraftServer server = event.getServer();
         java.util.function.IntFunction<Object> worlds = id -> {
-            ServerLevel level = server.getLevel(levelKey(id));
+            ServerLevel level = levelOf(server, id);
             return level == null ? null : LegacyContent.legacyWorld(level);
         };
         LegacyBridge.call("setHostWorlds", worlds);
+    }
+
+    /**
+     * Once the server has started (after the mods' own server start, where they register the dimensions
+     * they made in earlier sessions again: Galacticraft's space stations), each registered legacy dimension
+     * has its level, so players who left the game in one come back there, not in the overworld.
+     */
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public static void onServerStarted(net.minecraftforge.event.server.ServerStartedEvent event) {
+        if (RetrofitMod.runtime() == null) {
+            return;
+        }
+        try {
+            for (int id : LegacyBridge.<int[]>call("registeredDimensions")) {
+                levelOf(event.getServer(), id);
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report("legacy dimensions", "being made as the server started", e);
+        }
     }
 
     @SubscribeEvent
@@ -232,12 +339,79 @@ public final class LegacyDimensions {
         }
     }
 
+    // ---- Dimensions made while playing ----
+
+    /**
+     * The 1.20.1 level of a legacy dimension; for one its mod registered while the game runs (Galacticraft's
+     * space stations, mods' pocket and personal dimensions), made now. 1.20.1 makes its levels as the server
+     * starts, from the data pack, and those dimensions weren't there yet. Server thread only.
+     */
+    static ServerLevel levelOf(MinecraftServer server, int legacyDimension) {
+        ServerLevel level = server.getLevel(levelKey(legacyDimension));
+        if (level != null || !server.isSameThread()) {
+            return level;
+        }
+        int[] info = LegacyBridge.call("dimensionInfo", legacyDimension); // {provider type, ground level}, or null if not registered
+        if (info == null) {
+            return null;
+        }
+        try {
+            return runtimeLevel(server, legacyDimension, info[0], info[1]);
+        } catch (RuntimeException e) {
+            LegacyErrors.report("legacy dimension " + legacyDimension, "being made while playing", e);
+            return null;
+        }
+    }
+
+    /**
+     * A level made as MinecraftServer.createLevels makes the overworld's companions, for a dimension the data
+     * pack doesn't have. Its dimension type is its provider type's (every provider type has one from the start,
+     * so clients, which get the dimension types as they join, know it; a provider type registered later uses
+     * the generic one); its terrain comes from the mod's generator for that dimension, as for the others. Its
+     * chunks are saved where a data pack dimension's would be, so when the mod registers it again after a
+     * restart it comes back as it was.
+     */
+    private static ServerLevel runtimeLevel(MinecraftServer server, int id, int providerType, int groundLevel) {
+        net.minecraft.core.RegistryAccess registries = server.registryAccess();
+        net.minecraft.core.Registry<net.minecraft.world.level.dimension.DimensionType> types = registries.registryOrThrow(Registries.DIMENSION_TYPE);
+        net.minecraft.core.Registry<Biome> biomes = registries.registryOrThrow(Registries.BIOME);
+        ResourceLocation own = new ResourceLocation(RetrofitMod.MOD_ID, PREFIX + providerType);
+        ResourceLocation generic = new ResourceLocation(RetrofitMod.MOD_ID, RUNTIME);
+        net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type = types.getHolderOrThrow(
+                ResourceKey.create(Registries.DIMENSION_TYPE, types.containsKey(own) ? own : generic));
+        net.minecraft.core.Holder<Biome> biome = biomes.getHolderOrThrow(ResourceKey.create(Registries.BIOME, biomes.containsKey(own) ? own : generic));
+        net.minecraft.world.level.dimension.LevelStem stem = new net.minecraft.world.level.dimension.LevelStem(type,
+                new Generator(new net.minecraft.world.level.biome.FixedBiomeSource(biome), id, groundLevel));
+        net.minecraft.world.level.storage.WorldData data = server.getWorldData();
+        net.minecraft.world.level.storage.LevelStorageSource.LevelStorageAccess storage =
+                net.minecraftforge.fml.util.ObfuscationReflectionHelper.getPrivateValue(MinecraftServer.class, server, "f_129744_"); // storageSource
+        ServerLevel level = new ServerLevel(server, net.minecraft.Util.backgroundExecutor(), storage,
+                new net.minecraft.world.level.storage.DerivedLevelData(data, data.overworldData()), levelKey(id), stem,
+                new net.minecraft.server.level.progress.LoggerChunkProgressListener(0), data.isDebugWorld(),
+                BiomeManager.obfuscateSeed(data.worldGenOptions().seed()), List.of(), false, server.overworld().getRandomSequences());
+        server.overworld().getWorldBorder().addListener(new net.minecraft.world.level.border.BorderChangeListener.DelegateBorderChangeListener(level.getWorldBorder()));
+        server.forgeGetWorldMap().put(level.dimension(), level);
+        server.markWorldsDirty();
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new LevelEvent.Load(level));
+        LOGGER.info("Legacy dimension {} (provider type {}) made while playing: {}", id, providerType, level.dimension().location());
+        return level;
+    }
+
     // ---- Travel ----
 
     /** Moves a player to a legacy dimension, after the current tick's work (see HostPlayer.changeDimension). */
     static void travel(ServerPlayer player, int legacyDimension, Object legacyTeleporter) {
+        travel(player, legacyDimension, legacyTeleporter, false);
+    }
+
+    /** Moves a player to the legacy dimension legacy code moved its mirror to, where the mirror is (see HostPlayer.followDimension). */
+    static void follow(ServerPlayer player, int legacyDimension) {
+        travel(player, legacyDimension, null, true);
+    }
+
+    private static void travel(ServerPlayer player, int legacyDimension, Object legacyTeleporter, boolean follow) {
         MinecraftServer server = player.server;
-        ServerLevel target = server.getLevel(levelKey(legacyDimension));
+        ServerLevel target = levelOf(server, legacyDimension);
         if (target == null) {
             LOGGER.warn("Legacy code sent {} to dimension {}, which isn't loaded", player.getGameProfile().getName(), legacyDimension);
             return;
@@ -246,7 +420,7 @@ public final class LegacyDimensions {
                 target.dimension().location(), legacyTeleporter == null ? "" : " with " + legacyTeleporter.getClass().getName());
         server.execute(() -> {
             if (!player.isRemoved() && player.level() != target) {
-                player.changeDimension(target, new Teleport(legacyTeleporter));
+                player.changeDimension(target, new Teleport(legacyTeleporter, follow));
             }
         });
     }
@@ -254,13 +428,19 @@ public final class LegacyDimensions {
     /** A dimension change as 1.7.10 made it: same coordinates (an eighth for the Nether), then the mod's Teleporter. */
     static final class Teleport implements ITeleporter {
         private final Object legacyTeleporter;
+        private final boolean follow;
 
-        Teleport(Object legacyTeleporter) {
+        Teleport(Object legacyTeleporter, boolean follow) {
             this.legacyTeleporter = legacyTeleporter;
+            this.follow = follow;
         }
 
         @Override
         public PortalInfo getPortalInfo(Entity entity, ServerLevel destination, Function<ServerLevel, PortalInfo> defaultPortalInfo) {
+            double[] mirror = follow && entity instanceof ServerPlayer player ? LegacyPlayers.mirrorPlace(player, destination) : null;
+            if (mirror != null) { // where the mod put the player
+                return new PortalInfo(new Vec3(mirror[0], mirror[1], mirror[2]), Vec3.ZERO, (float) mirror[3], (float) mirror[4]);
+            }
             double scale = entity.level().dimensionType().coordinateScale() / destination.dimensionType().coordinateScale();
             double x = entity.getX() * scale;
             double z = entity.getZ() * scale;

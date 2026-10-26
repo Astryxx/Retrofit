@@ -1,0 +1,7 @@
+[{
+  "modid": "retrofitreference",
+  "name": "Retrofit reference",
+  "description": "Plays Retrofit's comparison scenes in real Minecraft 1.7.10. For testing only.",
+  "version": "1",
+  "mcversion": "1.7.10"
+}]

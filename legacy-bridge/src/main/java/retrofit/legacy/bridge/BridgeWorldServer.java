@@ -28,8 +28,34 @@ public class BridgeWorldServer extends WorldServer {
     public BridgeWorldServer(HostWorld host, int dimension) {
         super(LegacyWorlds.server(), BridgeSaveHandler.create(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
+        shareMapStorage();
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
         WorldGlue.installPlayerManager(this);
+    }
+
+    /** The map storage every bridged server world of this server session uses (see shareMapStorage). */
+    private static net.minecraft.world.storage.MapStorage sharedMapStorage;
+
+    /**
+     * A server's dimensions share one map storage (world.mapStorage: the world data mods keep for the whole
+     * game), as 1.7.10's WorldServerMulti took its overworld's. Forge's World constructor shares it only between
+     * worlds made one after the other from the same save handler, and the client's bridged worlds come between:
+     * dimensions made later (while playing) got storage of their own, and saw nothing the others kept there
+     * (Galacticraft's space stations: "bad home planet ID").
+     */
+    private void shareMapStorage() {
+        synchronized (BridgeWorldServer.class) {
+            if (sharedMapStorage == null) {
+                sharedMapStorage = this.field_72988_C; // mapStorage
+            } else {
+                this.field_72988_C = sharedMapStorage;
+            }
+        }
+    }
+
+    /** As a server starts: its worlds share a map storage of their own. */
+    static synchronized void resetSharedMapStorage() {
+        sharedMapStorage = null;
     }
 
     /** getEntityByID: WorldServer's id map only has entities it spawned itself; legacy entities and players are in the entity list. */
@@ -398,10 +424,12 @@ public class BridgeWorldServer extends WorldServer {
         return host != null && host.isThundering();
     }
 
-    /** createChunkProvider */
+    /** createChunkProvider; also theChunkProviderServer, as WorldServer's own makes it (see BridgeChunkProviderServer) */
     @Override
     protected IChunkProvider func_72970_h() {
-        return new BridgeChunkProvider(this);
+        BridgeChunkProviderServer provider = new BridgeChunkProviderServer(this, new BridgeChunkProvider(this));
+        this.field_73059_b = provider; // theChunkProviderServer
+        return provider;
     }
 
     /** getRenderDistanceChunks */

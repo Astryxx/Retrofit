@@ -51,11 +51,15 @@ public final class LegacyEntityCore {
         this.height = height;
     }
 
-    /** Where riders sit, from the legacy entity (getMountedYOffset), above its feet. */
-    private double mountedOffset = -1;
+    /** Where riders sit, from the legacy entity (getMountedYOffset), above its feet; below them for some (rockets: inside). NaN until known. */
+    private double mountedOffset = Double.NaN;
 
     double ridingOffset(double fallback) {
-        return mountedOffset >= 0 ? mountedOffset : fallback;
+        if (host.level().isClientSide) { // the client's host entity moves by packets alone: ask its legacy entity
+            Object entity = legacy();
+            return entity == null ? fallback : LegacyBridge.<Double>call("mountedOffset", entity);
+        }
+        return Double.isNaN(mountedOffset) ? fallback : mountedOffset;
     }
 
     /** The host entity of a legacy entity, a player's mirror, or a stand-in for a 1.20.1 entity; null if none. */
@@ -84,6 +88,17 @@ public final class LegacyEntityCore {
             return;
         }
         apply(LegacyBridge.call("entityState", entity), true);
+    }
+
+    /**
+     * A legacy entity arriving as its own saved NBT (stored 1.7.10 entity data the host converts:
+     * such an "id" names no 1.20.1 entity type). Hosted like an adopted one, loading from that NBT
+     * on first use, as if it had been saved with the host entity and loaded back.
+     */
+    void adoptNbt(CompoundTag legacyNbt) {
+        legacy = null;
+        pending = legacyNbt;
+        broken = false;
     }
 
     /** The legacy entity, created on first use (fresh, from saved NBT, or on clients from the spawn data). */
@@ -363,6 +378,34 @@ public final class LegacyEntityCore {
                 // Its world is going away too.
             }
             HOSTS.remove(legacy);
+        }
+    }
+
+    /**
+     * Every tick: legacy entities whose host entity left the level without the usual remove() call.
+     * 1.20.1 code can take a carrier out of the level straight through its internals (entity-remover
+     * items, lag-clearing tools: they call the level callback themselves and never reach remove(),
+     * which this class overrides), and the client's remove-packet path calls setRemoved, which is
+     * final on Entity. Either way the legacy copy would stay alive in its legacy world forever, and
+     * mods tracking entities themselves (boss bars, spawn caches) would never let go of it. removed()
+     * takes the copy out of its world's entity list and marks it dead, as 1.7.10's WorldClient did
+     * when an entity left the world. Idempotent, and harmless on the usual removal paths (remove()
+     * has already called it by then).
+     */
+    public static void sweepRemovedCarriers(boolean clientSide) {
+        if (HOSTS.isEmpty()) {
+            return;
+        }
+        java.util.Map.Entry<Object, Entity>[] entries;
+        synchronized (HOSTS) {
+            entries = HOSTS.entrySet().toArray(new java.util.Map.Entry[0]);
+        }
+        for (java.util.Map.Entry<Object, Entity> entry : entries) {
+            Entity host = entry.getValue();
+            // own side only: the other side's world lives on another thread (integrated server)
+            if (host instanceof LegacyEntityCarrier carrier && host.level().isClientSide == clientSide && host.isRemoved()) {
+                carrier.core().removed();
+            }
         }
     }
 

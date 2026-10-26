@@ -25,9 +25,10 @@ import java.util.Map;
  * oak planks, and reading oak planks back gives planks:0.
  *
  * Built from Mojang's own conversion data, the same tables 1.20.1 uses to upgrade pre-1.13
- * worlds ({@link BlockStateData}, then the data fixer up to the current version). Modern blocks
- * that didn't exist in 1.7.10 map to the closest stand-in (stone for full cubes, air otherwise)
- * when legacy code reads them.
+ * worlds ({@link BlockStateData}, then the data fixer up to the current version). Blocks that
+ * didn't exist in 1.7.10 (vanilla's newer ones and other mods') read as Retrofit's stand-ins, a
+ * solid one and an open one, which know the real block at their position and carry it when
+ * legacy code moves them (see the bridge's ModernContent).
  *
  * Modern states are keyed by identity, not numeric state id: Forge reassigns state ids when a
  * client joins a server (registry sync), but the BlockState objects stay the same.
@@ -84,7 +85,7 @@ public final class LegacyBlockTable {
                 toLegacy.putIfAbsent(state, combined);
             }
         }
-        int approximated = 0;
+        int standIns = 0;
         for (Block block : BuiltInRegistries.BLOCK) {
             Integer viaDefault = toLegacy.get(block.defaultBlockState());
             for (BlockState state : block.getStateDefinition().getPossibleStates()) {
@@ -93,14 +94,15 @@ public final class LegacyBlockTable {
                 }
                 if (viaDefault != null) {
                     toLegacy.put(state, viaDefault); // e.g. a block state property 1.7.10 didn't have
+                } else if (state.isAir()) {
+                    toLegacy.put(state, AIR); // cave and void air
                 } else {
-                    toLegacy.put(state, state.isAir() || !state.canOcclude() ? AIR : STONE);
-                    approximated++;
+                    standIns++; // see legacyOf
                 }
             }
         }
-        LOGGER.info("Vanilla block table: {} legacy id:meta values map to 1.20.1 blocks; {} modern-only block states read as stone/air; built in {} ms",
-                mapped, approximated, (System.nanoTime() - start) / 1_000_000);
+        LOGGER.info("Vanilla block table: {} legacy id:meta values map to 1.20.1 blocks; {} block states 1.7.10 never had read as stand-ins; built in {} ms",
+                mapped, standIns, (System.nanoTime() - start) / 1_000_000);
     }
 
     public static LegacyBlockTable get() {
@@ -148,43 +150,39 @@ public final class LegacyBlockTable {
     }
 
     /**
-     * The legacy (id << 4 | meta) a modern state reads as: vanilla states as their 1.7.10 selves
-     * (1.20.1-only vanilla blocks as stone), 1.20.1 mods' blocks as Retrofit's stand-ins.
+     * The legacy (id << 4 | meta) a modern state reads as: vanilla states as their 1.7.10 selves,
+     * blocks 1.7.10 never had (prismarine, deepslate, 1.20.1 mods' blocks) as Retrofit's stand-ins.
      */
     public int legacyOf(BlockState state) {
         Integer combined = toLegacy.get(state);
         if (combined != null) {
             return combined;
         }
-        net.minecraft.resources.ResourceLocation id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        if (id != null && !id.getNamespace().equals("minecraft")) {
-            int[] standIns = modernBlockIds();
-            int standIn = state.canOcclude() ? standIns[0] : standIns[1];
-            if (standIn > 0) {
-                return standIn << 4;
-            }
-        }
-        return STONE; // a vanilla state 1.7.10 didn't have
+        int[] standIns = modernBlockIds();
+        int standIn = state.canOcclude() ? standIns[0] : standIns[1];
+        return standIn > 0 ? standIn << 4 : state.canOcclude() ? STONE : AIR; // (stone and air without the stand-ins)
     }
 
     public Object legacyBlock(int legacyId) {
-        if (legacyId >= legacyBlocks.length) { // a mod block, or a stand-in for a 1.20.1 mod's
-            int[] standIns = modernBlockIds();
-            if (legacyId == standIns[0] && solidStandIn != null) {
-                return solidStandIn;
-            }
-            if (legacyId == standIns[1] && openStandIn != null) {
-                return openStandIn;
-            }
-            Object block = legacyId < 4096 ? LegacyBridge.call("blockById", legacyId) : null;
-            if (legacyId == standIns[0]) {
-                solidStandIn = block;
-            } else if (legacyId == standIns[1]) {
-                openStandIn = block;
-            }
-            return block != null ? block : legacyBlocks[0];
+        Object vanilla = legacyId >= 0 && legacyId < legacyBlocks.length ? legacyBlocks[legacyId] : null;
+        if (vanilla != null) {
+            return vanilla;
         }
-        Object block = legacyBlocks[legacyId];
+        // A mod block or a stand-in, wherever FML numbered it: below 256 too when few mods are installed
+        // (only looking past the vanilla ids, those read as air). The stand-ins are asked for most.
+        int[] standIns = modernBlockIds();
+        if (legacyId > 0 && legacyId == standIns[0] && solidStandIn != null) {
+            return solidStandIn;
+        }
+        if (legacyId > 0 && legacyId == standIns[1] && openStandIn != null) {
+            return openStandIn;
+        }
+        Object block = legacyId > 0 ? LegacyBridge.call("blockById", legacyId) : null;
+        if (legacyId > 0 && legacyId == standIns[0]) {
+            solidStandIn = block;
+        } else if (legacyId > 0 && legacyId == standIns[1]) {
+            openStandIn = block;
+        }
         return block != null ? block : legacyBlocks[0];
     }
 

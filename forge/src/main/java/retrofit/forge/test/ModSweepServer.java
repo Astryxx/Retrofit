@@ -1165,6 +1165,7 @@ public final class ModSweepServer {
     private static void reportWorldGen(ServerPlayer player, ServerLevel level) {
         Map<String, Integer> found = new TreeMap<>();
         Map<String, Integer> deep = new TreeMap<>(); // below y 0
+        Map<String, Integer> floor = new TreeMap<>(); // in the bedrock floor: legacy y 0 (HBM's bedrock ores)
         int chunks = 0;
         int cx = player.chunkPosition().x;
         int cz = player.chunkPosition().z;
@@ -1185,6 +1186,9 @@ public final class ModSweepServer {
                                 if (y < 0) {
                                     deep.merge(modOf(ForgeRegistries.BLOCKS.getKey(state.getBlock())), 1, Integer::sum);
                                 }
+                                if (y == level.getMinBuildHeight()) {
+                                    floor.merge(String.valueOf(ForgeRegistries.BLOCKS.getKey(state.getBlock())), 1, Integer::sum);
+                                }
                             }
                         }
                     }
@@ -1196,6 +1200,7 @@ public final class ModSweepServer {
         LOGGER.info("[ModSweep] World generation: {} chunks scanned; legacy blocks by mod {}", chunks, byMod);
         LOGGER.info("[ModSweep] World generation blocks: {}", found);
         LOGGER.info("[ModSweep] World generation below y 0 (the deep pass), by mod: {}", deep);
+        LOGGER.info("[ModSweep] World generation in the bedrock floor: {}", floor);
         long entities = level.getEntitiesOfClass(Entity.class, player.getBoundingBox().inflate(96),
                 e -> LegacyEntityTypes.legacyName(e.getType()) != null).size();
         LOGGER.info("[ModSweep] Legacy entities near the new chunks (natural spawning): {}", entities);

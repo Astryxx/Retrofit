@@ -6,6 +6,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.item.EntityXPOrb;
 import net.minecraft.init.Blocks;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.world.World;
@@ -60,7 +61,21 @@ final class WorldGlue {
     }
 
     static boolean setBlock(HostWorld host, int x, int y, int z, Block block, int meta, int flags) {
-        return host != null && host.setLegacyBlock(x, y, z, block, meta, flags);
+        if (host == null) {
+            return false;
+        }
+        if (ModernContent.isStandIn(block)) {
+            // A stand-in names a 1.20.1 block only with its tile entity (see setTileEntity), so put down bare it
+            // clears the place for that tile entity, replacing what was there as any block did (Pistronics puts a
+            // moved block down where its moving block was, then its tile entity, then the block again). The
+            // block and metadata already there change nothing, as in 1.7.10's chunks: set again, the stand-in
+            // must not clear the 1.20.1 block it stands for.
+            if (getBlock(host, x, y, z) == block && getMeta(host, x, y, z) == meta) {
+                return false;
+            }
+            return host.setLegacyBlock(x, y, z, net.minecraft.init.Blocks.field_150350_a, 0, flags); // air
+        }
+        return host.setLegacyBlock(x, y, z, block, meta, flags);
     }
 
     /** setBlockMetadataWithNotify: mods rotate and toggle blocks this way. */
@@ -110,6 +125,9 @@ final class WorldGlue {
             return null;
         }
         TileEntity tile = (TileEntity) host.getLegacyTileEntity(x, y, z);
+        if (tile == null && ModernContent.isStandIn(getBlock(host, x, y, z))) {
+            return modernTile(world, host, x, y, z); // a block 1.7.10 never had: what it is, for mods that move it
+        }
         if (tile != null || !host.hasHostBlockEntity(x, y, z)) {
             return tile; // (most places have no 1.20.1 block entity: no stand-in to look for)
         }
@@ -117,8 +135,37 @@ final class WorldGlue {
         return tile != null ? tile : HostSpawner.at(world, host, x, y, z);
     }
 
+    private static TileEntity modernTile(World world, HostWorld host, int x, int y, int z) {
+        byte[] data = host.hostBlockData(x, y, z);
+        if (data == null) {
+            return null;
+        }
+        try {
+            TileEntity tile = new ModernContent.ModernTile(Bridge.fromBytes(data));
+            tile.func_145834_a(world); // setWorldObj
+            tile.field_145851_c = x;
+            tile.field_145848_d = y;
+            tile.field_145849_e = z;
+            return tile;
+        } catch (java.io.IOException e) {
+            return null;
+        }
+    }
+
     static void setTileEntity(HostWorld host, World world, int x, int y, int z, TileEntity tile) {
         if (host == null || tile == null) {
+            return;
+        }
+        if (tile instanceof ModernContent.ModernTile) {
+            // a moved 1.20.1 block arrives: the real block goes where its stand-in's tile entity is placed
+            NBTTagCompound block = ((ModernContent.ModernTile) tile).block();
+            if (block != null) {
+                try {
+                    host.setHostBlockData(x, y, z, Bridge.toBytes(block));
+                } catch (java.io.IOException e) {
+                    // nothing placed
+                }
+            }
             return;
         }
         tile.func_145834_a(world); // setWorldObj

@@ -164,7 +164,9 @@ public class LegacyBlock extends Block {
             }
             collision = collision.optimize();
         } catch (RuntimeException e) {
-            LOGGER.warn("Legacy block {} meta {} has no usable shape; using a full cube", translationKey, meta, e);
+            // 1.20.1 asks every metadata value, some of which the mod never places (Pistronics' facings 6 and 7)
+            LOGGER.warn("Legacy block {} meta {} has no usable shape; using a full cube ({})", translationKey, meta,
+                    e.getCause() != null ? e.getCause() : e);
         }
         collisions[meta] = collision;
         outlines[meta] = outline;

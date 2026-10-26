@@ -171,6 +171,9 @@ public final class LegacyEvents {
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (active()) {
             boolean start = event.phase == TickEvent.Phase.START;
+            if (start) {
+                fire("removed-carrier sweep", () -> LegacyEntityCore.sweepRemovedCarriers(false)); // other mods' removal tools skip remove()
+            }
             fire("server tick", () -> LegacyBridge.call("serverTick", start));
         }
     }
@@ -181,6 +184,9 @@ public final class LegacyEvents {
             boolean start = event.phase == TickEvent.Phase.START;
             Object world = LegacyContent.legacyWorld(event.level);
             int difficulty = event.level.getDifficulty().getId();
+            if (start) {
+                fire("teleported players", () -> LegacyPlayers.placeTeleported((net.minecraft.server.level.ServerLevel) event.level));
+            }
             fire("world tick", () -> LegacyBridge.call("worldTick", world, start, difficulty));
         }
     }

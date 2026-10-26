@@ -1,6 +1,7 @@
 package retrofit.legacy.bridge;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.multiplayer.WorldClient;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.Session;
@@ -62,8 +63,24 @@ final class ClientPlayers {
         Minecraft minecraft = Minecraft.func_71410_x();
         if (minecraft != null && minecraft.field_71439_g != null) { // thePlayer
             minecraft.field_71451_h = minecraft.field_71439_g; // renderViewEntity
+            if (minecraft.field_71462_r == BLANK_SCREEN) { // currentScreen
+                minecraft.field_71462_r = null; // currentScreen: back in game, no screen
+            }
+        } else if (minecraft != null && minecraft.field_71462_r == null) { // currentScreen
+            minecraft.field_71462_r = BLANK_SCREEN; // currentScreen
         }
     }
+
+    /**
+     * The screen 1.7.10 always had up while there was no player (its menus and loading screens are
+     * GuiScreens): mods read currentScreen == null as "in game" and then use thePlayer, which is
+     * null until the host player exists (AoA's rageRenderer takes null for an answer to neither).
+     * While no player mirror is current and no legacy screen is up, a blank one shows instead, so
+     * that check reads as it did. Set directly, not through ClientGuis.displayScreen: the host
+     * must not open a screen of its own for this.
+     */
+    private static final GuiScreen BLANK_SCREEN = new GuiScreen() {
+    };
 
     /** Minecraft.thePlayer and theWorld follow the local player's mirror. */
     static void makeCurrent(EntityPlayer player) {

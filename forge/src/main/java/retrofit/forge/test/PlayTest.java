@@ -27,6 +27,7 @@ import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.WorldOptions;
 import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import net.minecraft.world.phys.AABB;
@@ -41,6 +42,7 @@ import org.slf4j.Logger;
 import retrofit.forge.RetrofitMod;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -48,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -149,12 +152,24 @@ public final class PlayTest {
             player.serverLevel().getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(false, player.server);
             player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(false, player.server);
         }));
+        do_("names", 0, PlayTest::untranslatedNames);
+        String compare = System.getProperty("retrofit.compare");
+        if (compare != null) {
+            compare(Path.of(compare));
+            return;
+        }
         String dump = System.getProperty("retrofit.galleryDump");
         if (dump != null) {
             do_("gallery dump", 0, () -> ItemGallery.dump(dump));
         }
         if (item("carpentersblocks:blockcarpentersblock") != null) {
             carpentersBlocks();
+        }
+        if (item("pistronics2:block_of_camou") != null) {
+            pistronics();
+        }
+        if (findItem("thetitans", path -> path.endsWith("_spawn_egg"), net.minecraft.world.item.SpawnEggItem.class) != null) {
+            titansEgg();
         }
         if (findItem("orespawn", path -> path.contains("ruby"), ArmorItem.class) != null) {
             wornArmor("orespawn", "ruby");
@@ -176,6 +191,10 @@ public final class PlayTest {
             machineGui("GregTech steam macerator", "gregtech:gt.blockmachines", 101);
         }
         deepCreature();
+        runtimeDimensions();
+        if (item("galacticraftcore:item.spaceship") != null) {
+            spaceStation();
+        }
         if (item("thaumcraft:itemthaumometer") != null) {
             thaumcraft();
         }
@@ -186,6 +205,220 @@ public final class PlayTest {
             heldItems("fiskheroes");
         }
         heldInHand();
+    }
+
+    /**
+     * Pistronics 2: a Camoublock takes the texture of the block it is right-clicked with (stone, and
+     * 1.20.1's prismarine), its mechanic piston moves a block 1.7.10 never had as itself, and its
+     * petrify arrows, shot from a vanilla bow, turn what they kill into a statue.
+     */
+    private static void pistronics() {
+        Item camou = item("pistronics2:block_of_camou");
+        Item piston = item("pistronics2:mechanic_piston");
+        Item rod = item("pistronics2:rod_block");
+        Item arrows = item("pistronics2:petrify_arrow");
+        newSite("Pistronics");
+        do_("pistronics: give", 10, () -> server(player -> {
+            player.getInventory().setItem(0, new ItemStack(camou, 2));
+            player.getInventory().setItem(1, new ItemStack(Items.STONE, 8));
+            player.getInventory().setItem(2, new ItemStack(Items.PRISMARINE, 8));
+            if (piston != null && rod != null) {
+                player.getInventory().setItem(3, new ItemStack(piston));
+                player.getInventory().setItem(6, new ItemStack(rod, 2));
+            }
+            if (arrows != null) {
+                player.getInventory().setItem(4, new ItemStack(Items.BOW));
+                player.getInventory().setItem(5, new ItemStack(arrows, 8));
+            }
+        }));
+        do_("pistronics: place camoublock", 10, () -> {
+            select(0);
+            useOn(ground(2, 0), Direction.UP);
+        });
+        String[] before = new String[1];
+        do_("pistronics: camou with stone", 20, () -> {
+            before[0] = blockEntityTag(ground(2, 0).above());
+            select(1);
+            useOn(ground(2, 0).above(), Direction.WEST);
+        });
+        do_("pistronics: camou with prismarine", 20, () -> {
+            select(2);
+            useOn(ground(2, 0).above(), Direction.UP);
+        });
+        do_("pistronics: camouflaged?", 0, () -> {
+            String after = blockEntityTag(ground(2, 0).above());
+            int stone = serverPlayer().getInventory().getItem(1).getCount(), prismarine = serverPlayer().getInventory().getItem(2).getCount();
+            result("pistronics camoublock takes stone and prismarine", after != null && !after.equals(before[0]) && stone == 8 && prismarine == 8,
+                    "stone left " + stone + ", prismarine left " + prismarine + ", tile entity " + before[0] + " -> " + after);
+        });
+        shot("play-pistronics-camou", () -> ground(2, 0).above());
+        Item slime = item("pistronics2:slimeblock");
+        if (piston != null && rod != null && slime != null) {
+            // the piston faces the player (west), fitted with a rod and with another behind it, a slime block in
+            // front and 1.20.1's prismarine beyond, then powered: the blocks around a Pistronics machine as real
+            // 1.7.10 leaves them
+            java.util.function.Supplier<BlockPos> at = () -> ground(3, -2).above(); // (the site exists once the steps run)
+            do_("pistronics: place the piston", 10, () -> {
+                Minecraft.getInstance().player.setYRot(-90);
+                select(3);
+                useOn(at.get().below(), Direction.UP);
+            });
+            do_("pistronics: fit a rod", 10, () -> {
+                select(6);
+                useOn(at.get(), Direction.UP);
+            });
+            do_("pistronics: a rod behind", 10, () -> {
+                Minecraft.getInstance().player.setYRot(-90);
+                useOn(at.get().east().below(), Direction.UP);
+            });
+            do_("pistronics: a slime block in front", 10, () -> {
+                server(player -> player.getInventory().setItem(7, new ItemStack(slime)));
+                select(7);
+                useOn(at.get().west().below(), Direction.UP);
+            });
+            do_("pistronics: prismarine beyond", 10, () -> server(player ->
+                    player.serverLevel().setBlock(at.get().west(2), Blocks.PRISMARINE.defaultBlockState(), 3)));
+            do_("pistronics: power the piston", 80, () -> server(player ->
+                    player.serverLevel().setBlock(at.get().north(), Blocks.REDSTONE_BLOCK.defaultBlockState(), 3)));
+            // Real 1.7.10 (the reference mod's PistonReference, the same scene with stone for the prismarine) ends with
+            // nothing moved: east to west air, the rod, the piston, the slime block, the stone, air.
+            String[] expected = {"minecraft:air", "pistronics2:rod_block", "pistronics2:mechanic_piston", "pistronics2:slimeblock",
+                    "minecraft:prismarine", "minecraft:air", "minecraft:air"};
+            do_("pistronics: as on 1.7.10?", 0, () -> {
+                StringBuilder row = new StringBuilder();
+                boolean same = true;
+                for (int dx = 2; dx >= -4; dx--) {
+                    String block = String.valueOf(ForgeRegistries.BLOCKS.getKey(serverBlock(at.get().offset(dx, 0, 0))));
+                    same &= block.equals(expected[2 - dx]);
+                    row.append(dx).append(' ').append(block).append("; ");
+                }
+                result("pistronics piston does what it does on 1.7.10, 1.20.1's prismarine kept as itself", same, "east to west: " + row);
+            });
+            shot("play-pistronics-piston", at);
+        }
+        if (arrows != null) {
+            java.util.function.Supplier<BlockPos> target = () -> ground(6, 4).above(); // clear of the blocks above
+            do_("pistronics: a weak zombie", 10, () -> server(player -> {
+                var zombie = net.minecraft.world.entity.EntityType.ZOMBIE.create(player.serverLevel());
+                zombie.moveTo(target.get().getX() + 0.5, target.get().getY(), target.get().getZ() + 0.5, 90, 0);
+                zombie.setNoAi(true);
+                zombie.setHealth(1);
+                // or the sun sets it alight, and with 1 health it burns to death before the arrow arrives
+                zombie.setItemSlot(net.minecraft.world.entity.EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));
+                player.serverLevel().addFreshEntity(zombie);
+            }));
+            do_("pistronics: draw the bow", 25, () -> {
+                var player = Minecraft.getInstance().player;
+                Vec3 to = Vec3.atCenterOf(target.get()).subtract(player.getEyePosition());
+                player.setYRot((float) (Math.toDegrees(Math.atan2(to.z, to.x)) - 90));
+                player.setXRot((float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z))) - 2); // a little high: the arrow drops
+                select(4);
+                Minecraft.getInstance().options.keyUse.setDown(true); // held, or the client lets go at once
+                Minecraft.getInstance().gameMode.useItem(player, InteractionHand.MAIN_HAND);
+            });
+            do_("pistronics: loose", 40, () -> Minecraft.getInstance().options.keyUse.setDown(false)); // the client's own release
+            do_("pistronics: petrified?", 0, () -> {
+                Block statue = block("pistronics2:statue");
+                BlockPos found = null;
+                for (BlockPos pos : BlockPos.betweenClosed(target.get().offset(-2, -1, -2), target.get().offset(2, 1, 2))) {
+                    if (statue != null && serverBlock(pos) == statue) {
+                        found = pos.immutable();
+                    }
+                }
+                result("pistronics petrify arrow from a vanilla bow makes a statue", found != null,
+                        "statue at " + found + ", arrows left " + serverPlayer().getInventory().getItem(5).getCount());
+            });
+            shot("play-pistronics-statue", target);
+        }
+    }
+
+    /**
+     * Legacy items whose names show as their keys ("tile.foo.name", "item.bar"), as a player sees them:
+     * each item's own stack and its first subtypes. A report by mod, with examples, not a pass/fail.
+     */
+    private static void untranslatedNames() {
+        java.util.regex.Pattern key = java.util.regex.Pattern.compile("^((tile|item|block|entity)\\.\\S+|\\S+\\.name)$");
+        Map<String, List<String>> raw = new java.util.TreeMap<>();
+        int checked = 0;
+        for (Item item : ForgeRegistries.ITEMS) {
+            if (!(item instanceof retrofit.forge.world.LegacyStackItem legacy) || legacy.legacyItem() == null) {
+                continue;
+            }
+            List<ItemStack> stacks = new ArrayList<>(List.of(new ItemStack(item)));
+            try {
+                int[] subtypes = retrofit.forge.world.LegacyBridge.call("itemSubtypes", legacy.legacyItem());
+                for (int i = 0; subtypes != null && i < Math.min(4, subtypes.length); i++) {
+                    stacks.add(legacy.stackOf(subtypes[i]));
+                }
+            } catch (RuntimeException e) {
+                // the item's own stack only
+            }
+            for (ItemStack stack : stacks) {
+                String name;
+                try {
+                    name = stack.getHoverName().getString();
+                } catch (RuntimeException e) {
+                    name = stack.getDescriptionId();
+                }
+                checked++;
+                if (name.equals(stack.getDescriptionId()) || key.matcher(name).matches()) {
+                    List<String> examples = raw.computeIfAbsent(ForgeRegistries.ITEMS.getKey(item).getNamespace(), mod -> new ArrayList<>());
+                    examples.add(name);
+                }
+            }
+        }
+        String dump = System.getProperty("retrofit.nameDump"); // as the reference mod writes it in real 1.7.10
+        if (dump != null) {
+            List<String> lines = new ArrayList<>();
+            for (Item item : ForgeRegistries.ITEMS) {
+                if (item instanceof retrofit.forge.world.LegacyStackItem legacy && legacy.legacyItem() != null) {
+                    ItemStack stack = legacy.stackOf(0);
+                    try {
+                        Object legacyStack = retrofit.forge.world.LegacyStacks.toLegacy(stack);
+                        Object[] read = legacyStack == null ? null : retrofit.forge.world.LegacyBridge.readStack(legacyStack);
+                        if (read != null) {
+                            lines.add(read[0] + "\t0\t" + stack.getHoverName().getString());
+                        }
+                    } catch (RuntimeException e) {
+                        // not dumped
+                    }
+                }
+            }
+            try {
+                Files.write(Path.of(dump), lines, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                LOGGER.warn("[PlayTest] Could not write the name dump", e);
+            }
+        }
+        StringBuilder report = new StringBuilder();
+        raw.forEach((mod, names) -> report.append("\n  ").append(mod).append(": ").append(names.size()).append(", e.g. ")
+                .append(String.join(", ", names.subList(0, Math.min(3, names.size())))));
+        LOGGER.info("[PlayTest] Untranslated names: {} of {} legacy stacks{}", raw.values().stream().mapToInt(List::size).sum(), checked, report);
+    }
+
+    /**
+     * The Titans keeps its creatures in net.minecraft.entity.* packages, which Retrofit once took for
+     * vanilla ones (they got no 1.20.1 type, and their eggs failed): one of its minions' spawn eggs,
+     * used on the ground, spawns the minion.
+     */
+    private static void titansEgg() {
+        Item found = findItem("thetitans", path -> path.endsWith("_spawn_egg") && path.contains("loyalist"), net.minecraft.world.item.SpawnEggItem.class);
+        Item egg = found != null ? found : findItem("thetitans", path -> path.endsWith("_spawn_egg"), net.minecraft.world.item.SpawnEggItem.class);
+        net.minecraft.world.entity.EntityType<?> type = ((net.minecraft.world.item.SpawnEggItem) egg).getType(null);
+        newSite("The Titans");
+        do_("titans: give the egg", 10, () -> server(player -> player.getInventory().setItem(0, new ItemStack(egg))));
+        do_("titans: use the egg", 40, () -> {
+            select(0);
+            useOn(ground(2, 0), Direction.UP);
+        });
+        do_("titans: spawned?", 0, () -> {
+            java.util.List<? extends Entity> spawned = serverPlayer().serverLevel().getEntities(type,
+                    new net.minecraft.world.phys.AABB(ground(2, 0)).inflate(6), Entity::isAlive);
+            result("the titans spawn egg spawns its creature (" + ForgeRegistries.ENTITY_TYPES.getKey(type) + ")", !spawned.isEmpty(),
+                    spawned.isEmpty() ? "none near the egg, eggs left " + serverPlayer().getInventory().getItem(0).getCount()
+                            : "at " + spawned.get(0).blockPosition());
+        });
+        shot("play-titans-egg", () -> ground(2, 0).above());
     }
 
     /** Places a Carpenter's Block, covers it with 1.20.1 oak planks, then places and hammers a slope. */
@@ -317,6 +550,75 @@ public final class PlayTest {
     }
 
     /** A legacy creature in a cave below y 0 (1.7.10 worlds ended at 0): it must stay there, alive. */
+    /**
+     * Dimensions mods register while playing (Galacticraft's space stations, pocket and personal dimensions):
+     * one of a mod's provider type and one of the overworld's (which has no dimension type of its own, so the
+     * generic one), registered as mods register them, and the player sent to each as mods send them
+     * (travelToDimension); each must have a 1.20.1 level the player arrives in. Then back home.
+     */
+    private static void runtimeDimensions() {
+        Object[][] modDimensions = retrofit.forge.world.LegacyBridge.call("legacyDimensions");
+        List<Integer> providerTypes = new ArrayList<>();
+        if (modDimensions.length > 0) {
+            providerTypes.add((Integer) modDimensions[0][0]);
+        }
+        providerTypes.add(0);
+        for (int providerType : providerTypes) {
+            int[] id = new int[1];
+            do_("dimension made while playing (provider type " + providerType + "): register and go", 80, () -> server(player -> {
+                id[0] = retrofit.forge.world.LegacyBridge.call("registerTestDimension", providerType);
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), id[0]);
+            }));
+            do_("dimension made while playing (provider type " + providerType + "): arrived?", 0, () -> {
+                String where = serverPlayer().level().dimension().location().toString();
+                result("dimension a mod makes while playing (provider type " + providerType + ")",
+                        where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + id[0]), "dimension " + id[0] + ", player in " + where);
+            });
+            do_("dimension made while playing: home", 60, () -> server(player ->
+                    retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
+        }
+    }
+
+    /**
+     * A Galacticraft space station, made as its recipe makes one (WorldUtil.bindSpaceStationToNewDimension: a
+     * dimension registered while playing, the station built in it), and the player sent there as Galacticraft sends them.
+     */
+    private static void spaceStation() {
+        int[] station = {Integer.MIN_VALUE};
+        do_("space station: make and go", 100, () -> server(player -> {
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
+            java.util.Set<Integer> before = new java.util.HashSet<>();
+            for (int id : retrofit.forge.world.LegacyBridge.<int[]>call("registeredDimensions")) {
+                before.add(id);
+            }
+            retrofit.forge.world.LegacyBridge.call("testCallMod", "micdoodle8.mods.galacticraft.core.util.WorldUtil",
+                    "bindSpaceStationToNewDimension", mirror, new Object[]{"WORLD", "PLAYER", 0});
+            for (int id : retrofit.forge.world.LegacyBridge.<int[]>call("registeredDimensions")) {
+                if (!before.contains(id)) {
+                    station[0] = id;
+                }
+            }
+            if (station[0] != Integer.MIN_VALUE) { // as Galacticraft sends players there (its teleporter puts them on the station)
+                retrofit.forge.world.LegacyBridge.call("testCallMod", "micdoodle8.mods.galacticraft.core.util.WorldUtil",
+                        "transferEntityToDimension", mirror, new Object[]{"PLAYER", station[0], "WORLD"});
+            }
+        }));
+        do_("space station: arrived?", 0, () -> {
+            ServerPlayer player = serverPlayer();
+            String where = player.level().dimension().location().toString();
+            int blocks = 0;
+            for (BlockPos pos : BlockPos.betweenClosed(player.blockPosition().offset(-8, -6, -8), player.blockPosition().offset(8, 2, 8))) {
+                blocks += player.level().getBlockState(pos).isAir() ? 0 : 1;
+            }
+            result("Galacticraft space station made and reached", station[0] != Integer.MIN_VALUE
+                    && where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + station[0]) && blocks > 0,
+                    "station dimension " + station[0] + ", player in " + where + " at " + player.blockPosition() + ", " + blocks + " blocks around");
+        });
+        shot("play-galacticraft-station", () -> serverPlayer().blockPosition());
+        do_("space station: home", 60, () -> server(player ->
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
+    }
+
     private static void deepCreature() {
         net.minecraft.world.entity.EntityType<?>[] type = new net.minecraft.world.entity.EntityType<?>[1];
         java.util.UUID[] id = new java.util.UUID[1];
@@ -505,6 +807,7 @@ public final class PlayTest {
             result("Galacticraft rocket placed", ship[0] != null, ship[0] == null ? "no rocket entity near the pad"
                     : String.valueOf(ForgeRegistries.ENTITY_TYPES.getKey(ship[0].getType())));
         });
+        shot("play-galacticraft-pad", () -> ground(4, 0).above());
         do_("rocket: board", 20, () -> {
             if (ship[0] != null) {
                 Minecraft.getInstance().gameMode.interact(Minecraft.getInstance().player, ship[0], InteractionHand.MAIN_HAND);
@@ -513,6 +816,9 @@ public final class PlayTest {
         do_("rocket: launch", 5, () -> {
             boolean riding = Minecraft.getInstance().player.getVehicle() == ship[0] && ship[0] != null;
             result("Galacticraft rocket boarded", riding, "vehicle " + Minecraft.getInstance().player.getVehicle());
+            // Inside, as on 1.7.10 (getMountedYOffset -0.9 from posY, yOffset 1.5 above its feet: the rider's feet 0.1 above the rocket's).
+            double seat = riding ? Minecraft.getInstance().player.getY() - ship[0].getY() : Double.NaN;
+            result("Galacticraft rocket rider sits inside", Math.abs(seat - 0.1) < 0.05, "rider's feet " + seat + " above the rocket's");
             startY[0] = ship[0] == null ? 0 : ship[0].getY();
             KeyMapping.set(Minecraft.getInstance().options.keyJump.getKey(), true);
         });
@@ -628,6 +934,104 @@ public final class PlayTest {
         }
         do_("hand: done", 2, () -> Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON));
     }
+
+    /**
+     * The scenes real 1.7.10 plays with the reference mod (testmods/reference1710), for putting the
+     * two side by side: each listed item marked "hand" ("modid:name", damage and "hand", tab-separated, as 1.7.10 names it,
+     * one per line) held in first person and from the front, after the hand has settled, then the
+     * blocks of the item blocks placed in the world (see compareBlocks), then all of them in a gallery.
+     * Shots: cmp-hand-N-first/third.png (N counting the list's items), cmp-blocks-N.png and cmp-gallery-N.png.
+     */
+    private static void compare(Path list) {
+        List<ItemStack> stacks = new ArrayList<>();
+        List<Boolean> held = new ArrayList<>(); // "hand" after the damage: shot in the hand too
+        try {
+            for (String line : Files.readAllLines(list)) {
+                String[] parts = line.trim().split("\t"); // names may have spaces
+                if (parts[0].isEmpty() || parts[0].startsWith("#")) {
+                    continue;
+                }
+                Object legacy = retrofit.forge.world.LegacyBridge.makeStack(parts[0], 1, parts.length > 1 ? Integer.parseInt(parts[1]) : 0, null);
+                ItemStack stack = legacy == null ? ItemStack.EMPTY : retrofit.forge.world.LegacyStacks.toModern(legacy);
+                if (stack.isEmpty()) {
+                    LOGGER.info("[PlayTest] No item {}", parts[0]);
+                }
+                stacks.add(stack);
+                held.add(parts.length > 2 && parts[2].equals("hand"));
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        newSite("comparison");
+        for (int i = 0; i < stacks.size(); i++) {
+            ItemStack stack = stacks.get(i);
+            int n = i;
+            if (stack.isEmpty() || !held.get(i)) {
+                continue;
+            }
+            do_("compare: hold " + n, COMPARE_SETTLE, () -> {
+                server(player -> player.getInventory().setItem(0, stack.copy()));
+                select(0);
+                Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON);
+                LOGGER.info("[PlayTest] hand {}: {}", n, ForgeRegistries.ITEMS.getKey(stack.getItem()));
+            });
+            do_("compare: first " + n, 2, () -> grab("cmp-hand-" + n + "-first"));
+            do_("compare: turn " + n, COMPARE_SETTLE, () -> Minecraft.getInstance().options.setCameraType(CameraType.THIRD_PERSON_FRONT));
+            do_("compare: third " + n, 2, () -> grab("cmp-hand-" + n + "-third"));
+        }
+        compareBlocks(stacks);
+        do_("compare: gallery", 0, () -> {
+            Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON);
+            Minecraft.getInstance().setScreen(ItemGallery.of(stacks, "cmp-gallery-"));
+        });
+        until("compare: gallery shot", 600, () -> Minecraft.getInstance().screen instanceof ItemGallery gallery && gallery.done());
+    }
+
+    /** Blocks per batch, as the reference's: a grid GRID_X deep (east of the player) and GRID_Z wide. */
+    private static final int GRID_X = 5, GRID_Z = 7;
+    /** Ticks for a batch of blocks: chunk meshes rebuilt, tile entities and their renderers running. */
+    private static final int BLOCKS_SETTLE = 60;
+
+    /**
+     * The blocks of the listed item blocks, placed in front of the player as their items place them,
+     * a batch of GRID_X * GRID_Z at a time, row by row from 3 blocks east (cmp-blocks-N.png).
+     */
+    private static void compareBlocks(List<ItemStack> stacks) {
+        List<BlockState> states = new ArrayList<>();
+        for (ItemStack stack : stacks) {
+            if (stack.getItem() instanceof retrofit.forge.world.LegacyBlockItem item) {
+                int meta = retrofit.forge.world.LegacyBridge.<Integer>call("itemBlockMeta", item.legacyItem(), item.meta(stack)) & 15;
+                states.add(item.getBlock().defaultBlockState().setValue(retrofit.forge.world.LegacyContent.META, meta));
+            } else if (stack.getItem() instanceof net.minecraft.world.item.BlockItem item) {
+                states.add(item.getBlock().defaultBlockState()); // 1.20.1's own (stone): as 1.7.10's metadata 0
+            }
+        }
+        int perBatch = GRID_X * GRID_Z;
+        for (int start = 0; start < states.size(); start += perBatch) {
+            List<BlockState> batch = states.subList(start, Math.min(states.size(), start + perBatch));
+            int number = start / perBatch + 1;
+            do_("compare: blocks " + number, BLOCKS_SETTLE, () -> {
+                Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON);
+                server(player -> {
+                    ServerLevel level = player.serverLevel();
+                    for (int x = 0; x < GRID_X; x++) {
+                        for (int z = 0; z < GRID_Z; z++) {
+                            for (int y = 1; y <= 4; y++) {
+                                level.setBlock(ground(3 + x, -3 + z).above(y), Blocks.AIR.defaultBlockState(), 2);
+                            }
+                        }
+                    }
+                    for (int i = 0; i < batch.size(); i++) {
+                        level.setBlock(ground(3 + i / GRID_Z, -3 + i % GRID_Z).above(), batch.get(i), 2); // as the reference: no neighbour updates
+                    }
+                });
+            });
+            do_("compare: blocks shot " + number, 2, () -> grab("cmp-blocks-" + number));
+        }
+    }
+
+    /** Ticks after giving an item or turning the camera: the equip animation and the camera have settled (as the reference). */
+    private static final int COMPARE_SETTLE = 25;
 
     // ---- Steps ----
 

@@ -5,7 +5,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Boot test: runs FML's client loading sequence (construct, preInit, init, postInit)
@@ -60,7 +62,59 @@ public final class HeadlessClient {
                 .getConstructor(String.class, String.class, String.class, String.class).newInstance(name, uuid, "-", "legacy"));
 
         // OpenGlHelper.initializeTextures ran before mods loaded; mods branch on shader support (see retrofit.legacy.gl.Shaders).
-        setField(Class.forName("net.minecraft.client.renderer.OpenGlHelper", true, lcl), null, "field_148824_g", true); // shadersSupported
+        Class<?> openGlHelper = Class.forName("net.minecraft.client.renderer.OpenGlHelper", true, lcl);
+        setField(openGlHelper, null, "field_148824_g", true); // shadersSupported
+        // Its texture units, GL_TEXTURE0 and GL_TEXTURE1: left 0, both read as the lightmap's, and the block
+        // texture's coordinates went to the lightmap when a mod picked the default unit before drawing
+        // (ManaMetal does before every Tessellator.draw: every legacy block lost its texture).
+        setField(openGlHelper, null, "field_77478_a", 0x84C0); // defaultTexUnit
+        setField(openGlHelper, null, "field_77476_b", 0x84C1); // lightmapTexUnit
+
+        // The resource pack repository, as Minecraft's constructor makes it before mods load: mods read it
+        // while loading (Hbm's manual loader walks its entries from a reload listener during preInit;
+        // DragonAPI asks it which packs are active). Allocated without its constructor: the entry lists
+        // stay empty (the packs that load are FML's and mods', see Hooks.refreshResources), the folder
+        // fields point at <game dir>/resourcepacks (mods list them, e.g. BiblioCraft's paintings), and
+        // the default pack and metadata serializer are the boot's own. Mods read the default pack itself too
+        // (Extra Utilities draws its Tinkers' parts from vanilla's bedrock texture).
+        Object defaultPack = Class.forName("net.minecraft.client.resources.DefaultResourcePack", true, lcl)
+                .getConstructor(Map.class).newInstance(new HashMap<Object, Object>()); // vanilla assets, from the 1.7.10 jar
+        setField(minecraftClass, minecraft, "field_110450_ap", defaultPack); // mcDefaultResourcePack
+        Field repositoryField = minecraftClass.getDeclaredField("field_110448_aq"); // mcResourcePackRepository
+        repositoryField.setAccessible(true);
+        if (repositoryField.get(minecraft) == null) {
+            Object repository = allocate(Class.forName("net.minecraft.client.resources.ResourcePackRepository", true, lcl));
+            Class<?> resourcePacks = Class.forName("net.minecraft.client.resources.IResourcePack", true, lcl);
+            for (Field field : repository.getClass().getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                field.setAccessible(true);
+                if (field.getType() == List.class) {
+                    field.set(repository, new ArrayList<Object>());
+                } else if (field.getType() == File.class) {
+                    File dir = new File(gameDir, "resourcepacks");
+                    dir.mkdirs();
+                    retrofit.legacy.compat.FinalFields.set(field, repository, dir);
+                } else if (field.getType() == serializer.getClass()) {
+                    retrofit.legacy.compat.FinalFields.set(field, repository, serializer); // rprMetadataSerializer
+                } else if (resourcePacks.isAssignableFrom(field.getType())) {
+                    retrofit.legacy.compat.FinalFields.set(field, repository, defaultPack); // rprDefaultResourcePack
+                }
+            }
+            retrofit.legacy.compat.FinalFields.set(repositoryField, minecraft, repository);
+        }
+
+        // The profiler, as 1.7.10's own startGame made it before mods loaded (the instance is
+        // allocated without its constructor, so the field initializer never runs). Mods capture it
+        // while loading and call into their copy every frame afterwards (theTitans' boss bar GUI
+        // holds Minecraft.mcProfiler from its constructor and profiles its HUD drawing through it).
+        Field profiler = minecraftClass.getDeclaredField("field_71424_I"); // mcProfiler
+        profiler.setAccessible(true);
+        if (profiler.get(minecraft) == null) {
+            retrofit.legacy.compat.FinalFields.set(profiler, minecraft,
+                    Class.forName("net.minecraft.profiler.Profiler", true, lcl).getConstructor().newInstance());
+        }
 
         Class<?> clientHandlerClass = Class.forName("cpw.mods.fml.client.FMLClientHandler", true, lcl);
         Object clientHandler = clientHandlerClass.getMethod("instance").invoke(null);
