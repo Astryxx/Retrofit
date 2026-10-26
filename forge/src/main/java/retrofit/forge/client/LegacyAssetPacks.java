@@ -37,4 +37,9 @@ public final class LegacyAssetPacks {
             }
         });
     }
+
+    /** How the last legacy asset pack build went ("found/wanted textures, n left out", or "FAILED: ..."); null before one. */
+    public static String lastBuild() {
+        return LegacyAssetPack.lastBuild;
+    }
 }

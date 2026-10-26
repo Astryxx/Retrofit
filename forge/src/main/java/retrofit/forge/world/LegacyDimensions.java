@@ -444,11 +444,14 @@ public final class LegacyDimensions {
             double scale = entity.level().dimensionType().coordinateScale() / destination.dimensionType().coordinateScale();
             double x = entity.getX() * scale;
             double z = entity.getZ() * scale;
-            double y = entity.getY();
+            // inside the destination's height: a player below y 0 (1.20.1's deepslate layer, which 1.7.10 never had) handed
+            // a mod's teleporter a height its world can't have, and Erebus's left the player there, falling into the void
+            double y = Math.max(destination.getMinBuildHeight() + 1, Math.min(destination.getMaxBuildHeight() - 2, entity.getY()));
             if (legacyTeleporter == null) {
                 // No teleporter to place the player: stand on the ground there, or on a platform over a void (as 1.7.10's End did).
                 int bx = (int) Math.floor(x);
                 int bz = (int) Math.floor(z);
+                destination.getChunk(bx >> 4, bz >> 4); // its height is only known once it is there (unloaded, it reads as empty)
                 y = destination.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, bx, bz);
                 if (y <= destination.getMinBuildHeight()) {
                     y = 64;
@@ -467,6 +470,16 @@ public final class LegacyDimensions {
             Entity moved = reposition.apply(false);
             if (legacyTeleporter != null && moved instanceof ServerPlayer player) {
                 try {
+                    // 1.7.10 generated chunks as soon as anything looked at them; the teleporter looks for the
+                    // ground or its portal here before the player's own chunk loading gets to them, and saw air
+                    // (OreSpawn's dimensions placed players at the bottom of the world)
+                    int chunkX = net.minecraft.core.SectionPos.blockToSectionCoord(player.getX());
+                    int chunkZ = net.minecraft.core.SectionPos.blockToSectionCoord(player.getZ());
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            destination.getChunk(chunkX + dx, chunkZ + dz);
+                        }
+                    }
                     Object mirror = LegacyPlayers.mirror(player, false);
                     double[] placed = LegacyBridge.call("placeInPortal", legacyTeleporter, mirror, player.getX(), player.getY(), player.getZ(), yaw);
                     player.teleportTo(destination, placed[0], placed[1], placed[2], (float) placed[3], player.getXRot());

@@ -155,6 +155,10 @@ public interface HostWorld {
         return null;
     }
 
+    /** Legacy code named the mob a host mob spawner spawns (its legacy entity name); nothing if there is no spawner. */
+    default void setHostSpawnerEntity(int x, int y, int z, String legacyName) {
+    }
+
     /** The server's view distance in chunks (who sees a chunk, for mods that send to its watchers). */
     default int viewDistance() {
         return 10;

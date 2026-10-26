@@ -127,6 +127,24 @@ public final class LegacyEntityTypes {
         return "Pig"; // a 1.20.1 mod's mob: legacy code knows no name for it
     }
 
+    /**
+     * The 1.20.1 entity type for a 1.7.10 EntityList name (a spawner's mob): legacy mods' entities as
+     * Retrofit registered them, vanilla ones through Minecraft's fixers ("PigZombie" is the zombified
+     * piglin); null for a name that names no entity.
+     */
+    static EntityType<?> modernTypeOf(String legacyName) {
+        EntityType<?> type = byName(legacyName);
+        if (type != null || legacyName == null || legacyName.isEmpty()) {
+            return type;
+        }
+        net.minecraft.nbt.CompoundTag legacy = new net.minecraft.nbt.CompoundTag();
+        legacy.putString("id", legacyName);
+        ResourceLocation id = ResourceLocation.tryParse(LevelHostWorld.fixLegacy(net.minecraft.util.datafix.fixes.References.ENTITY, legacy).getString("id"));
+        // (containsKey: the entity type registry is defaulted, so a lookup of an unknown id gives the pig)
+        return id != null && net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(id)
+                ? net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.get(id) : null;
+    }
+
     private static final Map<String, ResourceLocation> IDS = new LinkedHashMap<>();
 
     /** "modid.Name" (or a global name registered by a mod) -> "modid:name". */

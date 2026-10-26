@@ -144,6 +144,22 @@ public final class LegacyPlayers {
         return null;
     }
 
+    /**
+     * End of every server tick: mirrors' portal cooldowns (timeUntilPortal) count down, as
+     * Entity.onEntityUpdate counted them on 1.7.10. Mirrors aren't ticked, and mods' portals wait for 0.
+     */
+    static synchronized void tickPortalCooldowns() {
+        for (Map.Entry<World, Map<String, EntityPlayer>> entry : PLAYERS.entrySet()) {
+            if (!entry.getKey().field_72995_K) { // isRemote
+                for (EntityPlayer player : entry.getValue().values()) {
+                    if (player.field_71088_bW > 0) { // timeUntilPortal
+                        player.field_71088_bW--;
+                    }
+                }
+            }
+        }
+    }
+
     /** All server mirrors of a player. */
     static synchronized List<EntityPlayer> serverMirrors(String uuid) {
         List<EntityPlayer> mirrors = new ArrayList<EntityPlayer>();

@@ -75,11 +75,20 @@ final class LegacyAssetPack implements PackResources {
         this.id = id;
     }
 
+    /** How the last build went ("found/wanted textures, n left out", or "FAILED: ..."), for the play test; null before one. */
+    static volatile String lastBuild;
+
+    /** {textures found, textures wanted, blocks and items left out} of this pack. */
+    private int[] summary;
+
+
     static LegacyAssetPack create(String id, LegacyRuntime runtime) {
         LegacyAssetPack pack = new LegacyAssetPack(id);
         try {
             pack.build(runtime);
+            lastBuild = pack.summary == null ? "built" : pack.summary[0] + "/" + pack.summary[1] + " textures, " + pack.summary[2] + " left out";
         } catch (Exception e) {
+            lastBuild = "FAILED: " + e;
             LOGGER.error("Retrofit could not build the legacy asset pack; legacy content will look like missing models", e);
         }
         return pack;
@@ -110,14 +119,14 @@ final class LegacyAssetPack implements PackResources {
             if (block.renderType() != 0) {
                 nonCube++;
             }
-            addBlock(block, blockTextures, itemTextures);
+            isolated(block, () -> addBlock(block, blockTextures, itemTextures));
         }
         addWoodAliases();
         for (LegacyItem item : items) {
-            addItem(item, itemTextures);
+            isolated(item, () -> addItem(item, itemTextures));
         }
         for (retrofit.forge.world.LegacyArmorItem armor : LegacyContent.armor()) {
-            addItem(armor, itemTextures);
+            isolated(armor, () -> addItem(armor, itemTextures));
         }
         // Every recorded icon goes into the atlas, vanilla ones included: legacy renderers draw
         // vanilla blocks and items too (items on shelves, blocks inside machines).
@@ -163,6 +172,7 @@ final class LegacyAssetPack implements PackResources {
                 blocks.size(), items.size(), found, blockTextures.size() + itemTextures.size(), textureSources.size(), translations,
                 passedThrough,
                 nonCube > 0 ? ", " + nonCube + " blocks with custom rendering" : "");
+        summary = new int[]{found, blockTextures.size() + itemTextures.size(), isolatedFailures};
     }
 
     // ---- Blocks ----
@@ -186,6 +196,23 @@ final class LegacyAssetPack implements PackResources {
             JsonObject itemModel = new JsonObject();
             itemModel.addProperty("parent", model);
             putJson(key.getNamespace(), "models/item/" + key.getPath() + ".json", itemModel);
+        }
+    }
+
+    private int isolatedFailures;
+
+    /**
+     * One block's or item's models and textures: a failure leaves out that one (it looks like a missing model),
+     * never the pack, which every legacy mod's textures are in (a block of a mod left out half-loaded, Witchery's,
+     * threw when asked how its item draws, and the whole pack went).
+     */
+    private void isolated(Object what, Runnable add) {
+        try {
+            add.run();
+        } catch (RuntimeException | LinkageError e) {
+            if (isolatedFailures++ < 20) {
+                LOGGER.warn("Legacy models and textures of {} could not be made; it looks like a missing model", what, e);
+            }
         }
     }
 

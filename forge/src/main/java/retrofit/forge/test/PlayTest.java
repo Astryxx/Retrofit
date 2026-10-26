@@ -153,6 +153,13 @@ public final class PlayTest {
             player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(false, player.server);
         }));
         do_("names", 0, PlayTest::untranslatedNames);
+        do_("asset pack", 0, () -> {
+            // every legacy mod's models and textures are in one pack: one block failing it (a half-loaded mod's) broke them all
+            String build = retrofit.forge.client.LegacyAssetPacks.lastBuild();
+            String[] counts = build == null || build.startsWith("FAILED") ? null : build.split("[/ ]");
+            result("legacy asset pack built, with its textures", counts != null
+                    && Integer.parseInt(counts[0]) >= Integer.parseInt(counts[1]) * 95 / 100, String.valueOf(build));
+        });
         String compare = System.getProperty("retrofit.compare");
         if (compare != null) {
             compare(Path.of(compare));
@@ -192,6 +199,15 @@ public final class PlayTest {
         }
         deepCreature();
         runtimeDimensions();
+        if (findItem("orespawn", path -> path.contains("ruby"), ArmorItem.class) != null) {
+            oreSpawnDimension();
+        }
+        if (findItem("erebus", path -> true, Item.class) != null) {
+            erebusDimension();
+        }
+        if (findBlock("atum", path -> path.contains("portal")) != null) {
+            atumPortal();
+        }
         if (item("galacticraftcore:item.spaceship") != null) {
             spaceStation();
         }
@@ -574,9 +590,142 @@ public final class PlayTest {
                 result("dimension a mod makes while playing (provider type " + providerType + ")",
                         where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + id[0]), "dimension " + id[0] + ", player in " + where);
             });
+            if (providerType == 0) {
+                generatedTileEntities();
+            }
             do_("dimension made while playing: home", 60, () -> server(player ->
                     retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
         }
+    }
+
+    /**
+     * Vanilla blocks a legacy world generator set up through their tile entities in a legacy dimension
+     * (hello1710's: a chest with rubies and bread, a spawner of its golem and one of skeletons, every 8th
+     * chunk; the play test's flat overworld decorates nothing): the 1.20.1 block
+     * entities must hold what it put there. Before 0.5.2 they came out empty and pig spawners.
+     */
+    private static void generatedTileEntities() {
+        do_("generated tile entities", 0, () -> server(player -> {
+            List<String> found = new ArrayList<>();
+            int chunkX = player.chunkPosition().x;
+            int chunkZ = player.chunkPosition().z;
+            for (int cx = (chunkX >> 3 << 3) - 8; cx <= (chunkX >> 3 << 3) + 8; cx += 8) {
+                for (int cz = (chunkZ >> 3 << 3) - 8; cz <= (chunkZ >> 3 << 3) + 8; cz += 8) {
+                    if (!player.serverLevel().hasChunk(cx, cz)) {
+                        continue;
+                    }
+                    for (var blockEntity : player.serverLevel().getChunk(cx, cz).getBlockEntities().values()) {
+                        if (blockEntity instanceof net.minecraft.world.level.block.entity.ChestBlockEntity chest) {
+                            for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+                                if (!chest.getItem(slot).isEmpty()) {
+                                    found.add("chest " + slot + ": " + ForgeRegistries.ITEMS.getKey(chest.getItem(slot).getItem()) + " x" + chest.getItem(slot).getCount());
+                                }
+                            }
+                        } else if (blockEntity instanceof net.minecraft.world.level.block.entity.SpawnerBlockEntity spawner) {
+                            found.add("spawner " + spawner.getSpawner().save(new net.minecraft.nbt.CompoundTag())
+                                    .getCompound("SpawnData").getCompound("entity").getString("id"));
+                        }
+                    }
+                }
+            }
+            String all = String.join(", ", found);
+            result("chest and spawners a legacy generator set up", all.contains("chest 0: hello1710:") && all.contains("chest 5: minecraft:bread x3")
+                    && all.contains("spawner hello1710:") && all.contains("spawner minecraft:skeleton"), all);
+        }));
+    }
+
+    /**
+     * OreSpawn's Utopia, reached as OreSpawn sends players there (transferPlayerToDimension with its
+     * OreSpawnTeleporter, which looks for the ground from y 180 down): the player must stand on it, not
+     * at the bottom of the world, where it put them while the chunks there weren't loaded yet.
+     */
+    private static void oreSpawnDimension() {
+        int[] utopia = {Integer.MIN_VALUE};
+        do_("orespawn dimension: go", 100, () -> server(player -> {
+            Object id = retrofit.forge.world.LegacyBridge.call("testModField", "danger.orespawn.OreSpawnMain", "DimensionID");
+            if (id instanceof Integer dimension) {
+                utopia[0] = dimension;
+                retrofit.forge.world.LegacyBridge.call("testTeleport", retrofit.forge.world.LegacyPlayers.mirror(player, false),
+                        dimension, "danger.orespawn.OreSpawnTeleporter");
+            }
+        }));
+        do_("orespawn dimension: on the ground?", 0, () -> {
+            ServerPlayer player = serverPlayer();
+            String where = player.level().dimension().location().toString();
+            BlockPos feet = player.blockPosition();
+            result("OreSpawn dimension reached through its teleporter, on the ground",
+                    where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + utopia[0]) && feet.getY() > 10
+                            && !player.level().getBlockState(feet.below()).isAir(),
+                    "dimension " + utopia[0] + ", player in " + where + " at " + feet + " above " + player.level().getBlockState(feet.below()));
+        });
+        shot("play-orespawn-utopia", () -> serverPlayer().blockPosition());
+        do_("orespawn dimension: home", 60, () -> server(player ->
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
+    }
+
+    /**
+     * The Erebus, reached as mods send players (travelToDimension): its terrain must generate around the
+     * player. With HBM loaded, Erebus's biome layers got HBM's view of the biome array while chunks generated
+     * (0.5.1), and nothing came out past the error.
+     */
+    private static void erebusDimension() {
+        int[] erebus = {Integer.MIN_VALUE};
+        do_("erebus: go", 120, () -> server(player -> {
+            Object id = retrofit.forge.world.LegacyBridge.call("testModField", "erebus.core.handler.configs.ConfigHandler", "INSTANCE.erebusDimensionID");
+            if (id instanceof Integer dimension) {
+                erebus[0] = dimension;
+                retrofit.forge.world.LegacyBridge.call("testTeleport", retrofit.forge.world.LegacyPlayers.mirror(player, false),
+                        dimension, "erebus.world.teleporter.TeleporterErebus");
+            }
+        }));
+        do_("erebus: generated?", 0, () -> server(player -> {
+            String where = player.level().dimension().location().toString();
+            int solid = 0;
+            int all = 0;
+            BlockPos center = player.blockPosition();
+            for (BlockPos pos : BlockPos.betweenClosed(center.offset(-16, -24, -16), center.offset(16, 24, 16))) {
+                all++;
+                solid += player.level().getBlockState(pos).isAir() ? 0 : 1;
+            }
+            boolean errors = retrofit.forge.world.LegacyErrors.reportedFor("legacy dimension " + erebus[0]);
+            result("Erebus generates its terrain, and its teleporter puts the player in the open", where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + erebus[0])
+                    && solid > all / 4 && !errors && standsFree(player),
+                    "dimension " + erebus[0] + ", player in " + where + " at " + center + standing(player) + ", " + solid + " of " + all
+                            + " blocks around not air" + (errors ? ", generation errors (see the log)" : ""));
+        }));
+        shot("play-erebus", () -> serverPlayer().blockPosition());
+        do_("erebus: home", 60, () -> server(player ->
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
+    }
+
+    /**
+     * Atum's portal, walked into: the player must arrive in Atum and stay there, standing in the portal Atum's
+     * teleporter builds on arrival. The portal waits for the player's portal cooldown, which it sets before
+     * sending; the player's legacy copy in Atum didn't have it, and the player was sent straight back, again
+     * and again (the screen flickered between "joining world" and "loading terrain").
+     */
+    private static void atumPortal() {
+        int[] atum = {Integer.MIN_VALUE};
+        do_("atum portal: step in", 0, () -> server(player -> {
+            Object id = retrofit.forge.world.LegacyBridge.call("testModField", "com.teammetallurgy.atum.handler.AtumConfig", "DIMENSION_ID");
+            atum[0] = id instanceof Integer dimension ? dimension : Integer.MIN_VALUE;
+            BlockPos feet = player.blockPosition();
+            player.serverLevel().setBlock(feet, findBlock("atum", path -> path.contains("portal")).defaultBlockState(), 2);
+        }));
+        until("atum portal: arrived", 400, () -> serverPlayer().level().dimension().location().toString()
+                .equals(RetrofitMod.MOD_ID + ":legacy_dim_" + atum[0]));
+        do_("atum portal: still there?", 60, () -> {
+            ServerPlayer player = serverPlayer();
+            String where = player.level().dimension().location().toString();
+            boolean errors = retrofit.forge.world.LegacyErrors.reportedFor("legacy dimension " + atum[0]);
+            result("Atum's portal takes the player there, the player stays, in the open", where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + atum[0])
+                    && standsFree(player) && !errors,
+                    "dimension " + atum[0] + ", player in " + where + " at " + player.blockPosition() + standing(player)
+                            + (errors ? ", generation errors (see the log)" : ""));
+        });
+        shot("play-atum", () -> serverPlayer().blockPosition());
+        do_("atum: home", 60, () -> server(player ->
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
     }
 
     /**
@@ -1164,6 +1313,30 @@ public final class PlayTest {
             ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
             if (id.getNamespace().equals(namespace) && path.test(id.getPath()) && type.isInstance(item)) {
                 return item;
+            }
+        }
+        return null;
+    }
+
+    /** Whether the player stands where they are: ground below, feet and head not in a solid block. */
+    private static boolean standsFree(ServerPlayer player) {
+        BlockPos feet = player.blockPosition();
+        return player.level().getBlockState(feet.below()).blocksMotion()
+                && !player.level().getBlockState(feet).isSuffocating(player.level(), feet)
+                && !player.level().getBlockState(feet.above()).isSuffocating(player.level(), feet.above());
+    }
+
+    private static String standing(ServerPlayer player) {
+        BlockPos feet = player.blockPosition();
+        return " (in " + player.level().getBlockState(feet) + " / " + player.level().getBlockState(feet.above())
+                + ", on " + player.level().getBlockState(feet.below()) + ")";
+    }
+
+    private static Block findBlock(String namespace, Predicate<String> path) {
+        for (Block block : ForgeRegistries.BLOCKS) {
+            ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+            if (id.getNamespace().equals(namespace) && path.test(id.getPath())) {
+                return block;
             }
         }
         return null;

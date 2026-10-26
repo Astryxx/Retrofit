@@ -45,6 +45,11 @@ final class RegionHostWorld implements HostWorld {
     private final boolean deep;
     /** Deep pass: positions where an ore was accepted (its tile entity may follow). */
     private final java.util.Set<BlockPos> deepOres = new java.util.HashSet<>();
+    /**
+     * Vanilla blocks with a block entity that legacy generators placed here: only theirs get a 1.7.10
+     * tile entity (getLegacyTileEntity), so one read in passing never overwrites a 1.20.1 chest or spawner.
+     */
+    private final java.util.Set<BlockPos> placed = new java.util.HashSet<>();
 
     RegionHostWorld(WorldGenLevel region, Object legacyWorld, ChunkPos center) {
         this(region, legacyWorld, center, false);
@@ -142,10 +147,20 @@ final class RegionHostWorld implements HostWorld {
             deepOres.add(pos);
         }
         tiles.remove(pos);
-        return region.setBlock(pos, target, 2);
+        if (!region.setBlock(pos, target, 2)) {
+            return false;
+        }
+        if (target.hasBlockEntity()) {
+            placed.add(pos);
+        }
+        return true;
     }
 
-    /** Legacy tile entities of legacy blocks placed during this chunk's generation, created on first access. */
+    /**
+     * Legacy tile entities of blocks placed during this chunk's generation, created on first access:
+     * legacy blocks' own, and 1.7.10 ones for vanilla blocks with a block entity (the chest a generator
+     * fills, the spawner it sets up; see {@link #placed}), which flushTiles writes into the 1.20.1 block entity.
+     */
     @Override
     public Object getLegacyTileEntity(int x, int y, int z) {
         y -= shift;
@@ -154,11 +169,18 @@ final class RegionHostWorld implements HostWorld {
         }
         BlockPos pos = new BlockPos(x, y, z);
         Object tile = tiles.get(pos);
-        if (tile == null && region.getBlockState(pos).getBlock() instanceof LegacyBlock block && block.hasTileEntity()) {
-            tile = LegacyBridge.createTileEntity(legacyWorld, block.legacyBlock(), region.getBlockState(pos).getValue(LegacyContent.META), x, y, z);
-            if (tile != null) {
-                tiles.put(pos, tile);
-            }
+        if (tile != null) {
+            return tile;
+        }
+        BlockState state = region.getBlockState(pos);
+        if (state.getBlock() instanceof LegacyBlock block && block.hasTileEntity()) {
+            tile = LegacyBridge.createTileEntity(legacyWorld, block.legacyBlock(), state.getValue(LegacyContent.META), x, y, z);
+        } else if (placed.contains(pos) && table.hasLegacySelf(state)) {
+            int legacy = table.legacyOf(state);
+            tile = LegacyBridge.createTileEntity(legacyWorld, table.legacyBlock(legacy >> 4), legacy & 15, x, y, z);
+        }
+        if (tile != null) {
+            tiles.put(pos, tile);
         }
         return tile;
     }
@@ -181,6 +203,7 @@ final class RegionHostWorld implements HostWorld {
         ResourceKeyHolder.init();
         tiles.forEach((pos, tile) -> {
             if (!(region.getBlockState(pos).getBlock() instanceof LegacyBlock)) {
+                flushVanillaTile(pos, tile);
                 return;
             }
             CompoundTag tag = new CompoundTag();
@@ -200,6 +223,60 @@ final class RegionHostWorld implements HostWorld {
             }
         });
         tiles.clear();
+        placed.clear();
+    }
+
+    /** The spawner settings 1.7.10 and 1.20.1 save under the same names. */
+    private static final String[] SPAWNER_KEYS = {"Delay", "MinSpawnDelay", "MaxSpawnDelay", "SpawnCount", "MaxNearbyEntities",
+            "RequiredPlayerRange", "SpawnRange"};
+
+    /**
+     * A 1.7.10 tile entity a generator made for a vanilla block (see getLegacyTileEntity), into the
+     * 1.20.1 block entity there: its inventory converted stack by stack (mods' items too), a spawner's
+     * mob and settings. Loaded, not set: setItem and setChanged reach the live level, which waits for
+     * world generation.
+     */
+    private void flushVanillaTile(BlockPos pos, Object tile) {
+        net.minecraft.world.level.block.entity.BlockEntity target = region.getBlockEntity(pos);
+        if (target == null || target instanceof LegacyBlockEntity) {
+            return;
+        }
+        try {
+            CompoundTag data = target.saveWithoutMetadata();
+            Object[] stacks = LegacyBridge.inventoryStacks(tile);
+            if (stacks != null) {
+                net.minecraft.nbt.ListTag items = new net.minecraft.nbt.ListTag();
+                for (int slot = 0; slot < stacks.length && slot < 256; slot++) {
+                    net.minecraft.world.item.ItemStack stack = LegacyStacks.toModern(stacks[slot]);
+                    if (!stack.isEmpty()) {
+                        CompoundTag item = stack.save(new CompoundTag());
+                        item.putByte("Slot", (byte) slot);
+                        items.add(item);
+                    }
+                }
+                data.put("Items", items);
+            }
+            String mob = LegacyBridge.spawnerEntity(tile);
+            net.minecraft.world.entity.EntityType<?> type = mob == null ? null : LegacyEntityTypes.modernTypeOf(mob);
+            if (type != null) {
+                CompoundTag legacy = LegacyStacks.fromBytes(LegacyBridge.save(tile));
+                for (String key : SPAWNER_KEYS) {
+                    if (legacy.contains(key)) {
+                        data.put(key, legacy.get(key).copy());
+                    }
+                }
+                CompoundTag entity = new CompoundTag();
+                entity.putString("id", net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
+                CompoundTag spawnData = new CompoundTag();
+                spawnData.put("entity", entity);
+                data.put("SpawnData", spawnData);
+                data.remove("SpawnPotentials"); // (a list would win over SpawnData)
+            }
+            target.load(data);
+            region.getChunk(pos).setUnsaved(true);
+        } catch (RuntimeException e) {
+            LegacyErrors.report(region.getBlockState(pos).getBlock(), "writing a generated tile entity", e);
+        }
     }
 
     /** The registry id of the legacy block entity type, looked up once. */

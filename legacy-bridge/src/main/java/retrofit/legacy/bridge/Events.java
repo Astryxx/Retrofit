@@ -43,6 +43,8 @@ public final class Events {
         } else {
             FMLCommonHandler.instance().onPostServerTick();
             HostTiles.flushAll();
+            HostSpawner.flushAll();
+            LegacyPlayers.tickPortalCooldowns();
             HostCreatures.tickEnd();
         }
     }

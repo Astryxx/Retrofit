@@ -1,6 +1,42 @@
 # Changelog
 
-## 0.5.1-beta (in progress)
+## 0.5.2-beta
+
+- **Erebus generates its dimension again** (reported with Erebus and HBM together): a
+  mod's view of the biome array, which lets mods sharing biome ids load (0.5.1), was also shown while chunks
+  generated, to whichever mod's code was running (FML guesses the "active" mod from the call stack). HBM's
+  generator asked Erebus's biome layers for a biome and they got HBM's view, without Erebus's biomes: nothing
+  generated past the error. Views are now shown only while FML sends a mod its loading events.
+- **Chests and spawners legacy generators set up keep what they put there**: a vanilla chest a mod's
+  structure fills, or a spawner it names a mob for, came out empty and spawning pigs (OreSpawn's
+  structures, and any mod's dungeons). They get a 1.7.10 tile entity while their chunk generates, and its
+  inventory (each stack converted, mods' items too, for chests, furnaces, dispensers and the like) or its
+  mob and spawner settings go into the 1.20.1 block entity when the chunk is done.
+- A mob legacy code names for a spawner in a loaded world now reaches the 1.20.1 spawner too (before, only
+  the stand-in legacy code saw changed).
+- **Mods' teleporters find the ground**: they looked for it before the chunks there were loaded and saw only
+  air (OreSpawn's dimensions put players at the bottom of the world). The chunks around where the player
+  arrives are loaded first, as 1.7.10 loaded them when anything looked.
+- **Mod portals no longer send players straight back** (Atum, Advent of Ascension: the screen flickered
+  between "joining world" and "loading terrain"): the portal cooldown (timeUntilPortal) the mod set before
+  sending the player stayed with the player's legacy copy in the old dimension, and the player arrived in
+  the return portal with none. It now follows the player, and counts down every tick as 1.7.10 counted it.
+- **One block can no longer break every 1.7.10 mod's textures**: all legacy models and textures are made into
+  one resource pack, and a single block that threw while it was made (one of Witchery's, after Witchery failed
+  to load) left the whole pack out. Each block and item is now made on its own; one that fails looks like a
+  missing model, and the log names it.
+- **Block ids past 4095 work for fire and statistics**: 1.7.10's fire (flammability and spread) and its mining
+  statistics kept tables of 4096 blocks, which 0.5.0's wider block ids overran. In a large pack (Erebus and
+  Atum added to the test pack) Witchery's logs landed past them, and Witchery failed to load.
+- **Mods whose biomes moved to free ids see them where they asked** while they load: each mod's view of the
+  biome array was kept from before its own biomes were made (its free-id check), and a count shared by every
+  mod's view let it stand. Erebus then found its biomes missing and was left out.
+- **Mod dimensions answer biome questions with their own biomes**, as 1.7.10's dimensions asked their biome
+  provider: legacy code got plains (Erebus's caves expect one of Erebus's biomes, and its caves failed).
+- A player sent to a mod dimension without a teleporter stands on its ground: the height there was read before
+  the chunk was loaded.
+
+## 0.5.1-beta
 
 - **Dimensions mods make while playing work** (Galacticraft's space stations, and any mod's pocket or
   personal dimensions made the same way): a dimension registered after the server started gets a

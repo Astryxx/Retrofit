@@ -58,6 +58,11 @@ public final class LegacyIds {
             // the block registry's maximum, and the checks that blocks and item blocks stay below it
             return widen(bytes, transformedName, null, MAX_BLOCK_ID, MAX_ITEM_ID);
         }
+        if (transformedName.equals("net.minecraft.block.BlockFire") || transformedName.equals("net.minecraft.stats.StatList")) {
+            // tables by block id, 4096 long: fire's flammability and spread (Witchery's logs, past id 4095 in a
+            // large pack, failed the mod), and the blocks' mining statistics
+            return widen(bytes, transformedName, null, MAX_BLOCK_ID + 1, MAX_ITEM_ID + 1);
+        }
         if (transformedName.equals("net.minecraft.world.chunk.storage.ExtendedBlockStorage")) {
             return wideStorage(bytes, transformedName);
         }

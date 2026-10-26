@@ -88,6 +88,9 @@ public final class PlayerState {
             }
         }
         tag.func_74782_a("RetrofitModEffects", effects);
+        // timeUntilPortal: mods' portals set it before sending a player and send none while it lasts; the player
+        // arrives standing in the other side's portal, and a mirror without it was sent straight back (Atum, AoA)
+        tag.func_74768_a("RetrofitPortalCooldown", player.field_71088_bW); // setInteger
         return tag;
     }
 
@@ -114,6 +117,7 @@ public final class PlayerState {
                 player.func_70690_d(effect); // addPotionEffect
             }
         }
+        player.field_71088_bW = Math.max(player.field_71088_bW, tag.func_74762_e("RetrofitPortalCooldown")); // timeUntilPortal, getInteger
     }
 
     /** A new server mirror: the state saved for its player, if any. */

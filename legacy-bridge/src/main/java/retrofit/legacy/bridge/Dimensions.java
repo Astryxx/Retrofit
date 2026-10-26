@@ -336,6 +336,46 @@ public final class Dimensions {
         ((net.minecraft.entity.player.EntityPlayerMP) legacyPlayer).func_71027_c(dimension); // travelToDimension
     }
 
+    /**
+     * Tests: a legacy mod's static field, by name, or a field of it ("INSTANCE.erebusDimensionID"): a dimension
+     * id from its config. Null if the mod isn't there.
+     */
+    public static Object testModField(String className, String field) throws Exception {
+        Object value;
+        try {
+            value = Class.forName(className, true, Dimensions.class.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+        for (String name : field.split("\\.")) {
+            Class<?> type = value instanceof Class ? (Class<?>) value : value.getClass();
+            value = type.getField(name).get(value instanceof Class ? null : value);
+        }
+        return value;
+    }
+
+    /**
+     * Tests: a mirror sent as mods with their own Teleporter send players (transferPlayerToDimension), the
+     * teleporter made as such mods make it: (WorldServer destination, int dimension, World from), as OreSpawn's,
+     * or (WorldServer destination), as Erebus's.
+     */
+    public static void testTeleport(Object legacyPlayer, int dimension, String teleporterClass) throws Exception {
+        net.minecraft.entity.player.EntityPlayerMP player = (net.minecraft.entity.player.EntityPlayerMP) legacyPlayer;
+        net.minecraft.server.MinecraftServer server = LegacyWorlds.server();
+        net.minecraft.world.WorldServer destination = server.func_71218_a(dimension); // worldServerForDimension
+        Class<?> type = Class.forName(teleporterClass, true, Dimensions.class.getClassLoader());
+        Object teleporter;
+        try {
+            teleporter = type.getConstructor(net.minecraft.world.WorldServer.class, int.class, net.minecraft.world.World.class)
+                    .newInstance(destination, dimension, player.field_70170_p); // worldObj
+        } catch (NoSuchMethodException e) {
+            java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor(net.minecraft.world.WorldServer.class);
+            constructor.setAccessible(true);
+            teleporter = constructor.newInstance(destination);
+        }
+        server.func_71203_ab().transferPlayerToDimension(player, dimension, (Teleporter) teleporter); // getConfigurationManager
+    }
+
     /** The legacy world of a dimension the host has loaded, for mods that look it up (DimensionManager.getWorld). */
     public static boolean isLoaded(int dimension) {
         return DimensionManager.getWorld(dimension) != null;

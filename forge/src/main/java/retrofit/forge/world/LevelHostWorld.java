@@ -51,7 +51,7 @@ final class LevelHostWorld implements HostWorld {
         }
         long key = net.minecraft.world.level.ChunkPos.asLong(x >> 4, z >> 4);
         long time = level.getGameTime();
-        if (key != lastChunkKey || time != lastChunkTime) {
+        if (key != lastChunkKey || time != lastChunkTime || lastChunk == null) { // (a chunk missing may load within the tick: a teleport's)
             lastChunk = level.getChunkSource().getChunkNow(x >> 4, z >> 4);
             lastChunkKey = key;
             lastChunkTime = time;
@@ -166,6 +166,22 @@ final class LevelHostWorld implements HostWorld {
         net.minecraft.nbt.CompoundTag data = spawner.getSpawner().save(new net.minecraft.nbt.CompoundTag());
         String id = data.getCompound("SpawnData").getCompound("entity").getString("id");
         return LegacyEntityTypes.legacyNameOf(id);
+    }
+
+    @Override
+    public void setHostSpawnerEntity(int x, int y, int z, String legacyName) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (level.isClientSide || !level.isLoaded(pos) || !(level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.SpawnerBlockEntity spawner)) {
+            return;
+        }
+        net.minecraft.world.entity.EntityType<?> type = LegacyEntityTypes.modernTypeOf(legacyName);
+        if (type == null) {
+            return;
+        }
+        spawner.setEntityId(type, level.getRandom());
+        spawner.setChanged();
+        BlockState state = level.getBlockState(pos);
+        level.sendBlockUpdated(pos, state, state, 3);
     }
 
     @Override
@@ -503,7 +519,7 @@ final class LevelHostWorld implements HostWorld {
     }
 
     /** 1.7.10 data (as of data version 99, the oldest the fixers know) brought up to date. */
-    private static net.minecraft.nbt.CompoundTag fixLegacy(com.mojang.datafixers.DSL.TypeReference type, net.minecraft.nbt.CompoundTag tag) {
+    static net.minecraft.nbt.CompoundTag fixLegacy(com.mojang.datafixers.DSL.TypeReference type, net.minecraft.nbt.CompoundTag tag) {
         return (net.minecraft.nbt.CompoundTag) net.minecraft.util.datafix.DataFixers.getDataFixer().update(type,
                 new com.mojang.serialization.Dynamic<net.minecraft.nbt.Tag>(net.minecraft.nbt.NbtOps.INSTANCE, tag), 99,
                 net.minecraft.SharedConstants.getCurrentVersion().getDataVersion().getVersion()).getValue();

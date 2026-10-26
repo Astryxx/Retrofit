@@ -652,6 +652,27 @@ public final class Bridge {
         ((TileEntity) tileEntity).onChunkUnload();
     }
 
+    /** The slots of a tile entity's inventory (legacy stacks, null for empty slots), or null if it has none. */
+    public static Object[] inventoryStacks(Object tileEntity) {
+        if (!(tileEntity instanceof net.minecraft.inventory.IInventory)) {
+            return null;
+        }
+        net.minecraft.inventory.IInventory inventory = (net.minecraft.inventory.IInventory) tileEntity;
+        Object[] stacks = new Object[inventory.func_70302_i_()]; // getSizeInventory
+        for (int slot = 0; slot < stacks.length; slot++) {
+            stacks[slot] = inventory.func_70301_a(slot); // getStackInSlot
+        }
+        return stacks;
+    }
+
+    /** The entity name a mob spawner's tile entity spawns ("Zombie"), or null if it is no spawner. */
+    public static String spawnerEntity(Object tileEntity) {
+        if (!(tileEntity instanceof net.minecraft.tileentity.TileEntityMobSpawner)) {
+            return null;
+        }
+        return ((net.minecraft.tileentity.TileEntityMobSpawner) tileEntity).func_145881_a().func_98276_e(); // getSpawnerBaseLogic().getEntityNameToSpawn()
+    }
+
     /**
      * Self-test of host inventories as legacy code sees them (the mod sweep): the host put 10
      * cobblestone in slot 0 of the chest at a position and a furnace east of it. Takes 3 out

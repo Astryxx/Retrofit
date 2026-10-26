@@ -163,6 +163,11 @@ public final class LegacyBlockTable {
         return standIn > 0 ? standIn << 4 : state.canOcclude() ? STONE : AIR; // (stone and air without the stand-ins)
     }
 
+    /** Whether a modern state is a vanilla block 1.7.10 had (legacyOf gives its 1.7.10 self, not a stand-in). */
+    public boolean hasLegacySelf(BlockState state) {
+        return toLegacy.containsKey(state);
+    }
+
     public Object legacyBlock(int legacyId) {
         Object vanilla = legacyId >= 0 && legacyId < legacyBlocks.length ? legacyBlocks[legacyId] : null;
         if (vanilla != null) {

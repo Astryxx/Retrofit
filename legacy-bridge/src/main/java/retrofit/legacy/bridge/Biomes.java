@@ -49,17 +49,34 @@ public final class Biomes {
         return null;
     }
 
+    /** Loader.modController and LoadController.activeContainer (see currentMod); null if FML has no such fields. */
+    private static final java.lang.reflect.Field CONTROLLER;
+    private static final java.lang.reflect.Field ACTIVE;
+
+    static {
+        java.lang.reflect.Field controller = null;
+        java.lang.reflect.Field active = null;
+        try {
+            controller = Loader.class.getDeclaredField("modController");
+            controller.setAccessible(true);
+            active = controller.getType().getDeclaredField("activeContainer");
+            active.setAccessible(true);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            System.out.println("[Retrofit] No FML active mod field found; biome ids stay shared as on 1.7.10");
+            active = null;
+        }
+        CONTROLLER = controller;
+        ACTIVE = active;
+    }
+
     /** The biome array as it stood when the first mod biome registered: what every mod started from. */
     private static BiomeGenBase[] baseline;
 
     /** The biomes mods registered: {mod id, biome, the id the mod asked for (its slot in the mod's view)}, in registration order. */
     private static final List<Object[]> REGISTERED = new ArrayList<Object[]>();
 
-    /** Each mod's own view of the array, built once per registration round (see viewedArray). */
+    /** Each mod's own view of the array, built on first use and dropped whenever a mod biome registers (see record). */
     private static final Map<String, BiomeGenBase[]> VIEWS = new HashMap<String, BiomeGenBase[]>();
-
-    /** How many biomes were registered when the cached views were built; views rebuild when it moves. */
-    private static int builtWith;
 
     private Biomes() {
     }
@@ -81,11 +98,9 @@ public final class Biomes {
         }
         synchronized (LOCK) {
             BiomeGenBase[] view = VIEWS.get(mod);
-            if (view == null || view.length != real.length // a mod enlarged the array
-                    || builtWith != REGISTERED.size()) {
+            if (view == null || view.length != real.length) { // (or a mod enlarged the array)
                 view = view(mod, real);
                 VIEWS.put(mod, view);
-                builtWith = REGISTERED.size();
             }
             return view;
         }
@@ -140,6 +155,9 @@ public final class Biomes {
                     }
                 }
                 REGISTERED.add(new Object[]{mod, biome, shown});
+                // every view rebuilds: one built before this (the mod's own free-id check) lacked it, and a count
+                // shared by all the views let it stand (Erebus found its own biome missing in postInit)
+                VIEWS.clear();
             }
         } catch (Throwable t) {
             System.out.println("[Retrofit] Could not follow a biome registration: " + t);
@@ -159,10 +177,20 @@ public final class Biomes {
         return false;
     }
 
-    /** The registering mod's id while FML runs its loading events, or null any other time. */
+    /**
+     * The registering mod's id while FML runs its loading events, or null any other time. Read from
+     * LoadController's activeContainer field, which FML sets only while it sends a mod its events:
+     * Loader.activeModContainer falls back to guessing the mod from the call stack, and world generation
+     * would then see a mod's loading view (HBM's generator asking Erebus for a biome got HBM's view,
+     * without Erebus's biomes).
+     */
     private static String currentMod() {
         try {
-            ModContainer container = Loader.instance().activeModContainer();
+            if (ACTIVE == null) {
+                return null;
+            }
+            Object controller = CONTROLLER.get(Loader.instance());
+            ModContainer container = controller == null ? null : (ModContainer) ACTIVE.get(controller);
             if (container == null) {
                 return null;
             }

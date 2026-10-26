@@ -287,6 +287,16 @@ public final class LegacyBridge {
         return call("save", tileEntity);
     }
 
+    /** The slots of a legacy tile entity's inventory (legacy stacks, null for empty), or null if it has none. */
+    public static Object[] inventoryStacks(Object tileEntity) {
+        return call("inventoryStacks", tileEntity);
+    }
+
+    /** The entity name a legacy mob spawner spawns, or null if the tile entity is no spawner. */
+    public static String spawnerEntity(Object tileEntity) {
+        return call("spawnerEntity", tileEntity);
+    }
+
     /** NBT bytes of the tile entity's 1.7.10 description packet, or null if it sends none. */
     public static byte[] descriptionTag(Object tileEntity) {
         return call("descriptionTag", tileEntity);

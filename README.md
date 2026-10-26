@@ -10,13 +10,13 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.5.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.5.2-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.5.1-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.5.2-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory, or in `mods/` with your
    other mods (as launchers like CurseForge do). 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -109,6 +109,9 @@ Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
 - Mods' own cloud and weather renderers (`WorldProvider.getCloudRenderer`/`getWeatherRenderer`)
   aren't drawn; legacy dimensions get 1.20.1's clouds and weather (their own sky renderers are drawn).
 - FML logs "missing any signature data", and some mods log signature warnings. Cosmetic.
+- Two mods with the same dimension id: the mod that registers it second has no dimension, as in a 1.7.10
+  pack, and its portal leads to the other mod's dimension (Atum and Advent of Ascension both default to 17).
+  Change one of them in `retrofit/config`.
 - Clients and servers need the same 1.7.10 configs (`retrofit/config`), as in a 1.7.10 pack: mods
   that number their potions, biomes, or enchantments in their configs (Witchery) otherwise refuse
   to connect with "Missing registry data".
@@ -154,7 +157,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.5.1-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.5.2-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

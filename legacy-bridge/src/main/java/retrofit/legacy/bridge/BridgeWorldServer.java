@@ -370,9 +370,24 @@ public class BridgeWorldServer extends WorldServer {
         return true;
     }
 
-    /** getBiomeGenForCoords */
+    /**
+     * getBiomeGenForCoords. A mod's dimension is one 1.20.1 biome standing for the whole of it ("retrofit:legacy_dim_N",
+     * with its fog and sky): there, the dimension's own biome provider answers, as 1.7.10's WorldProvider did
+     * (Erebus's caves take their biome as one of Erebus's own, and got plains). Under the generation lock: biome
+     * layers share caches (IntCache) that 1.7.10 only ever used from one thread.
+     */
     @Override
     public BiomeGenBase func_72807_a(int x, int z) {
+        int dimension = field_73011_w.field_76574_g; // provider.dimensionId
+        if (host != null && dimension != 0 && dimension != -1 && dimension != 1) {
+            BiomeGenBase own;
+            synchronized (WorldGen.LOCK) {
+                own = field_73011_w.field_76578_c.func_76935_a(x, z); // provider.worldChunkMgr.getBiomeGenAt
+            }
+            if (own != null) {
+                return own;
+            }
+        }
         return WorldGlue.biome(host, x, z);
     }
 
