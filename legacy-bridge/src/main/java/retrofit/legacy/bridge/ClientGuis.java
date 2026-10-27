@@ -50,6 +50,8 @@ public final class ClientGuis {
     private static Method mouseClicked;
     private static Method mouseReleased;
     private static Method mouseDragged;
+    private static Method renderToolTip;
+    private static GuiScreen tooltipScreen;
     private static Method keyTyped;
 
     private ClientGuis() {
@@ -114,6 +116,10 @@ public final class ClientGuis {
     }
 
     public static void displayScreen(Minecraft minecraft, GuiScreen screen) {
+        if (screen instanceof ClientMods.BackToHost) { // a configuration screen closed (see ClientMods)
+            ((ClientMods.BackToHost) screen).back();
+            return;
+        }
         retrofit.api.HostPlayer host = host();
         if (host != null) {
             host.displayScreen(screen);
@@ -194,6 +200,38 @@ public final class ClientGuis {
         Capture.begin();
         try {
             ((GuiScreen) screen).func_73863_a(mouseX, mouseY, partialTicks); // drawScreen
+        } finally {
+            LegacyRendering.resetTessellatorIfDrawing();
+        }
+        return Capture.vertexCount();
+    }
+
+    /** Whether a coremod draws item tooltips itself (see HeadlessTransformer.noteFinalClass), so 1.20.1 screens ask drawTooltip. */
+    public static boolean modTooltips() {
+        return retrofit.legacy.boot.HeadlessTransformer.modTooltips();
+    }
+
+    /**
+     * A stack's tooltip at the mouse, as the mod drawing tooltips draws it in a 1.7.10 screen of the
+     * host's size, into the capture; returns the vertex count. Hold Bridge.LOCK until the capture is read.
+     */
+    public static int drawTooltip(Object legacyStack, int mouseX, int mouseY, int width, int height, int windowWidth, int windowHeight,
+                                  int guiScale) throws ReflectiveOperationException {
+        Minecraft minecraft = minecraft();
+        LegacyRendering.ensureEnvironment();
+        minecraft.field_71443_c = windowWidth;  // displayWidth
+        minecraft.field_71440_d = windowHeight; // displayHeight
+        minecraft.field_71474_y.field_74335_Z = guiScale; // guiScale: ScaledResolution matches the host
+        if (tooltipScreen == null) {
+            tooltipScreen = new GuiScreen();
+            renderToolTip = method("func_146285_a", ItemStack.class, int.class, int.class);
+        }
+        if (tooltipScreen.field_146294_l != width || tooltipScreen.field_146295_m != height || tooltipScreen.field_146297_k == null) { // width, height, mc
+            tooltipScreen.func_146280_a(minecraft, width, height); // setWorldAndResolution
+        }
+        Capture.begin();
+        try {
+            renderToolTip.invoke(tooltipScreen, legacyStack, mouseX, mouseY);
         } finally {
             LegacyRendering.resetTessellatorIfDrawing();
         }

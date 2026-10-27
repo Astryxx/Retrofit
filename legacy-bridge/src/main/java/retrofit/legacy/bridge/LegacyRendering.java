@@ -249,6 +249,31 @@ public final class LegacyRendering {
     }
 
     /**
+     * The clouds (kind 0) or rain and snow (kind 1) of a legacy client world's own renderer
+     * (WorldProvider.getCloudRenderer, getWeatherRenderer), drawn as 1.7.10 drew them, relative to the
+     * camera; -1 if the world has none. Hold Bridge.LOCK.
+     */
+    public static int renderAtmosphere(Object legacyWorld, int kind, float partialTicks) {
+        if (!(legacyWorld instanceof net.minecraft.client.multiplayer.WorldClient)) {
+            return -1;
+        }
+        net.minecraft.client.multiplayer.WorldClient world = (net.minecraft.client.multiplayer.WorldClient) legacyWorld;
+        net.minecraftforge.client.IRenderHandler handler = kind == 0 ? world.field_73011_w.getCloudRenderer() : world.field_73011_w.getWeatherRenderer();
+        if (handler == null) {
+            return -1;
+        }
+        environment();
+        Capture.begin();
+        try {
+            handler.render(partialTicks, world, Minecraft.func_71410_x());
+        } catch (RuntimeException e) {
+            resetTessellator();
+            throw e;
+        }
+        return Capture.vertexCount();
+    }
+
+    /**
      * The grass and foliage colour maps (256 x 256, as the host loaded them from its resource
      * packs): 1.7.10 filled them in a resource reload listener of its own, and biome colours
      * (grass, leaves, mods' biome-coloured blocks) were black without them.
@@ -487,6 +512,11 @@ public final class LegacyRendering {
         net.minecraft.client.renderer.ActiveRenderInfo.field_74589_e = (float) Math.cos(pitchRadians); // rotationXZ
     }
 
+    /** Where prepareFrame placed the camera this frame (null before the first frame). */
+    static net.minecraft.entity.Entity camera() {
+        return camera;
+    }
+
     /** For GUIs: the same environment renderers get. */
     private static net.minecraft.util.Timer minecraftTimer;
 
@@ -571,6 +601,13 @@ public final class LegacyRendering {
             }
             if (RenderManager.field_78727_a.field_78721_f == null) { // itemRenderer: held items of mobs (RenderBiped)
                 net.minecraft.client.renderer.ItemRenderer items = new net.minecraft.client.renderer.ItemRenderer(minecraft);
+                // The held item at rest, as 1.7.10's updateEquippedItem left it (the host animates switching items):
+                // first-person renderers place themselves by it (Thaumcraft's thaumometer and wands rose by its lack)
+                for (String progress : new String[]{"field_78454_c", "field_78451_d"}) { // equippedProgress, prevEquippedProgress
+                    Field field = net.minecraft.client.renderer.ItemRenderer.class.getDeclaredField(progress);
+                    field.setAccessible(true);
+                    field.setFloat(items, 1.0F);
+                }
                 RenderManager.field_78727_a.field_78721_f = items;
             }
             if (minecraft.field_71438_f == null) { // renderGlobal

@@ -53,9 +53,17 @@ public class RetrofitTransformer implements IClassTransformer {
     public static class Late extends RetrofitTransformer {
         @Override
         public byte[] transform(String name, String transformedName, byte[] basicClass) {
-            return lateStage ? super.transform(name, transformedName, basicClass) : basicClass;
+            if (!lateStage) {
+                return basicClass;
+            }
+            HeadlessTransformer.noteFinalClass(transformedName, basicClass);
+            return super.transform(name, transformedName, basicClass);
         }
     }
+
+    /** Whether the legacy bridge is there for code to call into (not in the harness's boot-only runs; see HeadlessTransformer). */
+    private static final boolean BRIDGE_PRESENT = RetrofitTransformer.class.getClassLoader()
+            .getResource("retrofit/legacy/bridge/DimensionIds.class") != null;
 
     private static final String FINAL_FIELDS = "retrofit/legacy/compat/FinalFields";
     /** Helpers from log4j 2.0-beta9's core jar, which Retrofit replaces (Log4Shell). */
@@ -173,6 +181,9 @@ public class RetrofitTransformer implements IClassTransformer {
             basicClass = FmlFixes.apply(transformedName, basicClass);
         }
         basicClass = LegacyIds.apply(transformedName, basicClass);
+        if (BRIDGE_PRESENT) {
+            basicClass = DimensionViews.apply(transformedName, basicClass);
+        }
         if (indexOf(basicClass, LAMBDA_FACTORY) >= 0 && (new ClassReader(basicClass).getAccess() & Opcodes.ACC_INTERFACE) != 0) {
             basicClass = interfaceSelfReferences(basicClass);
         }
@@ -381,16 +392,13 @@ public class RetrofitTransformer implements IClassTransformer {
         return false;
     }
 
+    private static final ByteMarkers MARKER_SET = new ByteMarkers(MARKERS);
+
     private static boolean containsMarker(byte[] bytes) {
-        for (byte[] marker : MARKERS) {
-            if (indexOf(bytes, marker) >= 0) {
-                return true;
-            }
-        }
-        return false;
+        return MARKER_SET.anyIn(bytes);
     }
 
-    private static int indexOf(byte[] haystack, byte[] needle) {
+    static int indexOf(byte[] haystack, byte[] needle) {
         outer:
         for (int i = 0, end = haystack.length - needle.length; i <= end; i++) {
             for (int j = 0; j < needle.length; j++) {

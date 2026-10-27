@@ -66,6 +66,41 @@ final class LegacyRenderTypes extends RenderType {
         };
     }
 
+    /**
+     * A legacy screen's quads drawn with the depth test, as 1.7.10 drew them: its function and
+     * whether they wrote depth (Thaumcraft's research map shows only where its background was drawn,
+     * as vanilla's achievements did). {@code texture} null: untextured.
+     */
+    private record GuiLook(ResourceLocation texture, int function, boolean write) {
+    }
+
+    private static final Function<GuiLook, RenderType> GUI = Util.memoize(LegacyRenderTypes::gui);
+    /** glDepthFunc, GL_NEVER (0x0200) to GL_ALWAYS (0x0207). */
+    private static final String[] DEPTH_FUNCTIONS = {"never", "<", "==", "<=", ">", "!=", ">=", "always"};
+
+    /** A legacy screen's quads with the depth test on: {@code function} is glDepthFunc - GL_NEVER. */
+    static RenderType gui(ResourceLocation texture, int function, boolean write) {
+        return GUI.apply(new GuiLook(texture, function, write));
+    }
+
+    private static RenderType gui(GuiLook look) {
+        String name = "retrofit_legacy_gui" + (look.texture() == null ? "_untextured" : "") + "_depth_" + look.function() + (look.write() ? "" : "_no_write");
+        CompositeState.CompositeStateBuilder state = CompositeState.builder()
+                .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
+                .setDepthTestState(new DepthTestStateShard(DEPTH_FUNCTIONS[look.function()], 0x0200 + look.function()))
+                .setWriteMaskState(look.write() ? COLOR_DEPTH_WRITE : COLOR_WRITE);
+        if (look.texture() == null) {
+            return create(name, DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 256, false, false, state
+                    .setShaderState(RENDERTYPE_GUI_SHADER)
+                    .createCompositeState(false));
+        }
+        return create(name, DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP, VertexFormat.Mode.QUADS, 256, false, false, state
+                .setShaderState(RENDERTYPE_TEXT_SHADER)
+                .setTextureState(new TextureStateShard(look.texture(), false, false))
+                .setLightmapState(LIGHTMAP)
+                .createCompositeState(false));
+    }
+
     private static RenderType sky(String name, ResourceLocation texture, TransparencyStateShard transparency) {
         return create(name, DefaultVertexFormat.POSITION_COLOR_TEX, VertexFormat.Mode.QUADS, 256, false, false,
                 CompositeState.builder()

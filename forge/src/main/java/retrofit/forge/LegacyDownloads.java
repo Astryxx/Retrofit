@@ -33,7 +33,7 @@ public final class LegacyDownloads {
     private final List<LegacyDependencies.Dependency> dependencies;
 
     /** Players' answer, or a server admin's: ask (the default), yes, or never. */
-    enum Permission {
+    public enum Permission {
         ASK, YES, NEVER
     }
 
@@ -112,7 +112,7 @@ public final class LegacyDownloads {
         return legacyDir.resolve("retrofit.properties");
     }
 
-    static Permission permission(Path legacyDir) {
+    public static Permission permission(Path legacyDir) {
         Properties properties = new Properties();
         Path file = settingsFile(legacyDir);
         if (Files.isRegularFile(file)) {
@@ -127,7 +127,7 @@ public final class LegacyDownloads {
     }
 
     /** Writes the setting with an explanation (the file has no other settings yet). */
-    static void setPermission(Path legacyDir, Permission permission) throws IOException {
+    public static void setPermission(Path legacyDir, Permission permission) throws IOException {
         Files.createDirectories(legacyDir);
         try (Writer writer = Files.newBufferedWriter(settingsFile(legacyDir), StandardCharsets.UTF_8)) {
             writer.write("""

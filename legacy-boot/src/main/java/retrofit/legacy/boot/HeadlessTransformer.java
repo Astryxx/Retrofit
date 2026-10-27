@@ -49,6 +49,7 @@ public class HeadlessTransformer implements IClassTransformer {
     private static final String GUIS = "retrofit/legacy/bridge/Guis.";
     /** Client-only targets live apart, so dedicated servers never load classes that name client types. */
     private static final String CLIENT_GUIS = "retrofit/legacy/bridge/ClientGuis.";
+    private static final String RENDER_TOOLTIP = "func_146285_a(Lnet/minecraft/item/ItemStack;II)V"; // GuiScreen.renderToolTip
     private static final String NETWORK = "retrofit/legacy/bridge/Network.";
     private static final String BIOMES = "retrofit/legacy/bridge/Biomes.";
 
@@ -84,7 +85,9 @@ public class HeadlessTransformer implements IClassTransformer {
         redirect("net.minecraft.client.gui.inventory.GuiContainer", "func_146984_a(Lnet/minecraft/inventory/Slot;III)V", CLIENT_GUIS + "handleMouseClick");
         redirect("net.minecraft.client.gui.inventory.GuiContainer", "func_146977_a(Lnet/minecraft/inventory/Slot;)V", CLIENT_GUIS + "drawSlot");
         stub("net.minecraft.client.gui.inventory.GuiContainer", "func_146982_a(Lnet/minecraft/item/ItemStack;IILjava/lang/String;)V", NO_HOOK); // drawItemStack: the host draws the cursor stack
-        redirect("net.minecraft.client.gui.GuiScreen", "func_146285_a(Lnet/minecraft/item/ItemStack;II)V", CLIENT_GUIS + "itemTooltip");
+        redirect("net.minecraft.client.renderer.culling.ClippingHelperImpl", "func_78558_a()Lnet/minecraft/client/renderer/culling/ClippingHelper;",
+                "retrofit/legacy/bridge/ClientEvents.clippingHelper"); // getInstance: the host camera's planes, not read back from GL
+        redirect("net.minecraft.client.gui.GuiScreen", RENDER_TOOLTIP, CLIENT_GUIS + "itemTooltip"); // unless a coremod draws them (modTooltips)
         String itemInGui = "(Lnet/minecraft/client/gui/FontRenderer;Lnet/minecraft/client/renderer/texture/TextureManager;Lnet/minecraft/item/ItemStack;II)V";
         redirect("net.minecraft.client.renderer.entity.RenderItem", "func_82406_b" + itemInGui, CLIENT_GUIS + "drawItem"); // renderItemAndEffectIntoGUI
         redirect("net.minecraft.client.renderer.entity.RenderItem", "func_77015_a" + itemInGui, CLIENT_GUIS + "drawItem"); // renderItemIntoGUI
@@ -127,6 +130,39 @@ public class HeadlessTransformer implements IClassTransformer {
         redirect("net.minecraft.world.biome.BiomeGenBase", "func_150565_n()[Lnet/minecraft/world/biome/BiomeGenBase;", BIOMES + "viewedArray"); // getBiomeGenArray
         constructorHook("net.minecraft.world.biome.BiomeGenBase", "<init>(I)V", BIOMES + "record");
         constructorHook("net.minecraft.world.biome.BiomeGenBase", "<init>(IZ)V", BIOMES + "record"); // Forge's, which (I)V calls into
+    }
+
+    /** Whether a coremod replaced GuiScreen.renderToolTip with its own tooltips (ManaMetal's): see noteFinalClass. */
+    private static volatile boolean modTooltips;
+    /**
+     * A class as the coremods left it (RetrofitTransformer.Late, just before this transformer). A
+     * renderToolTip that no longer ends in Forge's drawHoveringText draws a mod's own tooltips: it
+     * keeps its body instead of the redirect, and the host asks it for tooltips in its screens too.
+     */
+    static void noteFinalClass(String transformedName, byte[] basicClass) {
+        if (!BRIDGE_PRESENT || basicClass == null || !transformedName.equals("net.minecraft.client.gui.GuiScreen")) {
+            return;
+        }
+        ClassNode node = new ClassNode();
+        new ClassReader(basicClass).accept(node, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        for (Object element : node.methods) {
+            MethodNode method = (MethodNode) element;
+            if (!(method.name + method.desc).equals(RENDER_TOOLTIP)) {
+                continue;
+            }
+            boolean vanilla = false;
+            for (org.objectweb.asm.tree.AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                vanilla |= insn instanceof MethodInsnNode && ((MethodInsnNode) insn).name.equals("drawHoveringText");
+            }
+            modTooltips = !vanilla;
+            if (modTooltips) {
+                System.out.println("[Retrofit] A coremod draws item tooltips itself (GuiScreen.renderToolTip); 1.20.1 screens show them too");
+            }
+        }
+    }
+
+    public static boolean modTooltips() {
+        return modTooltips;
     }
 
     private static void redirect(String className, String method, String target) {
@@ -174,7 +210,7 @@ public class HeadlessTransformer implements IClassTransformer {
             if (hook != null) {
                 replaceBody(method, hook);
                 System.out.println("[Retrofit] Stubbed " + transformedName + "." + method.name + method.desc);
-            } else if (target != null) {
+            } else if (target != null && !(modTooltips && (method.name + method.desc).equals(RENDER_TOOLTIP))) {
                 redirectBody(node.name, method, target);
             } else if (constructor != null) {
                 hookConstructorBody(node.name, method, constructor);

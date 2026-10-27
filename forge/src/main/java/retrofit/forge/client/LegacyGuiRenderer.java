@@ -29,11 +29,58 @@ final class LegacyGuiRenderer {
     private static final boolean DEBUG = Boolean.getBoolean("retrofit.debugGui");
     private static final java.util.Set<String> REPORTED = new java.util.HashSet<>();
 
+    /**
+     * A copy of the capture: drawing an item can run a legacy item renderer, which reuses the
+     * capture, and a HUD is drawn in two parts (see split).
+     */
+    record Captured(float[] data, int[] states, int vertices, Object[] markers) {
+        /** The capture so far. Hold the legacy render lock from the legacy draw until this returns. */
+        static Captured copy(int vertices, Object[] markers) throws Throwable {
+            return new Captured(java.util.Arrays.copyOf(LegacyCapture.data(), vertices * FLOATS),
+                    java.util.Arrays.copyOf(LegacyCapture.states(), vertices), vertices, markers);
+        }
+
+        /** What was drawn before the first marker of this kind and what after it; null if there is none. */
+        Captured[] split(String kind) {
+            for (int i = 0; i < markers.length; i++) {
+                Object[] marker = (Object[]) markers[i];
+                if (kind.equals(marker[1])) {
+                    int at = (Integer) marker[0];
+                    Object[] after = new Object[markers.length - i - 1];
+                    for (int j = 0; j < after.length; j++) {
+                        Object[] moved = ((Object[]) markers[i + 1 + j]).clone();
+                        moved[0] = (Integer) moved[0] - at;
+                        after[j] = moved;
+                    }
+                    return new Captured[]{
+                            new Captured(java.util.Arrays.copyOf(data, at * FLOATS), java.util.Arrays.copyOf(states, at), at,
+                                    java.util.Arrays.copyOf(markers, i)),
+                            new Captured(java.util.Arrays.copyOfRange(data, at * FLOATS, vertices * FLOATS),
+                                    java.util.Arrays.copyOfRange(states, at, vertices), vertices - at, after)};
+                }
+            }
+            return null;
+        }
+    }
+
     /** Hold the legacy render lock from the legacy draw until this returns. */
     static void draw(GuiGraphics graphics, int vertices, Object[] markers, AbstractContainerMenu menu) throws Throwable {
-        // Copies: drawing an item can run a legacy item renderer, which reuses the capture.
-        float[] d = java.util.Arrays.copyOf(LegacyCapture.data(), vertices * FLOATS);
-        int[] states = java.util.Arrays.copyOf(LegacyCapture.states(), vertices);
+        draw(graphics, Captured.copy(vertices, markers), menu);
+    }
+
+    static void draw(GuiGraphics graphics, Captured captured, AbstractContainerMenu menu) throws Throwable {
+        draw(graphics, captured, menu, false);
+    }
+
+    /**
+     * {@code depthTested}: a legacy screen, whose quads drawn with the depth test are tested as they
+     * were (see renderType); elsewhere (the HUD, tooltips) all are drawn in order, over what came before.
+     */
+    static void draw(GuiGraphics graphics, Captured captured, AbstractContainerMenu menu, boolean depthTested) throws Throwable {
+        float[] d = captured.data();
+        int[] states = captured.states();
+        int vertices = captured.vertices();
+        Object[] markers = captured.markers();
         if (DEBUG && REPORTED.add(menu == null ? "hud" : menu.getClass().getName() + menu.containerId)) {
             java.util.Map<String, int[]> perTexture = new java.util.TreeMap<>();
             for (int v = 0; v + 3 < vertices; v += 4) {
@@ -78,7 +125,7 @@ final class LegacyGuiRenderer {
                 int state = states[v];
                 if (state != currentState || out == null) {
                     currentState = state;
-                    out = buffers.getBuffer(renderType(state));
+                    out = buffers.getBuffer(depthTested && (state & LegacyCapture.DEPTH_TEST) != 0 ? depthTestedType(state) : renderType(state));
                 }
                 boolean textured = (state & LegacyCapture.UNTEXTURED) == 0;
                 for (int corner = 0; corner < 4; corner++) {
@@ -115,6 +162,14 @@ final class LegacyGuiRenderer {
             return RenderType.guiOverlay();
         }
         return RenderType.textSeeThrough(LegacyCapture.texture(state & LegacyCapture.TEXTURE_MASK));
+    }
+
+    /** A quad drawn with the depth test on, by its function, writing depth unless glDepthMask(false) was set. */
+    private static RenderType depthTestedType(int state) throws Throwable {
+        int function = (state & LegacyCapture.DEPTH_FUNC) >>> LegacyCapture.DEPTH_FUNC_SHIFT;
+        boolean write = (state & LegacyCapture.NO_DEPTH_WRITE) == 0;
+        return LegacyRenderTypes.gui((state & LegacyCapture.UNTEXTURED) != 0 ? null : LegacyCapture.texture(state & LegacyCapture.TEXTURE_MASK),
+                function, write);
     }
 
     private static void drawMarker(GuiGraphics graphics, Font font, String kind, Object subject, float[] at,

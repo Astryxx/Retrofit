@@ -24,5 +24,18 @@
   "retrofit.download.failed": "The download failed: %s",
   "retrofit.download.quit": "Quit Minecraft",
   "retrofit.download.back": "Later",
-  "retrofit.download.retry": "Try again"
+  "retrofit.download.retry": "Try again",
+  "retrofit.mods.button": "1.7.10 Mods...",
+  "retrofit.mods.title": "1.7.10 Mods",
+  "retrofit.mods.openconfigfolder": "Open config folder",
+  "retrofit.mods.info.id": "ModID: {0}",
+  "retrofit.mods.info.leftout": "Not loaded: {0}",
+  "retrofit.mods.info.restart": "1.7.10 mods read most settings when Minecraft starts: restart it for your changes to apply.",
+  "retrofit.settings.button": "Retrofit Settings...",
+  "retrofit.settings.title": "Retrofit Settings",
+  "retrofit.settings.downloads": "Download what 1.7.10 needs",
+  "retrofit.settings.downloads.ask": "Ask",
+  "retrofit.settings.downloads.yes": "Yes",
+  "retrofit.settings.downloads.never": "Never",
+  "retrofit.settings.downloads.explanation": "Retrofit runs 1.7.10 mods on Minecraft 1.7.10 and Forge 10.13.4.1614, which it does not include. When the Minecraft launcher does not have them, Retrofit downloads them from Mojang, Forge's Maven and Maven Central (and mods' dependencies from where the mods say), but only with permission. Ask: you are asked on the title screen. Yes: what is missing is downloaded when the game starts. Never: 1.7.10 mods load only when the files are already there."
 }

@@ -229,9 +229,57 @@ public final class LegacyIcons {
             if (icon == null) {
                 return null;
             }
+            noteRegion(icon);
             faces[side] = icon.func_94215_i(); // getIconName
         }
         return faces;
+    }
+
+    /** Icons mods make as a part of a recorded one (Chisel's connected-texture cells): name -> {parent name, u0, v0, u1, v1}, fractions of the parent. */
+    private static final Map<String, Object[]> REGIONS = new java.util.concurrent.ConcurrentHashMap<String, Object[]>();
+
+    /**
+     * An icon that is none of the atlases' own but holds one of them (a field of its class) and lies inside it:
+     * its texture is that part of the parent's (Chisel's TextureVirtual: "parent|x.y", one cell of the sheet).
+     */
+    static void noteRegion(IIcon icon) {
+        if (icon == null || BLOCKS.holds(icon) || ITEMS.holds(icon) || REGIONS.containsKey(icon.func_94215_i())) {
+            return;
+        }
+        for (Class<?> type = icon.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (!IIcon.class.isAssignableFrom(field.getType()) || java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                try {
+                    field.setAccessible(true);
+                    IIcon parent = (IIcon) field.get(icon);
+                    if (parent == null || !(BLOCKS.holds(parent) || ITEMS.holds(parent))) {
+                        continue;
+                    }
+                    float width = parent.func_94212_f() - parent.func_94209_e(); // getMaxU - getMinU
+                    float height = parent.func_94210_h() - parent.func_94206_g(); // getMaxV - getMinV
+                    if (width <= 0 || height <= 0) {
+                        continue;
+                    }
+                    float u0 = (icon.func_94209_e() - parent.func_94209_e()) / width;
+                    float u1 = (icon.func_94212_f() - parent.func_94209_e()) / width;
+                    float v0 = (icon.func_94206_g() - parent.func_94206_g()) / height;
+                    float v1 = (icon.func_94210_h() - parent.func_94206_g()) / height;
+                    if (u0 >= -0.001f && v0 >= -0.001f && u1 <= 1.001f && v1 <= 1.001f && u1 > u0 && v1 > v0) {
+                        REGIONS.put(icon.func_94215_i(), new Object[]{parent.func_94215_i(), u0, v0, u1, v1});
+                        return;
+                    }
+                } catch (Exception e) {
+                    // not this field
+                }
+            }
+        }
+    }
+
+    /** The parent and part of an icon a mod made from a recorded one (see noteRegion): {parent name, u0, v0, u1, v1}, or null. */
+    public static Object[] iconRegion(String name) {
+        return REGIONS.get(name);
     }
 
     /** The texture name of an item for a damage value, or null. */
@@ -255,6 +303,7 @@ public final class LegacyIcons {
         if (icon == null) {
             return null;
         }
+        noteRegion(icon);
         String name = icon.func_94215_i(); // getIconName
         return BLOCKS.holds(icon) && !ITEMS.holds(icon) ? BLOCK_ATLAS_ICON + name : name;
     }

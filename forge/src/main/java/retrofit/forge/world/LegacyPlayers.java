@@ -32,6 +32,7 @@ public final class LegacyPlayers {
     private static final int MAY_FLY = 8;
     private static final int ON_GROUND = 16;
     private static final int SPRINTING = 32;
+    private static final int INVULNERABLE = 64;
     private static final int SLOTS = 40;
     private static final boolean DEBUG_MOTION = Boolean.getBoolean("retrofit.debugInteractions");
     private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
@@ -55,7 +56,7 @@ public final class LegacyPlayers {
         if (withInventory) {
             LegacyBridge.call("setInventory", mirror, (Object) host.legacyInventory(player.getInventory()));
         }
-        if (level.isClientSide) {
+        if (level.isClientSide && host.isLocal()) {
             LegacyBridge.call("makeCurrent", mirror);
         }
         return mirror;
@@ -96,7 +97,8 @@ public final class LegacyPlayers {
     private static void sync(Player player, Object mirror) {
         int flags = (player.isShiftKeyDown() ? SNEAKING : 0) | (player.getAbilities().instabuild ? CREATIVE : 0)
                 | (player.getAbilities().flying ? FLYING : 0) | (player.getAbilities().mayfly ? MAY_FLY : 0)
-                | (player.onGround() ? ON_GROUND : 0) | (player.isSprinting() ? SPRINTING : 0);
+                | (player.onGround() ? ON_GROUND : 0) | (player.isSprinting() ? SPRINTING : 0)
+                | (player.getAbilities().invulnerable ? INVULNERABLE : 0);
         net.minecraft.world.phys.Vec3 motion = player.getDeltaMovement();
         LegacyBridge.call("sync", mirror, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot(),
                 motion.x, motion.y, motion.z, player.fallDistance, flags,
@@ -428,6 +430,12 @@ public final class LegacyPlayers {
     /** What the legacy mirror asks of the real player. */
     private static final class Host implements HostPlayer {
         volatile Player player;
+
+        @Override
+        public boolean isLocal() {
+            Player current = player;
+            return current == null || !current.level().isClientSide || current == retrofit.forge.client.ClientHooks.localPlayer();
+        }
         /** Where the player was when the mirror last followed it. */
         volatile net.minecraft.world.phys.Vec3 synced;
         /** The inventory last converted, slot by slot, and its legacy stacks: only changed slots are converted again. */

@@ -43,7 +43,10 @@ public final class GL11 {
     private static final int GL_CULL_FACE = 0x0B44;
     private static final int GL_CW = 0x0900;
     private static final int GL_FRONT = 0x0404;
+    private static final int GL_NEVER = 0x0200;
     private static final int GL_EQUAL = 0x0202;
+    private static final int GL_LEQUAL = 0x0203;
+    private static final int GL_DEPTH_TEST = 0x0B71;
     private static final int GL_VENDOR = 0x1F00;
     private static final int GL_RENDERER = 0x1F01;
     private static final int GL_VERSION = 0x1F02;
@@ -67,6 +70,10 @@ public final class GL11 {
     private static boolean cullFace = true, frontClockwise, cullFront;
     /** glDepthFunc(GL_EQUAL): drawn over what is already there only (masked fluids, glints). */
     private static boolean depthEqual;
+    /** GL_DEPTH_TEST, glDepthFunc and glDepthMask, on as 1.7.10 left them for a frame's drawing. */
+    private static boolean depthTest = true;
+    private static int depthFunc = GL_LEQUAL;
+    private static boolean depthWrite = true;
     /** Packed lightmap coordinates set by legacy code, or -1 for the host's light. */
     private static int light = -1;
     private static final List<float[]> attribStack = new ArrayList<float[]>();
@@ -133,6 +140,9 @@ public final class GL11 {
         frontClockwise = false;
         cullFront = false;
         depthEqual = false;
+        depthTest = true;
+        depthFunc = GL_LEQUAL;
+        depthWrite = true;
         light = -1;
         attribStack.clear();
     }
@@ -612,8 +622,8 @@ public final class GL11 {
     }
 
     public static void glDrawArrays(int mode, int first, int count) {
-        if (!vertexArray || (mode != GL_QUADS && mode != GL_TRIANGLES && !isLines(mode))) {
-            return;
+        if (!vertexArray || (mode != GL_QUADS && mode != GL_TRIANGLES && !isLines(mode) && quadOrder(mode, count) == null)) {
+            return; // points, and nothing to draw
         }
         // Copy the vertices now: the arrays are reused by the caller as soon as this returns.
         final float[] local = new float[count * Capture.FLOATS_PER_VERTEX];
@@ -653,6 +663,23 @@ public final class GL11 {
         }
         if (isLines(mode)) {
             submitLines(local, count, mode);
+            return;
+        }
+        if (mode != GL_QUADS && mode != GL_TRIANGLES) { // strips, fans, polygons (the Tessellator draws them too): as quads
+            int[] order = quadOrder(mode, count);
+            final float[] quads = new float[order.length * Capture.FLOATS_PER_VERTEX];
+            final int[] quadLights = lights == null ? null : new int[order.length];
+            for (int i = 0; i < order.length; i++) {
+                System.arraycopy(local, order[i] * Capture.FLOATS_PER_VERTEX, quads, i * Capture.FLOATS_PER_VERTEX, Capture.FLOATS_PER_VERTEX);
+                if (quadLights != null) {
+                    quadLights[i] = lights[order[i]];
+                }
+            }
+            submit(new Op() {
+                public void run() {
+                    emit(quads, quadLights, false);
+                }
+            });
             return;
         }
         final boolean triangles = mode == GL_TRIANGLES;
@@ -744,7 +771,8 @@ public final class GL11 {
                 texture | (blend ? Capture.BLEND : 0) | (textured ? 0 : Capture.UNTEXTURED)
                         | (blend && additive ? Capture.ADDITIVE : 0) | (lighting ? 0 : Capture.UNLIT) | (lines ? Capture.LINES : 0)
                         | (cullFace ? Capture.CULLED : 0) | (cullFace && frontClockwise != cullFront ? Capture.REVERSED : 0)
-                        | (depthEqual ? Capture.DEPTH_EQUAL : 0), vertexLight);
+                        | (depthEqual ? Capture.DEPTH_EQUAL : 0) | (depthTest ? Capture.DEPTH_TEST : 0) | (depthWrite ? 0 : Capture.NO_DEPTH_WRITE)
+                        | ((depthFunc - GL_NEVER) & 7) << Capture.DEPTH_FUNC_SHIFT, vertexLight);
     }
 
     // ---- Immediate mode (glBegin/glEnd), used by FontRenderer and many mods ----
@@ -846,27 +874,11 @@ public final class GL11 {
             order = sequence(n - n % 4);
         } else if (mode == GL_TRIANGLES) {
             order = trianglesAsQuads(sequence(n - n % 3));
-        } else if (mode == GL_TRIANGLE_STRIP || mode == GL_QUAD_STRIP) {
-            int quads = Math.max(0, (n - 2) / 2);
-            order = new int[quads * 4];
-            for (int q = 0; q < quads; q++) {
-                int i = q * 2;
-                order[q * 4] = i;
-                order[q * 4 + 1] = i + 1;
-                order[q * 4 + 2] = i + 3;
-                order[q * 4 + 3] = i + 2;
-            }
-        } else if (mode == GL_TRIANGLE_FAN || mode == GL_POLYGON) {
-            int triangles = Math.max(0, n - 2);
-            int[] fan = new int[triangles * 3];
-            for (int t = 0; t < triangles; t++) {
-                fan[t * 3] = 0;
-                fan[t * 3 + 1] = t + 1;
-                fan[t * 3 + 2] = t + 2;
-            }
-            order = trianglesAsQuads(fan);
         } else {
-            return;
+            order = quadOrder(mode, n);
+            if (order == null) {
+                return;
+            }
         }
         final float[] local = new float[order.length * Capture.FLOATS_PER_VERTEX];
         for (int i = 0; i < order.length; i++) {
@@ -877,6 +889,36 @@ public final class GL11 {
                 emit(local, false);
             }
         });
+    }
+
+    /**
+     * The vertex order that draws {@code n} vertices of a strip, fan or polygon as quads (a triangle repeats its
+     * last vertex); null for other modes or nothing to draw.
+     */
+    private static int[] quadOrder(int mode, int n) {
+        if (mode == GL_TRIANGLE_STRIP || mode == GL_QUAD_STRIP) {
+            int quads = Math.max(0, (n - 2) / 2);
+            int[] order = new int[quads * 4];
+            for (int q = 0; q < quads; q++) {
+                int i = q * 2;
+                order[q * 4] = i;
+                order[q * 4 + 1] = i + 1;
+                order[q * 4 + 2] = i + 3;
+                order[q * 4 + 3] = i + 2;
+            }
+            return quads > 0 ? order : null;
+        }
+        if (mode == GL_TRIANGLE_FAN || mode == GL_POLYGON) {
+            int triangles = Math.max(0, n - 2);
+            int[] fan = new int[triangles * 3];
+            for (int t = 0; t < triangles; t++) {
+                fan[t * 3] = 0;
+                fan[t * 3 + 1] = t + 1;
+                fan[t * 3 + 2] = t + 2;
+            }
+            return triangles > 0 ? trianglesAsQuads(fan) : null;
+        }
+        return null;
     }
 
     private static int[] sequence(int n) {
@@ -928,6 +970,12 @@ public final class GL11 {
                     lighting = enabled;
                 }
             });
+        } else if (cap == GL_DEPTH_TEST) {
+            submit(new Op() {
+                public void run() {
+                    depthTest = enabled;
+                }
+            });
         } else if (cap == GL_CULL_FACE) {
             submit(new Op() {
                 public void run() {
@@ -944,7 +992,8 @@ public final class GL11 {
     public static void glPushAttrib(int mask) {
         submit(new Op() {
             public void run() {
-                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0, additive ? 1 : 0, lighting ? 1 : 0, cullFace ? 1 : 0, depthEqual ? 1 : 0});
+                attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0, additive ? 1 : 0, lighting ? 1 : 0, cullFace ? 1 : 0, depthEqual ? 1 : 0,
+                        depthTest ? 1 : 0, depthFunc, depthWrite ? 1 : 0});
             }
         });
     }
@@ -966,6 +1015,9 @@ public final class GL11 {
                     lighting = saved[9] != 0;
                     cullFace = saved[10] != 0;
                     depthEqual = saved[11] != 0;
+                    depthTest = saved[12] != 0;
+                    depthFunc = (int) saved[13];
+                    depthWrite = saved[14] != 0;
                 }
             }
         });
@@ -1034,7 +1086,12 @@ public final class GL11 {
     public static void glAlphaFunc(int func, float ref) {
     }
 
-    public static void glDepthMask(boolean flag) {
+    public static void glDepthMask(final boolean flag) {
+        submit(new Op() {
+            public void run() {
+                depthWrite = flag;
+            }
+        });
     }
 
     public static void glShadeModel(int mode) {
@@ -1052,6 +1109,7 @@ public final class GL11 {
         submit(new Op() {
             public void run() {
                 depthEqual = func == GL_EQUAL;
+                depthFunc = func;
             }
         });
     }

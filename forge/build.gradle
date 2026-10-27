@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.5.2-beta'
+version = '0.6.0-beta'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -62,6 +62,9 @@ minecraft {
             }
             if (project.hasProperty('testServer')) {
                 property 'retrofit.testServer', project.property('testServer') // world test connects from the title screen
+            }
+            if (project.hasProperty('configSyncTest')) {
+                property 'retrofit.configSyncTest', project.property('configSyncTest') // host:port|config file|the server's copy
             }
             if (project.hasProperty('worldTest')) {
                 property 'retrofit.worldTest', 'true'

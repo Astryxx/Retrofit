@@ -163,6 +163,7 @@ public final class LegacyEvents {
         if (active()) {
             fire("server stopped", () -> LegacyBridge.call("serverStopped"));
         }
+        LegacyDeferredBlocks.clear(); // queued writes belong to one running server
     }
 
     // ---- Ticks ----
@@ -186,6 +187,7 @@ public final class LegacyEvents {
             int difficulty = event.level.getDifficulty().getId();
             if (start) {
                 fire("teleported players", () -> LegacyPlayers.placeTeleported((net.minecraft.server.level.ServerLevel) event.level));
+                fire("deferred blocks", () -> LegacyDeferredBlocks.drain((net.minecraft.server.level.ServerLevel) event.level));
             }
             fire("world tick", () -> LegacyBridge.call("worldTick", world, start, difficulty));
         }
@@ -261,6 +263,7 @@ public final class LegacyEvents {
             } catch (RuntimeException e) {
                 LegacyErrors.report("legacy ids", "being sent to a player", e);
             }
+            LegacyConfigSync.sendList(player);
         }
         if (active()) {
             if (event.getEntity() instanceof ServerPlayer player) {

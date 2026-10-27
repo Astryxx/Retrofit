@@ -173,6 +173,7 @@ final class LegacyAssetPack implements PackResources {
                 passedThrough,
                 nonCube > 0 ? ", " + nonCube + " blocks with custom rendering" : "");
         summary = new int[]{found, blockTextures.size() + itemTextures.size(), isolatedFailures};
+        reportMissing();
     }
 
     // ---- Blocks ----
@@ -200,6 +201,30 @@ final class LegacyAssetPack implements PackResources {
     }
 
     private int isolatedFailures;
+
+    /** Textures legacy icons name that no jar, sheet, custom loader or legacy resource pack has. */
+    private final List<String> missing = new ArrayList<>();
+
+    /** How many textures each mod lacks, in the log; the names in retrofit/missing-textures.txt in the game folder. */
+    private void reportMissing() {
+        if (missing.isEmpty()) {
+            return;
+        }
+        Map<String, Integer> byMod = new TreeMap<>();
+        for (String entry : missing) {
+            String icon = entry.substring(entry.indexOf(' ') + 1);
+            int colon = icon.indexOf(':');
+            byMod.merge(colon < 0 || colon > icon.indexOf(' ') ? "minecraft" : icon.substring(0, colon).toLowerCase(Locale.ROOT), 1, Integer::sum);
+        }
+        LOGGER.info("Legacy textures no mod has: {} (by mod: {}); listed in retrofit/missing-textures.txt", missing.size(), byMod);
+        try {
+            java.nio.file.Path file = net.minecraftforge.fml.loading.FMLPaths.GAMEDIR.get().resolve("retrofit").resolve("missing-textures.txt");
+            java.nio.file.Files.createDirectories(file.getParent());
+            java.nio.file.Files.write(file, missing, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            LOGGER.debug("Could not write the missing texture list", e);
+        }
+    }
 
     /**
      * One block's or item's models and textures: a failure leaves out that one (it looks like a missing model),
@@ -652,7 +677,8 @@ final class LegacyAssetPack implements PackResources {
             }
             return true;
         }
-        if (addSheetTile(kind, iconName, target, sources) || addCustomSprite(kind, iconName, target)) {
+        if (addSheetTile(kind, iconName, target, sources) || addCustomSprite(kind, iconName, target)
+                || addRegion(kind, iconName, target, sources) || addNearMatch(legacyPath, target, sources)) {
             return true;
         }
         // not in any jar: a resource pack a mod adds on the legacy side (Extra Utilities makes Tinkers' Construct
@@ -662,8 +688,117 @@ final class LegacyAssetPack implements PackResources {
             put("retrofit", target, () -> new ByteArrayInputStream(made));
             return true;
         }
-        LOGGER.debug("Legacy texture {} not found (looked for {})", iconName, legacyPath);
+        missing.add(kind + " " + iconName + " (looked for " + legacyPath + ")");
         return false;
+    }
+
+    /**
+     * An icon a mod made as a part of one of its registered icons (Chisel's connected-texture cells,
+     * "parent|x.y"): that part of the parent's texture, of its first frame if it is animated.
+     */
+    private boolean addRegion(String kind, String iconName, String target, List<ZipFile> sources) {
+        Object[] region = LegacyBridge.call("iconRegion", iconName);
+        if (region == null) {
+            return false;
+        }
+        String parent = (String) region[0];
+        int colon = parent.indexOf(':');
+        String namespace = colon < 0 ? "minecraft" : parent.substring(0, colon).toLowerCase(Locale.ROOT);
+        String folder = LegacyBridge.call("iconFolder", kind.equals("blocks") ? 0 : 1, parent);
+        String parentPath = "assets/" + namespace + "/" + (folder != null ? folder : "textures/" + kind) + "/"
+                + (colon < 0 ? parent : parent.substring(colon + 1)) + ".png";
+        for (ZipFile jar : sources) {
+            ZipEntry png = jar.getEntry(parentPath);
+            if (png == null) {
+                continue;
+            }
+            try (java.io.InputStream in = jar.getInputStream(png);
+                 com.mojang.blaze3d.platform.NativeImage image = com.mojang.blaze3d.platform.NativeImage.read(in)) {
+                int width = image.getWidth();
+                int frame = image.getHeight() > width && image.getHeight() % width == 0 ? width : image.getHeight(); // an animation's first frame
+                int x0 = Math.round((Float) region[1] * width);
+                int y0 = Math.round((Float) region[2] * frame);
+                int x1 = Math.round((Float) region[3] * width);
+                int y1 = Math.round((Float) region[4] * frame);
+                if (x1 <= x0 || y1 <= y0 || x1 > width || y1 > frame) {
+                    return false;
+                }
+                try (com.mojang.blaze3d.platform.NativeImage part = new com.mojang.blaze3d.platform.NativeImage(x1 - x0, y1 - y0, false)) {
+                    image.copyRect(part, x0, y0, 0, 0, x1 - x0, y1 - y0, false, false);
+                    byte[] bytes = part.asByteArray();
+                    put("retrofit", target, () -> new ByteArrayInputStream(bytes));
+                    return true;
+                }
+            } catch (IOException | RuntimeException e) {
+                LOGGER.debug("Part {} of legacy texture {} could not be cut", iconName, parent, e);
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** Every png in the mods' jars: lowercased full path -> entries, and path past the asset folder -> entries. */
+    private Map<String, List<Object[]>> pngsByLowerPath;
+    private Map<String, List<Object[]>> pngsByRelativePath;
+    private java.util.Set<String> assetFolders;
+    /** The asset folders each jar has. */
+    private Map<ZipFile, java.util.Set<String>> foldersByJar;
+
+    /**
+     * A texture whose file differs from its name only as 1.7.10 forgave it: in letter case (a jar in a folder
+     * on Windows), or under another asset folder of a jar that has the folder named, or of any jar when none has
+     * it (BuildCraft's "buildcraft:" icons are in "buildcraftcore"). Only one file may match.
+     */
+    private boolean addNearMatch(String legacyPath, String target, List<ZipFile> sources) {
+        if (pngsByLowerPath == null) {
+            pngsByLowerPath = new java.util.HashMap<>();
+            pngsByRelativePath = new java.util.HashMap<>();
+            assetFolders = new java.util.HashSet<>();
+            foldersByJar = new java.util.HashMap<>();
+            for (ZipFile jar : sources) {
+                java.util.Enumeration<? extends ZipEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (!name.startsWith("assets/")) {
+                        continue;
+                    }
+                    int slash = name.indexOf('/', 7);
+                    if (slash > 7) {
+                        assetFolders.add(name.substring(7, slash));
+                        foldersByJar.computeIfAbsent(jar, k -> new java.util.HashSet<>()).add(name.substring(7, slash));
+                    }
+                    if (name.endsWith(".png") && slash > 7) {
+                        Object[] found = {jar, entry};
+                        pngsByLowerPath.computeIfAbsent(name.toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(found);
+                        pngsByRelativePath.computeIfAbsent(name.substring(slash), k -> new ArrayList<>()).add(found);
+                    }
+                }
+            }
+        }
+        List<Object[]> matches = pngsByLowerPath.get(legacyPath.toLowerCase(Locale.ROOT));
+        if (matches == null || matches.size() != 1) {
+            int slash = legacyPath.indexOf('/', 7);
+            List<Object[]> elsewhere = slash > 7 ? pngsByRelativePath.get(legacyPath.substring(slash)) : null;
+            matches = null;
+            if (elsewhere != null) {
+                String folder = legacyPath.substring(7, slash);
+                boolean anywhere = !assetFolders.contains(folder);
+                matches = new ArrayList<>();
+                for (Object[] found : elsewhere) {
+                    if (anywhere || foldersByJar.getOrDefault((ZipFile) found[0], java.util.Set.of()).contains(folder)) {
+                        matches.add(found);
+                    }
+                }
+            }
+        }
+        if (matches == null || matches.size() != 1) {
+            return false;
+        }
+        ZipFile jar = (ZipFile) matches.get(0)[0];
+        ZipEntry png = (ZipEntry) matches.get(0)[1];
+        put("retrofit", target, () -> jar.getInputStream(png));
+        return true;
     }
 
     /**
@@ -863,6 +998,13 @@ final class LegacyAssetPack implements PackResources {
                     continue;
                 }
                 if (namespace.equals("minecraft")) {
+                    java.util.regex.Matcher fontPage = PRIVATE_FONT_PAGE.matcher(path);
+                    if (fontPage.matches() && fontPages.add(fontPage.group(1).toLowerCase(Locale.ROOT))) {
+                        put("retrofit", "textures/font/legacy_unicode_page_" + fontPage.group(1).toLowerCase(Locale.ROOT) + ".png",
+                                () -> jar.getInputStream(entry));
+                        count++;
+                        continue;
+                    }
                     // mods' armor textures for their own render prefixes (vanilla's own are 1.20.1's)
                     String file = path.substring(path.lastIndexOf('/') + 1);
                     if (path.startsWith("textures/models/armor/") && file.endsWith(".png") && !VANILLA_ARMOR.matcher(file).matches()) {
@@ -888,8 +1030,47 @@ final class LegacyAssetPack implements PackResources {
                 }
             }
         }
+        addFontPages();
         return count;
     }
+
+    /**
+     * 1.7.10's font drew each unicode page from textures/font/unicode_page_XX.png, and mods drew
+     * their own icons in text with pages of the private use area (ManaMetal's tooltip icons,
+     * e000 on). 1.20.1 has no glyphs there: each such page becomes a bitmap provider of the
+     * default font, its 16x16 cells at 1.7.10's half size.
+     */
+    private void addFontPages() {
+        if (fontPages.isEmpty()) {
+            return;
+        }
+        JsonArray providers = new JsonArray();
+        for (String page : new java.util.TreeSet<>(fontPages)) {
+            int first = Integer.parseInt(page, 16) << 8;
+            JsonArray rows = new JsonArray();
+            for (int row = 0; row < 16; row++) {
+                StringBuilder chars = new StringBuilder();
+                for (int column = 0; column < 16; column++) {
+                    chars.append((char) (first + row * 16 + column));
+                }
+                rows.add(chars.toString());
+            }
+            JsonObject provider = new JsonObject();
+            provider.addProperty("type", "bitmap");
+            provider.addProperty("file", "retrofit:font/legacy_unicode_page_" + page + ".png");
+            provider.addProperty("height", 8);
+            provider.addProperty("ascent", 7);
+            provider.add("chars", rows);
+            providers.add(provider);
+        }
+        JsonObject font = new JsonObject();
+        font.add("providers", providers);
+        putJson("minecraft", "font/default.json", font);
+    }
+
+    /** A unicode page of the private use area (U+E000 to U+F8FF), which 1.20.1's fonts leave empty. */
+    private static final Pattern PRIVATE_FONT_PAGE = Pattern.compile("textures/font/unicode_page_(e[0-9a-f]|f[0-8])\\.png", Pattern.CASE_INSENSITIVE);
+    private final java.util.Set<String> fontPages = new java.util.HashSet<>();
 
     private static final Pattern VANILLA_ARMOR = Pattern.compile("(leather|chainmail|iron|diamond|gold)_layer_[12](_overlay)?\\.png");
 

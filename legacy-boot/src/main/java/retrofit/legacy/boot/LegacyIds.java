@@ -14,6 +14,8 @@ import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -277,7 +279,7 @@ public final class LegacyIds {
         if (!register) {
             return id;
         }
-        int taken = claim(biome, "net.minecraft.world.biome.BiomeGenBase", "field_76773_a", id, 0, 255, "biome");
+        int taken = claim(biome, "net.minecraft.world.biome.BiomeGenBase", "field_76773_a", id, 0, 0, 255, "biome");
         if (taken != id) {
             synchronized (ASKED_BIOME_IDS) {
                 ASKED_BIOME_IDS.put(biome, id);
@@ -310,19 +312,46 @@ public final class LegacyIds {
 
     /** Enchantment's constructor: the id to take (enchantmentsList; stacks save it as a short). */
     public static int enchantmentId(Object enchantment, int id) {
-        return claim(enchantment, "net.minecraft.enchantment.Enchantment", "field_77331_b", id, 0, Short.MAX_VALUE, "enchantment");
+        return claim(enchantment, "net.minecraft.enchantment.Enchantment", "field_77331_b", id, 0, 0, Short.MAX_VALUE, "enchantment");
     }
 
-    /** Potion's constructor: the id to take (potionTypes; entities save effects' ids as a byte). */
+    /** Every potion mods made, in order, including any that lost its slot (see {@link #potionsMade}). */
+    private static final List<Object> POTIONS_MADE = new ArrayList<Object>();
+
+    /**
+     * Potion's constructor: the id to take. A potion asking for a taken id goes above 127 (to 255, as
+     * DragonAPI widens potion ids): mods that look for a free id themselves look below 128 (Thaumcraft
+     * leaves out its potions when it finds none), and moving potions there filled it, in an order that
+     * differs between client and server. Entities save effects' ids as a byte, which DragonAPI reads past
+     * 127; without it, a mob's effect of a moved potion is not kept when the mob is saved.
+     */
     public static int potionId(Object potion, int id) {
-        return claim(potion, "net.minecraft.potion.Potion", "field_76425_a", id, 1, Byte.MAX_VALUE, "potion");
+        synchronized (POTIONS_MADE) {
+            POTIONS_MADE.add(potion);
+        }
+        return claim(potion, "net.minecraft.potion.Potion", "field_76425_a", id, 1, Byte.MAX_VALUE + 1, 255, "potion");
+    }
+
+    /**
+     * Every potion made, also those whose slot another took once the 127 ids ran out (as on 1.7.10, the
+     * last one asking keeps the slot). Which ones lose out depends on the order mods make them, which
+     * differs between a client and a server; 1.20.1 registers effects by name, so registering them all
+     * gives both sides the same effects.
+     */
+    public static List<Object> potionsMade() {
+        synchronized (POTIONS_MADE) {
+            return new ArrayList<Object>(POTIONS_MADE);
+        }
     }
 
     /**
      * The id the constructor asked for if its slot is free (the array grows to reach it, up to
-     * {@code max}), else the lowest free one. If none is left, the id asked for, as on 1.7.10.
+     * {@code max}), else the lowest free one from {@code movedFrom}. If none is left, the id asked for, as on 1.7.10.
      */
-    private static synchronized int claim(Object entry, String owner, String fieldName, int id, int min, int max, String kind) {
+    /** Biomes moved off a taken id: "class@asked id" -> the id they got (see claim). */
+    private static final Map<String, Integer> REMADE = new java.util.HashMap<String, Integer>();
+
+    private static synchronized int claim(Object entry, String owner, String fieldName, int id, int min, int movedFrom, int max, String kind) {
         try {
             Field field = arrayField(entry.getClass(), owner, fieldName);
             Object[] slots = (Object[]) field.get(null);
@@ -332,7 +361,17 @@ public final class LegacyIds {
                 }
                 return id;
             }
-            for (int free = min; free <= max; free++) {
+            String again = kind.equals("biome") ? entry.getClass().getName() + "@" + id : null;
+            if (again != null) {
+                // the same biome made again (HBM makes its planets' biomes whenever a world is made for them): it takes
+                // the slot its earlier self took, as 1.7.10 let it replace itself, instead of another free id each time
+                Integer earlier = REMADE.get(again);
+                int slot = earlier != null ? earlier : id;
+                if (slot >= min && slot < slots.length && slots[slot] != null && slots[slot].getClass() == entry.getClass()) {
+                    return slot;
+                }
+            }
+            for (int free = Math.max(min, movedFrom); free <= max; free++) {
                 if (free >= slots.length) {
                     slots = grow(field, slots, Math.min(max + 1, Math.max(free + 1, slots.length * 2)));
                 }
@@ -340,6 +379,9 @@ public final class LegacyIds {
                     String holder = id >= 0 && id < slots.length && slots[id] != null ? slots[id].getClass().getName() : null;
                     System.out.println("[Retrofit] The 1.7.10 " + kind + " " + entry.getClass().getName() + " asked for id " + id
                             + (holder != null ? ", which " + holder + " has" : ", which 1.7.10 can't hold") + "; it gets " + free);
+                    if (again != null) {
+                        REMADE.put(again, free);
+                    }
                     return free;
                 }
             }

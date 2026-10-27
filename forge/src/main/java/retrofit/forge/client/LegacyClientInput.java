@@ -2,6 +2,7 @@ package retrofit.forge.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.logging.LogUtils;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LightTexture;
@@ -10,7 +11,9 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.event.RenderGuiEvent;
+import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -20,7 +23,10 @@ import retrofit.forge.RetrofitMod;
 import retrofit.forge.world.LegacyBridge;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Mods' key bindings as 1.20.1 key mappings (rebindable in Controls, under the mod's category),
@@ -34,6 +40,7 @@ public final class LegacyClientInput {
     private static boolean hud;
     private static boolean worldLast;
     private static boolean failed;
+    private static boolean particlesFailed;
 
     private LegacyClientInput() {
     }
@@ -173,25 +180,103 @@ public final class LegacyClientInput {
             }
         }
 
+        /**
+         * The legacy HUD is drawn when the host draws its hotbar: what mods drew before 1.7.10's
+         * hotbar (the overlay events up to Pre(HOTBAR)) goes under it, as on 1.7.10, and the rest
+         * waits here for the end of the host's HUD.
+         */
         @SubscribeEvent
-        public static void onRenderHud(RenderGuiEvent.Post event) {
+        public static void onOverlay(RenderGuiOverlayEvent.Pre event) {
+            if (event.getOverlay() == VanillaGuiOverlay.HOTBAR.type()) {
+                drawBeforeHotbar(event);
+            }
+            if (hiddenOverlays.contains(event.getOverlay().id())) {
+                event.setCanceled(true); // a legacy mod cancelled 1.7.10's element (and may draw its own)
+            }
+        }
+
+        private static void drawBeforeHotbar(RenderGuiOverlayEvent.Pre event) {
             if (RetrofitMod.runtime() == null || failed || Minecraft.getInstance().player == null) {
+                hiddenOverlays = Set.of();
                 return;
             }
             refresh();
-            if (hud) {
-                var window = Minecraft.getInstance().getWindow();
+            if (!hud) {
+                hiddenOverlays = Set.of();
+                return;
+            }
+            try {
+                LegacyGuiRenderer.Captured captured;
+                synchronized (LegacyBridge.renderLock()) {
+                    captured = captureHud(event.getPartialTick());
+                }
+                LegacyGuiRenderer.Captured[] parts = captured.split("hotbar"); // ClientEvents.HOTBAR_DRAWN
+                if (parts != null) {
+                    synchronized (LegacyBridge.renderLock()) {
+                        LegacyGuiRenderer.draw(event.getGuiGraphics(), parts[0], null);
+                    }
+                    captured = parts[1];
+                }
+                hudRest = captured;
+            } catch (Throwable e) {
+                failed = true;
+                LegacyBridge.reportClientFailure("HUD drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
+            }
+        }
+
+        /** What the legacy HUD drew after the hotbar this frame (see onHotbar); null if the hotbar wasn't drawn. */
+        private static LegacyGuiRenderer.Captured hudRest;
+
+        private static LegacyGuiRenderer.Captured captureHud(float partialTick) throws Throwable {
+            var window = Minecraft.getInstance().getWindow();
+            int vertices = LegacyBridge.call("drawOverlay", partialTick, window.getWidth(), window.getHeight(), (int) window.getGuiScale());
+            Object[] markers = LegacyBridge.call("guiMarkers");
+            Set<ResourceLocation> hidden = new HashSet<>();
+            for (String element : LegacyBridge.<String[]>call("hiddenElements")) {
+                for (VanillaGuiOverlay overlay : element.equals("ALL") ? VanillaGuiOverlay.values() : OVERLAYS.getOrDefault(element, new VanillaGuiOverlay[0])) {
+                    hidden.add(overlay.id());
+                }
+            }
+            hiddenOverlays = hidden;
+            return LegacyGuiRenderer.Captured.copy(vertices, markers);
+        }
+
+        /** 1.20.1's overlays leaving out what a legacy mod cancelled (this frame's, or the last one's for those drawn before the hotbar). */
+        private static Set<ResourceLocation> hiddenOverlays = Set.of();
+
+        /** 1.7.10's HUD elements as 1.20.1's overlays. */
+        private static final Map<String, VanillaGuiOverlay[]> OVERLAYS = Map.ofEntries(
+                Map.entry("HELMET", new VanillaGuiOverlay[]{VanillaGuiOverlay.HELMET}),
+                Map.entry("PORTAL", new VanillaGuiOverlay[]{VanillaGuiOverlay.PORTAL}),
+                Map.entry("HOTBAR", new VanillaGuiOverlay[]{VanillaGuiOverlay.HOTBAR}),
+                Map.entry("CROSSHAIRS", new VanillaGuiOverlay[]{VanillaGuiOverlay.CROSSHAIR}),
+                Map.entry("HEALTH", new VanillaGuiOverlay[]{VanillaGuiOverlay.PLAYER_HEALTH}),
+                Map.entry("ARMOR", new VanillaGuiOverlay[]{VanillaGuiOverlay.ARMOR_LEVEL}),
+                Map.entry("FOOD", new VanillaGuiOverlay[]{VanillaGuiOverlay.FOOD_LEVEL}),
+                Map.entry("HEALTHMOUNT", new VanillaGuiOverlay[]{VanillaGuiOverlay.MOUNT_HEALTH}),
+                Map.entry("AIR", new VanillaGuiOverlay[]{VanillaGuiOverlay.AIR_LEVEL}),
+                Map.entry("JUMPBAR", new VanillaGuiOverlay[]{VanillaGuiOverlay.JUMP_BAR}),
+                Map.entry("EXPERIENCE", new VanillaGuiOverlay[]{VanillaGuiOverlay.EXPERIENCE_BAR}));
+
+        @SubscribeEvent
+        public static void onRenderHud(RenderGuiEvent.Post event) {
+            if (RetrofitMod.runtime() == null || failed || Minecraft.getInstance().player == null) {
+                hudRest = null;
+                return;
+            }
+            refresh();
+            if (hud || hudRest != null) {
                 try {
                     synchronized (LegacyBridge.renderLock()) {
-                        int vertices = LegacyBridge.call("drawOverlay", event.getPartialTick(), window.getWidth(), window.getHeight(),
-                                (int) window.getGuiScale());
-                        Object[] markers = LegacyBridge.call("guiMarkers");
-                        LegacyGuiRenderer.draw(event.getGuiGraphics(), vertices, markers, null);
+                        LegacyGuiRenderer.Captured captured = hudRest != null ? hudRest : captureHud(event.getPartialTick());
+                        LegacyGuiRenderer.draw(event.getGuiGraphics(), captured, null);
                     }
                 } catch (Throwable e) {
                     failed = true;
                     LegacyBridge.reportClientFailure("HUD drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
                     return;
+                } finally {
+                    hudRest = null;
                 }
             }
             // 1.7.10's vanilla-style boss bar (BossStatus, gated by GuiIngameForge.renderBossHealth)
@@ -208,6 +293,10 @@ public final class LegacyClientInput {
 
         @SubscribeEvent
         public static void onRenderLevel(RenderLevelStageEvent event) {
+            if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
+                drawParticles(event);
+                return;
+            }
             if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS || RetrofitMod.runtime() == null || failed || !worldLast) {
                 return;
             }
@@ -221,6 +310,26 @@ public final class LegacyClientInput {
             } catch (Throwable e) {
                 failed = true;
                 LegacyBridge.reportClientFailure("world drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
+            }
+        }
+
+        /** Mods' own particles (custom EntityFX classes), with 1.20.1's particles. */
+        private static void drawParticles(RenderLevelStageEvent event) {
+            if (RetrofitMod.runtime() == null || particlesFailed || !LegacyBridge.isReady()) {
+                return;
+            }
+            try {
+                MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
+                synchronized (LegacyBridge.renderLock()) {
+                    int vertices = LegacyBridge.call("drawParticles", event.getPartialTick());
+                    if (vertices > 0) {
+                        LegacyCapture.draw(event.getPoseStack().last(), buffers, vertices, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY);
+                    }
+                }
+                buffers.endBatch();
+            } catch (Throwable e) {
+                particlesFailed = true;
+                LegacyBridge.reportClientFailure("particle drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
             }
         }
     }

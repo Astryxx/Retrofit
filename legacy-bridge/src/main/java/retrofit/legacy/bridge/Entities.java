@@ -85,7 +85,7 @@ public final class Entities {
     /**
      * Mod entity types: {name (as registered: "modid.Name" or a global name), living 1/0, category
      * (0 monster, 1 creature, 2 water, 3 ambient, 4 misc), width, height, egg background, egg
-     * foreground (-1: none), mod id}.
+     * foreground (-1: none), mod id, class name}.
      */
     @SuppressWarnings("unchecked")
     public static Object[][] modEntities() {
@@ -107,7 +107,7 @@ public final class Entities {
             }
             int[] egg = eggColors(type);
             types.add(new Object[]{entry.getValue(), EntityLivingBase.class.isAssignableFrom(type) ? 1 : 0, category(type), width, height,
-                    egg[0], egg[1], modId(type)});
+                    egg[0], egg[1], modId(type), type.getName()});
         }
         return types.toArray(new Object[0][]);
     }

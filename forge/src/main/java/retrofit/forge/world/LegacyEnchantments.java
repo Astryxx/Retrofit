@@ -65,14 +65,18 @@ public final class LegacyEnchantments {
                 LOGGER.error("Could not list the legacy enchantments", e);
                 return;
             }
+            // in an order that doesn't depend on the ids configs give them: names must be the same on every
+            // client and server (Forge refuses a connection over a registry difference)
+            java.util.Arrays.sort(enchantments, java.util.Comparator.comparing((Object[] row) -> (String) row[1]).thenComparing(row -> (String) row[5]));
             for (Object[] row : enchantments) {
                 int legacyId = (Integer) row[0];
                 String key = (String) row[1];
                 String path = key.toLowerCase(Locale.ROOT).replaceFirst("^enchantment\\.", "").replaceAll("[^a-z0-9_./-]", "_");
-                ResourceLocation base = new ResourceLocation(RETROFIT, path.isEmpty() ? "enchantment_" + legacyId : path);
+                ResourceLocation base = new ResourceLocation(RETROFIT, path.isEmpty()
+                        ? "enchantment_" + ((String) row[5]).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]", "_") : path);
                 ResourceLocation id = base;
-                // a second enchantment with the same name key: a number in order, not its legacy id (which
-                // depends on the mods installed: a clashing one is moved, see LegacyIds)
+                // a second enchantment with the same name key: a number in order (of name, then class), not its legacy
+                // id (which depends on the mods installed and their configs: a clashing one is moved, see LegacyIds)
                 for (int n = 2; LEGACY.containsKey(id.toString()); n++) {
                     id = new ResourceLocation(RETROFIT, base.getPath() + "_" + n);
                 }

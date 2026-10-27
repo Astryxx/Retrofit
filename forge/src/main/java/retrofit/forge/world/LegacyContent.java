@@ -141,7 +141,9 @@ public final class LegacyContent {
                 ResourceLocation id = uniqueId(name, taken);
                 ITEM_IDS.put(name, id);
                 if (armor[0] >= 0) {
-                    LegacyArmorItem item = new LegacyArmorItem(legacyItem, LegacyBridge.itemInfo(legacyItem), armor);
+                    LegacyArmorItem item = LegacyBridge.<Boolean>call("armorDyeable", legacyItem)
+                            ? new LegacyDyeableArmorItem(legacyItem, LegacyBridge.itemInfo(legacyItem), armor)
+                            : new LegacyArmorItem(legacyItem, LegacyBridge.itemInfo(legacyItem), armor);
                     helper.register(id, item);
                     ARMOR.add(item);
                     continue;

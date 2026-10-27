@@ -21,9 +21,8 @@ import java.util.List;
 public final class Energy {
     /** The usual rate between IC2 and RF/FE mods. */
     static final int FE_PER_EU = 4;
-    /** Stand-ins feed IC2's net at low voltage (32 EU per tick), which every IC2 machine takes. */
+    /** Stand-ins feed IC2's net at low voltage, which every IC2 machine takes, as much as the 1.20.1 block gives. */
     static final int EU_SOURCE_TIER = 1;
-    static final double EU_SOURCE_PACKET = 32;
 
     private static Boolean rf;
     private static Boolean eu;

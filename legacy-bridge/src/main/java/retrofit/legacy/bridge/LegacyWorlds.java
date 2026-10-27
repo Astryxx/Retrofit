@@ -23,8 +23,13 @@ public final class LegacyWorlds {
     }
 
     /** A server world (WorldServer) for server levels, a client world (WorldClient) for client levels. */
-    static World create(HostWorld host, int dimension) {
-        return host.isClientSide() ? ClientWorlds.create(host, dimension) : new BridgeWorldServer(host, dimension);
+    static World create(final HostWorld host, final int dimension) throws Exception {
+        return Biomes.actAs(dimension, new java.util.concurrent.Callable<World>() {
+            @Override
+            public World call() {
+                return host.isClientSide() ? ClientWorlds.create(host, dimension) : new BridgeWorldServer(host, dimension);
+            }
+        });
     }
 
     /** Where legacy world data of the running server goes: the host world's "retrofit" folder. */

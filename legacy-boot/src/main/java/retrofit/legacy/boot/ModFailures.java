@@ -39,6 +39,16 @@ public final class ModFailures {
         return new ArrayList<java.io.File>(LEFT_OUT_SOURCES);
     }
 
+    /** Mod id -> why it was left out ("GregTech (gregtech): needs IC2"), in order. */
+    public static synchronized Map<String, String> leftOut() {
+        return new LinkedHashMap<String, String>(DROPPED);
+    }
+
+    /** A mod left out before FML loads mods (a tweaker Retrofit can't run), with why. */
+    public static synchronized void leaveOut(String id, String why) {
+        DROPPED.put(id, why);
+    }
+
     /** Why mods were left out, one line each ("GregTech (gregtech): needs IC2"). */
     public static synchronized List<String> report() {
         return new ArrayList<String>(DROPPED.values());

@@ -36,6 +36,8 @@ public final class LegacyPlayers {
     public static final int MAY_FLY = 8;
     public static final int ON_GROUND = 16;
     public static final int SPRINTING = 32;
+    /** 1.20.1's invulnerable ability (creative mode, or given by a command or a mod): legacy damage is refused too. */
+    public static final int INVULNERABLE = 64;
 
     private static final int SLOTS = 40; // 36 main, then 4 armour (feet first, as both versions order them)
     private static final Map<World, Map<String, EntityPlayer>> PLAYERS = new WeakHashMap<World, Map<String, EntityPlayer>>();
@@ -66,7 +68,7 @@ public final class LegacyPlayers {
         }
         if (player == null) {
             if (world.field_72995_K) { // isRemote
-                player = ClientPlayers.create(world, host, uuid, name);
+                player = host.isLocal() ? ClientPlayers.create(world, host, uuid, name) : ClientPlayers.createOther(world, uuid, name);
             } else {
                 GameProfile profile = new GameProfile(UUID.fromString(uuid), name);
                 player = new BridgePlayerMP(LegacyWorlds.server(), (WorldServer) world, profile, host);
@@ -114,6 +116,21 @@ public final class LegacyPlayers {
                 if (!entry.getKey().field_72995_K) {
                     LegacyWorlds.server().func_71203_ab().field_72404_b.remove(player);
                 }
+            }
+        }
+    }
+
+    /** A drawn player left the client's world (out of sight, logged out): its client mirrors go (server ones stay). */
+    public static synchronized void removeClientPlayer(String uuid) {
+        for (Map.Entry<World, Map<String, EntityPlayer>> entry : PLAYERS.entrySet()) {
+            if (!entry.getKey().field_72995_K) { // isRemote: client worlds only
+                continue;
+            }
+            EntityPlayer player = entry.getValue().get(uuid);
+            if (player != null && player != net.minecraft.client.Minecraft.func_71410_x().field_71439_g) { // never thePlayer
+                entry.getValue().remove(uuid);
+                entry.getKey().field_73010_i.remove(player); // playerEntities
+                entry.getKey().field_72996_f.remove(player); // loadedEntityList
             }
         }
     }
@@ -197,7 +214,7 @@ public final class LegacyPlayers {
         player.func_70031_b((flags & SPRINTING) != 0);  // setSprinting
         PlayerCapabilities capabilities = player.field_71075_bZ;
         capabilities.field_75098_d = (flags & CREATIVE) != 0; // isCreativeMode
-        capabilities.field_75102_a = capabilities.field_75098_d; // disableDamage
+        capabilities.field_75102_a = (flags & INVULNERABLE) != 0; // disableDamage
         capabilities.field_75101_c = (flags & MAY_FLY) != 0; // allowFlying
         capabilities.field_75100_b = (flags & FLYING) != 0;  // isFlying
         if (slot >= 0 && slot < 9) {

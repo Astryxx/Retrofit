@@ -170,6 +170,12 @@ public final class LegacyEntityTypes {
             LOGGER.error("Could not list legacy entities", e);
             return;
         }
+        // Mods that take over a vanilla name (Railcraft's minecarts) leave the vanilla class registered under it too: one
+        // name, two classes, listed in an order that differs between processes. The mod's class is kept, then the
+        // first by class name, so client and server register the same types.
+        java.util.Arrays.sort(entities, java.util.Comparator.comparing((Object[] entity) -> (String) entity[0])
+                .thenComparing(entity -> "legacy".equals(entity[7]))
+                .thenComparing(entity -> (String) entity[8]));
         for (Object[] entity : entities) {
             String name = (String) entity[0];
             if (TYPES.containsKey(name)) {

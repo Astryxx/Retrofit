@@ -48,6 +48,7 @@ import retrofit.forge.RetrofitMod;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
@@ -508,8 +509,11 @@ public final class LegacyDimensions {
 
         private final int dimension;
         private final int groundLevel;
-        /** Legacy (id << 4 | meta) -> state, filled as blocks show up. */
-        private final BlockState[] states = new BlockState[4096 * 16];
+        /**
+         * Legacy (id << 4 | meta) -> state, filled as blocks show up; grown for block ids past 4095 (0.5.0 widened
+         * them to 31999). Only a cache: a growth racing another generation thread at most forgets an entry.
+         */
+        private volatile BlockState[] states = new BlockState[4096 * 16];
 
         Generator(BiomeSource biomes, int dimension, int groundLevel) {
             super(biomes);
@@ -523,14 +527,22 @@ public final class LegacyDimensions {
         }
 
         private BlockState state(int legacy) {
-            BlockState state = states[legacy];
+            BlockState[] known = states;
+            if (legacy < 0) {
+                return Blocks.STONE.defaultBlockState();
+            }
+            if (legacy >= known.length) {
+                known = java.util.Arrays.copyOf(known, Math.max(legacy + 1, known.length * 2));
+                states = known;
+            }
+            BlockState state = known[legacy];
             if (state == null) {
                 Object block = LegacyBlockTable.get().legacyBlock(legacy >> 4);
                 state = block == null ? null : LegacyBlockTable.modernState(block, legacy & 15);
                 if (state == null) {
                     state = Blocks.STONE.defaultBlockState(); // a block with no 1.20.1 form: keep the terrain solid
                 }
-                states[legacy] = state;
+                known[legacy] = state;
             }
             return state;
         }
@@ -567,7 +579,11 @@ public final class LegacyDimensions {
             }
         }
 
-        /** Creatures the mod's generator lists for the spot (IChunkProvider.getPossibleCreatures). */
+        /**
+         * Creatures the mod's generator lists for the spot (IChunkProvider.getPossibleCreatures). The
+         * same SpawnerData each time for the same entry: the spawner asks again before spawning and
+         * looks for the one it picked (by identity, as biomes keep theirs), or nothing spawns.
+         */
         @Override
         public WeightedRandomList<MobSpawnSettings.SpawnerData> getMobsAt(net.minecraft.core.Holder<Biome> biome, StructureManager structures,
                                                                           MobCategory category, BlockPos pos) {
@@ -587,14 +603,19 @@ public final class LegacyDimensions {
                 for (Object[] spawn : spawns) {
                     EntityType<?> type = LegacyEntityTypes.byName((String) spawn[0]);
                     if (type != null) {
-                        result.add(new MobSpawnSettings.SpawnerData(type, Math.max(1, (Integer) spawn[1]), (Integer) spawn[2], (Integer) spawn[3]));
+                        int weight = Math.max(1, (Integer) spawn[1]), min = (Integer) spawn[2], max = (Integer) spawn[3];
+                        result.add(SPAWNERS.computeIfAbsent(List.of(type, weight, min, max),
+                                key -> new MobSpawnSettings.SpawnerData(type, weight, min, max)));
                     }
                 }
                 return WeightedRandomList.create(result);
             } catch (RuntimeException e) {
+                LegacyErrors.report("legacy dimension " + dimension, "listing its creatures", e);
                 return WeightedRandomList.create();
             }
         }
+
+        private static final Map<List<Object>, MobSpawnSettings.SpawnerData> SPAWNERS = new java.util.concurrent.ConcurrentHashMap<>();
 
         @Override
         public void applyCarvers(WorldGenRegion region, long seed, RandomState random, BiomeManager biomes, StructureManager structures,

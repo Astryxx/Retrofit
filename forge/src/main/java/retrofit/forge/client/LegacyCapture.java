@@ -56,6 +56,9 @@ public final class LegacyCapture {
     public static final int CULLED = 1 << 21, REVERSED = 1 << 22;
     /** See the legacy Capture: glDepthFunc(GL_EQUAL). */
     public static final int DEPTH_EQUAL = 1 << 23;
+    /** See the legacy Capture: GL_DEPTH_TEST on, glDepthMask(false), and glDepthFunc - GL_NEVER in DEPTH_FUNC. */
+    public static final int DEPTH_TEST = 1 << 24, NO_DEPTH_WRITE = 1 << 25;
+    public static final int DEPTH_FUNC_SHIFT = 26, DEPTH_FUNC = 7 << DEPTH_FUNC_SHIFT;
     public static final int TEXTURE_MASK = 0xFFFF;
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -344,7 +347,9 @@ public final class LegacyCapture {
             try (InputStream in = jar.getInputStream(entry)) {
                 ResourceLocation id = new ResourceLocation(RetrofitMod.MOD_ID, "legacy_texture/" + domain + "/"
                         + path.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_./-]", "_"));
-                Minecraft.getInstance().getTextureManager().register(id, new DynamicTexture(NativeImage.read(in)));
+                boolean[] blurClamp = textureMetadata(jar, entryName);
+                Minecraft.getInstance().getTextureManager().register(id, blurClamp[0] || blurClamp[1]
+                        ? new LegacyTexture(NativeImage.read(in), blurClamp[0], blurClamp[1]) : new DynamicTexture(NativeImage.read(in)));
                 return id;
             } catch (IOException e) {
                 LOGGER.warn("Could not read legacy texture {}", legacy, e);
@@ -352,6 +357,49 @@ public final class LegacyCapture {
         }
         LOGGER.warn("Legacy texture {} not found in any mod; drawn as the missing texture", legacy);
         return MissingTextureAtlasSprite.getLocation();
+    }
+
+    /** {blur, clamp} from the texture's .mcmeta, as 1.7.10's SimpleTexture read them. */
+    private static boolean[] textureMetadata(ZipFile jar, String entryName) {
+        ZipEntry entry = jar.getEntry(entryName + ".mcmeta");
+        if (entry == null) {
+            return new boolean[2];
+        }
+        try (InputStream in = jar.getInputStream(entry)) {
+            com.google.gson.JsonObject texture = net.minecraft.util.GsonHelper.getAsJsonObject(
+                    com.google.gson.JsonParser.parseReader(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))
+                            .getAsJsonObject(), "texture", new com.google.gson.JsonObject());
+            return new boolean[]{net.minecraft.util.GsonHelper.getAsBoolean(texture, "blur", false),
+                    net.minecraft.util.GsonHelper.getAsBoolean(texture, "clamp", false)};
+        } catch (IOException | RuntimeException e) {
+            LOGGER.warn("Could not read {}.mcmeta", entryName, e);
+            return new boolean[2];
+        }
+    }
+
+    /**
+     * A legacy texture uploaded as its .mcmeta asks: clamped at its edges (entity shadows give
+     * shadow.png coordinates past them, and would tile otherwise) or blurred.
+     */
+    private static final class LegacyTexture extends DynamicTexture {
+        private final boolean blur;
+        private final boolean clamp;
+
+        LegacyTexture(NativeImage image, boolean blur, boolean clamp) {
+            super(image); // uploads before the fields are set
+            this.blur = blur;
+            this.clamp = clamp;
+            upload();
+        }
+
+        @Override
+        public void upload() {
+            NativeImage pixels = getPixels();
+            if (pixels != null) {
+                bind();
+                pixels.upload(0, 0, 0, 0, 0, pixels.getWidth(), pixels.getHeight(), blur, clamp, false, false);
+            }
+        }
     }
 
     private static List<ZipFile> sources() {

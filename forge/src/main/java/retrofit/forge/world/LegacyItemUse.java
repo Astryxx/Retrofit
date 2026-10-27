@@ -85,28 +85,35 @@ final class LegacyItemUse {
     }
 
     static InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
-        if (hand != InteractionHand.MAIN_HAND) {
-            if (useDuration(player.getItemInHand(hand)) > 0) {
-                return InteractionResultHolder.pass(player.getItemInHand(hand)); // used over time (bows, food): main hand only
-            }
-            InteractionResultHolder<ItemStack> result = inOffHand(player, () -> use(level, player, InteractionHand.MAIN_HAND));
-            return new InteractionResultHolder<>(result.getResult(), player.getItemInHand(hand));
+        boolean[] start = new boolean[1];
+        InteractionResultHolder<ItemStack> result = hand == InteractionHand.MAIN_HAND ? useHeld(level, player, start)
+                : inOffHand(player, () -> useHeld(level, player, start));
+        if (start[0]) { // used over time (bows, food): in the hand it is in
+            player.startUsingItem(hand);
+            return InteractionResultHolder.consume(player.getItemInHand(hand));
         }
-        ItemStack held = player.getItemInHand(hand);
+        return new InteractionResultHolder<>(result.getResult(), player.getItemInHand(hand));
+    }
+
+    /** The held item's legacy right click; {@code start} set when it begins being used over time. */
+    private static InteractionResultHolder<ItemStack> useHeld(Level level, Player player, boolean[] start) {
+        ItemStack held = player.getMainHandItem();
         try {
             Object mirror = LegacyPlayers.mirror(player, true);
             LegacyBridge.call("rightClick", mirror, LegacyContent.legacyWorld(level));
             LegacyPlayers.writeBack(player, mirror);
-            ItemStack now = player.getItemInHand(hand);
-            if (LegacyPlayers.useState(mirror)[0] != 0 && !now.isEmpty() && useDuration(now) > 0) {
-                player.startUsingItem(hand);
-                return InteractionResultHolder.consume(now);
-            }
+            ItemStack now = player.getMainHandItem();
+            start[0] = LegacyPlayers.useState(mirror)[0] != 0 && !now.isEmpty() && useDuration(now) > 0;
             return now == held ? InteractionResultHolder.pass(now) : InteractionResultHolder.sidedSuccess(now, level.isClientSide);
         } catch (RuntimeException e) {
             LegacyErrors.report(held.getItem(), "being used", e);
             return InteractionResultHolder.fail(held);
         }
+    }
+
+    /** Runs a phase of use over time with the item in use held where legacy code looks (see inOffHand). */
+    private static <T> T inUsedHand(Player player, java.util.function.Supplier<T> action) {
+        return player.isUsingItem() && player.getUsedItemHand() == InteractionHand.OFF_HAND ? inOffHand(player, action) : action.get();
     }
 
     /** {duration, animation} of a stack; {0, 0} if it has no legacy form. */
@@ -134,23 +141,29 @@ final class LegacyItemUse {
 
     static void onUseTick(LivingEntity entity, ItemStack stack, int remaining) {
         if (entity instanceof Player player) {
-            try {
-                LegacyBridge.call("usingTick", LegacyPlayers.mirror(player, false), remaining);
-            } catch (RuntimeException e) {
-                LegacyErrors.report(stack.getItem(), "being used over time", e);
-            }
+            inUsedHand(player, () -> {
+                try {
+                    LegacyBridge.call("usingTick", LegacyPlayers.mirror(player, false), remaining);
+                } catch (RuntimeException e) {
+                    LegacyErrors.report(stack.getItem(), "being used over time", e);
+                }
+                return null;
+            });
         }
     }
 
     static void releaseUsing(Level level, LivingEntity entity, ItemStack stack, int timeLeft) {
         if (entity instanceof Player player) {
-            try {
-                Object mirror = LegacyPlayers.mirror(player, true);
-                LegacyBridge.call("stoppedUsing", mirror, LegacyContent.legacyWorld(level), timeLeft);
-                LegacyPlayers.writeBack(player, mirror);
-            } catch (RuntimeException e) {
-                LegacyErrors.report(stack.getItem(), "being released", e);
-            }
+            inUsedHand(player, () -> {
+                try {
+                    Object mirror = LegacyPlayers.mirror(player, true);
+                    LegacyBridge.call("stoppedUsing", mirror, LegacyContent.legacyWorld(level), timeLeft);
+                    LegacyPlayers.writeBack(player, mirror);
+                } catch (RuntimeException e) {
+                    LegacyErrors.report(stack.getItem(), "being released", e);
+                }
+                return null;
+            });
         }
     }
 
@@ -158,15 +171,18 @@ final class LegacyItemUse {
         if (!(entity instanceof Player player)) {
             return stack;
         }
-        try {
-            Object mirror = LegacyPlayers.mirror(player, true);
-            LegacyBridge.call("finishUsing", mirror, LegacyContent.legacyWorld(level));
-            LegacyPlayers.writeBack(player, mirror);
-            return player.getMainHandItem();
-        } catch (RuntimeException e) {
-            LegacyErrors.report(stack.getItem(), "finishing being used", e);
-            return stack;
-        }
+        InteractionHand hand = player.getUsedItemHand();
+        inUsedHand(player, () -> {
+            try {
+                Object mirror = LegacyPlayers.mirror(player, true);
+                LegacyBridge.call("finishUsing", mirror, LegacyContent.legacyWorld(level));
+                LegacyPlayers.writeBack(player, mirror);
+            } catch (RuntimeException e) {
+                LegacyErrors.report(stack.getItem(), "finishing being used", e);
+            }
+            return null;
+        });
+        return player.getItemInHand(hand);
     }
 
     // ---- Mining and fighting ----

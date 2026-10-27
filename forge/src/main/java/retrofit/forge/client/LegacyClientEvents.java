@@ -36,7 +36,13 @@ public final class LegacyClientEvents {
                 LegacyPlayers.syncClientRiding(Minecraft.getInstance().player, mirror);
                 syncMouseOver(Minecraft.getInstance());
             }
+            if (!start && Minecraft.getInstance().level != null && !Minecraft.getInstance().isPaused()) {
+                LegacyBridge.call("tickParticles"); // as 1.7.10's runTick: before the tick's end handlers, not while paused
+            }
             LegacyBridge.call("clientTick", start);
+            if (!start) {
+                LegacyBlockFaces.refreshOpacity();
+            }
         });
     }
 
@@ -58,6 +64,51 @@ public final class LegacyClientEvents {
         }
     }
 
+    /** Whether a legacy coremod draws item tooltips itself (ManaMetal); null until the bridge is up. */
+    private static Boolean modTooltips;
+
+    /**
+     * Tooltips of legacy and vanilla stacks, drawn by the legacy mod that draws tooltips itself
+     * (its own frames, separators and icons, as in its 1.7.10 screens) instead of 1.20.1's.
+     */
+    @SubscribeEvent
+    public static void onTooltipDraw(net.minecraftforge.client.event.RenderTooltipEvent.Pre event) {
+        net.minecraft.world.item.ItemStack stack = event.getItemStack();
+        if (RetrofitMod.runtime() == null || stack.isEmpty() || !LegacyBridge.isReady()) {
+            return;
+        }
+        if (modTooltips == null) {
+            modTooltips = LegacyBridge.<Boolean>call("modTooltips");
+        }
+        if (!modTooltips || !(stack.getItem() instanceof retrofit.forge.world.LegacyStackItem
+                || net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).getNamespace().equals("minecraft"))) {
+            return;
+        }
+        run(() -> {
+            Object legacy = retrofit.forge.world.LegacyStacks.toLegacy(stack);
+            if (legacy == null) {
+                return;
+            }
+            var window = Minecraft.getInstance().getWindow();
+            var graphics = event.getGraphics();
+            synchronized (LegacyBridge.renderLock()) {
+                int vertices = LegacyBridge.call("drawTooltip", legacy, event.getX(), event.getY(), event.getScreenWidth(),
+                        event.getScreenHeight(), window.getWidth(), window.getHeight(), (int) window.getGuiScale());
+                Object[] markers = LegacyBridge.call("guiMarkers");
+                graphics.pose().pushPose();
+                graphics.pose().translate(0, 0, 400); // above the screen's items, as 1.20.1 lifts its own tooltips
+                try {
+                    LegacyGuiRenderer.draw(graphics, vertices, markers, null);
+                } catch (Throwable e) {
+                    throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
+                } finally {
+                    graphics.pose().popPose();
+                }
+            }
+            event.setCanceled(true);
+        });
+    }
+
     /** Tooltip lines from legacy mods (addInformation, ItemTooltipEvent), for mod items and vanilla ones alike. */
     @SubscribeEvent
     public static void onTooltip(net.minecraftforge.event.entity.player.ItemTooltipEvent event) {
@@ -76,6 +127,26 @@ public final class LegacyClientEvents {
                 event.getToolTip().add(net.minecraft.network.chat.Component.literal(line));
             }
         });
+    }
+
+    /** Joining a server: legacy code sees its address on the connection (NEI keeps its settings per server by it). */
+    @SubscribeEvent
+    public static void onLoggingIn(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingIn event) {
+        if (RetrofitMod.runtime() == null) {
+            return;
+        }
+        java.net.SocketAddress remote = event.getConnection().getRemoteAddress();
+        String host = null;
+        String ip = null;
+        int port = 0;
+        if (remote instanceof java.net.InetSocketAddress inet) {
+            host = inet.getHostString();
+            ip = inet.getAddress() != null ? inet.getAddress().getHostAddress() : host;
+            port = inet.getPort();
+        }
+        String[] address = {host, ip};
+        int serverPort = port;
+        run(() -> LegacyBridge.call("setServerAddress", address[0], address[1], serverPort));
     }
 
     /** Leaving a dedicated server: its legacy id map no longer applies. */
@@ -101,12 +172,57 @@ public final class LegacyClientEvents {
         // render tick handlers draw (Thaumcraft's research popups) with the one legacy Tessellator chunk builders share
         synchronized (LegacyBridge.renderLock()) {
             if (start) {
+                int[] lightmap = lightmap();
+                if (lightmap != null) {
+                    run(() -> LegacyBridge.call("setLightmap", (Object) lightmap));
+                }
                 run(() -> LegacyBridge.call("renderTick", true, partialTicks));
             } else {
                 // No HUD or screen ran this frame's end (the host has no player: menus, loading
                 // screens), so nothing reads what its handlers draw; fire it with that discarded.
                 run(() -> LegacyBridge.call("renderTickEndDiscarded", partialTicks));
             }
+        }
+    }
+
+    /** LightTexture's pixels (its one NativeImage field), found once; null if there is no such field. */
+    private static java.lang.reflect.Field lightPixels;
+    private static boolean lightPixelsLooked;
+    private static final int[] LIGHTMAP = new int[256];
+
+    /**
+     * The lightmap 1.20.1 draws this frame with, as 1.7.10's lightmapColors held it: ARGB, sky level * 16 +
+     * block level (1.20.1 keeps block light in x, sky light in y, as ABGR). Null without a level or the field.
+     */
+    private static int[] lightmap() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null) {
+            return null;
+        }
+        try {
+            if (!lightPixelsLooked) {
+                lightPixelsLooked = true;
+                for (java.lang.reflect.Field field : net.minecraft.client.renderer.LightTexture.class.getDeclaredFields()) {
+                    if (field.getType() == com.mojang.blaze3d.platform.NativeImage.class) {
+                        field.setAccessible(true);
+                        lightPixels = field;
+                    }
+                }
+            }
+            if (lightPixels == null) {
+                return null;
+            }
+            com.mojang.blaze3d.platform.NativeImage pixels = (com.mojang.blaze3d.platform.NativeImage) lightPixels.get(minecraft.gameRenderer.lightTexture());
+            for (int sky = 0; sky < 16; sky++) {
+                for (int block = 0; block < 16; block++) {
+                    int abgr = pixels.getPixelRGBA(block, sky);
+                    LIGHTMAP[sky * 16 + block] = abgr & 0xFF00FF00 | (abgr & 0xFF) << 16 | (abgr >> 16) & 0xFF;
+                }
+            }
+            return LIGHTMAP;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            lightPixels = null;
+            return null;
         }
     }
 

@@ -55,7 +55,10 @@ public final class LegacyNetwork {
 
     private static String version() {
         if (version == null) {
-            version = PROTOCOL + ":" + Integer.toHexString(LegacyBridge.<String>call("modList").hashCode());
+            String mods = LegacyBridge.call("modList");
+            version = PROTOCOL + ":" + Integer.toHexString(mods.hashCode());
+            // a client and server whose versions differ are told "mismatched mod list": this is what to compare
+            LOGGER.info("Network version {} from the 1.7.10 mods {}", version, mods);
         }
         return version;
     }
@@ -131,6 +134,12 @@ public final class LegacyNetwork {
 
     private static void handle(Payload payload, Supplier<NetworkEvent.Context> context) {
         ServerPlayer sender = context.get().getSender();
+        if (sender != null && payload.legacyChannel().equals(LegacyConfigSync.REQUEST)) {
+            if (sender.server.isDedicatedServer()) {
+                LegacyConfigSync.requested(sender, payload.data());
+            }
+            return;
+        }
         try {
             if (sender != null) {
                 Object mirror = LegacyPlayers.mirror(sender, true);
@@ -156,6 +165,11 @@ public final class LegacyNetwork {
     }
 
     // ---- Sending ----
+
+    /** A client's message to the server on one of Retrofit's own payload channels. */
+    public static void sendToServer(String channelName, byte[] data) {
+        channel.sendToServer(new Payload(channelName, data));
+    }
 
     static void sendTo(ServerPlayer player, String legacyChannel, byte[] data) {
         channel.send(PacketDistributor.PLAYER.with(() -> player), new Payload(legacyChannel, data));

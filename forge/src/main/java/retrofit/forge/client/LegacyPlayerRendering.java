@@ -18,7 +18,7 @@ import retrofit.forge.RetrofitMod;
 import retrofit.forge.world.LegacyBridge;
 
 /**
- * Mods' RenderPlayerEvent (Pre, Specials, Post) around 1.20.1 drawing the local player: what
+ * Mods' RenderPlayerEvent (Pre, Specials, Post) around 1.20.1 drawing a player, the local one or another: what
  * they draw shows (capes, wings, goggles, a transformation's model), cancelling Pre hides the
  * player, and a matrix they push in Pre to move or scale the player applies to the 1.20.1 model
  * until Post. Specials get the legacy player model posed as the 1.20.1 one, in its space.
@@ -34,7 +34,7 @@ public final class LegacyPlayerRendering {
     }
 
     private static boolean active(AbstractClientPlayer player) {
-        if (failed || RetrofitMod.runtime() == null || player != Minecraft.getInstance().player) {
+        if (failed || RetrofitMod.runtime() == null) {
             return false;
         }
         if (listened == null) {
@@ -45,6 +45,24 @@ public final class LegacyPlayerRendering {
             }
         }
         return listened;
+    }
+
+    /** The legacy player the events name: null for the local one (Minecraft.thePlayer), another's own mirror, kept up to date. */
+    private static Object drawn(AbstractClientPlayer player) {
+        return player == Minecraft.getInstance().player ? null : retrofit.forge.world.LegacyPlayers.mirror(player, true);
+    }
+
+    /** A drawn player left the client's world: its legacy mirror goes too. */
+    @SubscribeEvent
+    public static void onLeave(net.minecraftforge.event.entity.EntityLeaveLevelEvent event) {
+        if (event.getLevel().isClientSide() && event.getEntity() instanceof AbstractClientPlayer player
+                && player != Minecraft.getInstance().player && RetrofitMod.runtime() != null) {
+            try {
+                LegacyBridge.call("removeClientPlayer", player.getUUID().toString());
+            } catch (RuntimeException e) {
+                // left in the legacy world
+            }
+        }
     }
 
     /** The player's position relative to the camera: where the event's pose stack stands. */
@@ -90,7 +108,7 @@ public final class LegacyPlayerRendering {
         Vec3 offset = offset(event);
         try {
             synchronized (LegacyBridge.renderLock()) {
-                Object[] result = LegacyBridge.call("renderPlayer", 0, event.getPartialTick(), (Object) null);
+                Object[] result = LegacyBridge.call("renderPlayer", 0, event.getPartialTick(), null, drawn(player));
                 drawInCameraSpace(event, offset, (Integer) result[0]);
                 if ((Boolean) result[1]) {
                     event.setCanceled(true);
@@ -120,7 +138,7 @@ public final class LegacyPlayerRendering {
         try {
             synchronized (LegacyBridge.renderLock()) {
                 PlayerModel<AbstractClientPlayer> model = event.getRenderer().getModel();
-                Object[] specials = LegacyBridge.call("renderPlayer", 1, event.getPartialTick(), parts(model));
+                Object[] specials = LegacyBridge.call("renderPlayer", 1, event.getPartialTick(), parts(model), drawn(player));
                 if ((Integer) specials[0] > 0) {
                     // RendererLivingEntity's model space: turned with the body, upside down, the player's 0.9375 scale
                     pose.pushPose();
@@ -135,7 +153,7 @@ public final class LegacyPlayerRendering {
                     pose.popPose();
                     pushed = false;
                 }
-                Object[] post = LegacyBridge.call("renderPlayer", 2, event.getPartialTick(), (Object) null);
+                Object[] post = LegacyBridge.call("renderPlayer", 2, event.getPartialTick(), null, drawn(player));
                 drawInCameraSpace(event, offset(event), (Integer) post[0]);
             }
         } catch (Throwable e) {

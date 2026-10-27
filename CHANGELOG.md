@@ -1,5 +1,111 @@
 # Changelog
 
+## 0.6.0-beta (in progress)
+
+- **A page for the 1.7.10 mods** (Options, "1.7.10 Mods..."), laid out as Forge's mod list: every 1.7.10 mod
+  with what its mcmod.info says and its logo, the ones that didn't load in red with the reason, and a Config
+  button: the mod's own configuration screen, or FML's for its .cfg files (saved when it closes; most 1.7.10
+  mods read them only at startup, which the page reminds you of). Retrofit's own settings are a button away.
+- **Mods' own particles are drawn** (custom EntityFX classes: ManaMetal's scythe, gun and wand projectiles,
+  which are nothing but particles): they are kept, updated each tick and drawn each frame as 1.7.10 did, also
+  when a mod puts its own effect renderer in place (DragonAPI's). Before, only particles with a vanilla
+  counterpart showed.
+- **Legacy code culls by the real view** (ClippingHelper, Frustrum): the camera's planes each frame, and a
+  Frustrum at the camera as 1.7.10's renderWorld made one. Everything tested against them was out of view
+  (with DragonAPI, every mod's particles).
+- **Mods' ores generate below y 0** (in the deepslate layer): 1.7.10's ore generators replace stone, and saw
+  deepslate as a block they leave alone, so the deep pass of 0.5.0 placed none in real worlds. Deepslate, tuff
+  and the other rock ores go into read as stone while legacy generators run.
+- **Mods that draw tooltips themselves** (a coremod replacing GuiScreen.renderToolTip, as ManaMetal's does) draw
+  them, in their own screens and in 1.20.1's, with their frames, separators and icons; before, Retrofit's own
+  tooltip hook replaced theirs and their markers showed as text (`[M3LINE]`).
+- **Icons mods put in text** through font pages of the private use area (`unicode_page_e0.png` and on: ManaMetal's
+  tooltip icons) are drawn; they were empty boxes.
+- **The HUD events are 1.7.10's**: every element GuiIngameForge fired (helmet, portal, hotbar, crosshairs, boss
+  health, health, armor, food, mount health, air, jump bar or experience, and the text lists), in its order.
+  Thaumcraft's research notifications and the aspects flying to the corner as you scan come at the text element,
+  which wasn't fired. What mods draw before the hotbar goes under it (ManaMetal's food decay bars covered the
+  items), and an element a mod cancels leaves out 1.20.1's own (a mod's hotbar or health bar replaces it).
+- **Thaumcraft's thaumometer sits where it did** (it was drawn too high): first-person renderers that place
+  themselves by the held item's equip progress get it at rest.
+- **Writes into a chunk's block storage reach the world** (ManaMetal builds its instance dungeons there, for
+  speed; OreSpawn's setBlockFast builds its houses, castles, mazes and islands the same way): only the
+  structures' blocks with tile entities appeared, as scattered pillars, spawners and chests.
+- **Big generated structures are built in full** (OreSpawn's Enormous Castle, and any mod's structure reaching
+  past the chunk next door): 1.20.1's feature stage only takes writes to the generating chunk and its
+  neighbours, where 1.7.10 loaded whatever chunk a generator wrote to. The rest are queued for their own chunk
+  and placed when it generates, or on the server thread for a chunk that finished first, with the spawner's
+  mob and the chest's loot the generator gave them. The queue is saved with the world, so a restart before
+  those chunks generate loses nothing.
+- **OptiFine for 1.7.10 is left out instead of stopping every 1.7.10 mod**: it patches 1.7.10's renderer, which
+  1.20.1 replaces, and the patched code failed before any mod loaded. It is listed with the other mods that
+  didn't load, with why.
+- **Players can join servers with large packs** (Thaumcraft, Railcraft, The Titans and the like together):
+  the client and server could register different potion effects or entities, and joining failed with
+  "Missing registry data" (Forge then crashed drawing that message). A potion asking for a taken id is now
+  moved above 127 (up to 255, as DragonAPI allows) instead of into the free ids below: mods that look for a
+  free id themselves look there, and Thaumcraft left out its Flux Taint when the moved potions had filled
+  it, on one side and not the other. Every potion a mod makes is registered, also one that lost its slot.
+  And a mod that takes over a vanilla entity name (Railcraft's minecarts) left two classes under that name,
+  of which either side could keep either: the mod's is kept.
+- **An invulnerable player takes no damage from 1.7.10 mobs** (the invulnerable ability, which commands and
+  mods give, not only creative mode): 1.7.10 code saw it only in creative.
+- **"Mismatched mod list" can be traced**: each side's log names the 1.7.10 mods (and versions) its network
+  version is made from, so two logs show which mod differs.
+- **Iron bars, fences and panes of generated structures join up** (the Enormous Castle's walls were scattered
+  posts): 1.20.1 keeps connections in the block state, so once the generators are done every block they wrote
+  takes the shape its neighbours ask for, as vanilla's structure templates do.
+  (Both contributed by UsagiTsukino-01.)
+- **Creatures spawn by themselves in mods' dimensions again** (none did, in any: Erebus, Betweenlands, OreSpawn's):
+  the creatures their generators list are handed to 1.20.1's spawner as the same entries each time, as a biome's
+  are; it asks twice and spawned nothing when the second answer was a new list.
+- **OreSpawn's Crystal dimension runs at full frame rate** (55 fps there against 180 elsewhere in the test): its
+  stone and grass are opaque cubes only while the player is in that dimension, which 1.20.1's fixed block
+  properties can't follow, so every buried face was drawn (116 million indices in view). Faces against a legacy
+  neighbour are now left out where 1.7.10 left them out: behind a block that says it is an opaque cube now
+  (asked each tick), or whose face covers them with an opaque texture.
+- **Entity shadows are round again** (OreSpawn's ants and most mobs drew a grid of shadows): legacy textures keep
+  their `.mcmeta` clamping and blur, which 1.7.10's shadow texture needs.
+- **Two mods can use the same dimension id** (Atum and Advent of Ascension both default to 17, and many dimension
+  mods share ids): the mod registering a taken id (or provider type) gets a free one from 1000 up, the same one
+  at every start (`retrofit/dimension-ids.txt`), and still sees the id it asked for everywhere in its own code:
+  its config's number, its portals' checks, its teleports, its packets and events. The rest of the game sees the
+  real ids. Before, the second mod had no dimension and its portal led into the other mod's.
+- **A dedicated server's 1.7.10 configs reach its players**: joining with different configs (`retrofit/config`,
+  and the dimension ids above) asks the player whether to use the server's; Retrofit then saves them (keeping
+  the player's own in `retrofit/config-backup`) and asks for a restart, as 1.7.10 mods read their configs only
+  at startup. Files named `*client*` are each player's own and never sent.
+- Legacy potion effects and enchantments are named the same whatever ids their configs give them (two with
+  one name are numbered in a fixed order; one without a name is named by its class), so clients and servers
+  with different numbering still connect.
+- **More textures**: icons mods cut from a sheet of their own (Chisel's connected-texture pillars and panels:
+  79 in the test pack) come from that part of the sheet; files whose name differs only in case, or that sit
+  under another asset folder of the same jar (BuildCraft's triggers), are found. The rest of the textures
+  legacy icons name but no jar has are listed in `retrofit/missing-textures.txt` (most are missing on 1.7.10
+  too).
+- **Dyed armor shows its colour**: leather-material legacy armor and armor with its own colours are tinted, and
+  dyeable as leather is (in crafting and cauldrons).
+- **Items used over time work in the off hand** (bows, food, wands), as in the main hand.
+- **RenderPlayerEvent fires for other players too** (capes, wings, mods' models of other players), with each
+  player's own legacy copy (EntityOtherPlayerMP, as 1.7.10 had them).
+- **Shapes that depend on neighbours** (fences, panes, cables, covers) collide and outline as they connect: the
+  block is asked where it is, as 1.7.10 asked it.
+- **IC2's energy net gets as much energy from 1.20.1 blocks as they give**, still at low voltage (no machine
+  explodes): it was 32 EU/t per block.
+- **Mods' own clouds and weather** (WorldProvider.getCloudRenderer, getWeatherRenderer) are drawn in their
+  dimensions.
+- **Triangle strips, fans and polygons drawn through vertex arrays** (the Tessellator in those modes: discs,
+  cones, beams) are drawn; only immediate mode drew them before.
+- **Recipe viewers list more legacy recipes**: subclasses of the vanilla and Ore Dictionary recipe classes, and
+  mods' own recipe classes whose inputs their fields show (only when the recipe itself accepts that reading).
+- HBM's planets (and other mod dimensions whose provider makes its biomes when a world is made for them) load:
+  the biome is the mod's, checked against its own view and moved off another mod's id, and made again into
+  its own slot.
+- The legacy lightmap (EntityRenderer.lightmapColors) is 1.20.1's, every frame (HBM's skies read it); NEI's
+  per-server settings get the server's address.
+- Mod dimensions generate blocks with ids past 4095 (Erebus: one of its chunk's blocks failed the chunk).
+- Faster loading: the scan for the names each class transformation looks for is one pass per class.
+
 ## 0.5.2-beta
 
 - **Erebus generates its dimension again** (reported with Erebus and HBM together): a

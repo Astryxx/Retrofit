@@ -93,8 +93,8 @@ public final class Recipes {
     /**
      * The crafting recipes with a mod item in them that recipe viewers can show: {shaped (1/0),
      * width, height, ingredients (each an array of alternative stacks, or null for an empty
-     * cell), output}. Vanilla shaped and shapeless recipes and Forge's ore recipes; mods' own
-     * recipe classes still craft, but can't be listed.
+     * cell), output}. Vanilla shaped and shapeless recipes and Forge's ore recipes, their subclasses, and
+     * mods' own recipe classes whose inputs their fields show (see describeOwn); the others still craft.
      */
     @SuppressWarnings("unchecked")
     public static Object[][] craftingRecipes() {
@@ -117,7 +117,7 @@ public final class Recipes {
         if (output == null || output.func_77973_b() == null) {
             return null;
         }
-        if (recipe.getClass() == net.minecraft.item.crafting.ShapedRecipes.class) {
+        if (recipe instanceof net.minecraft.item.crafting.ShapedRecipes) {
             net.minecraft.item.crafting.ShapedRecipes shaped = (net.minecraft.item.crafting.ShapedRecipes) recipe;
             Object[][] cells = new Object[shaped.field_77574_d.length][]; // recipeItems
             for (int i = 0; i < cells.length; i++) {
@@ -125,22 +125,134 @@ public final class Recipes {
             }
             return new Object[]{1, shaped.field_77576_b, shaped.field_77577_c, cells, output}; // recipeWidth, recipeHeight
         }
-        if (recipe.getClass() == net.minecraft.item.crafting.ShapelessRecipes.class) {
+        if (recipe instanceof net.minecraft.item.crafting.ShapelessRecipes) {
             List<Object> items = ((net.minecraft.item.crafting.ShapelessRecipes) recipe).field_77579_b; // recipeItems
             return new Object[]{0, 0, 0, cells(items.toArray()), output};
         }
-        if (recipe.getClass() == net.minecraftforge.oredict.ShapedOreRecipe.class) {
+        if (recipe instanceof net.minecraftforge.oredict.ShapedOreRecipe) {
             net.minecraftforge.oredict.ShapedOreRecipe shaped = (net.minecraftforge.oredict.ShapedOreRecipe) recipe;
-            java.lang.reflect.Field width = shaped.getClass().getDeclaredField("width");
-            java.lang.reflect.Field height = shaped.getClass().getDeclaredField("height");
+            java.lang.reflect.Field width = net.minecraftforge.oredict.ShapedOreRecipe.class.getDeclaredField("width");
+            java.lang.reflect.Field height = net.minecraftforge.oredict.ShapedOreRecipe.class.getDeclaredField("height");
             width.setAccessible(true);
             height.setAccessible(true);
             return new Object[]{1, width.getInt(shaped), height.getInt(shaped), cells(shaped.getInput()), output};
         }
-        if (recipe.getClass() == net.minecraftforge.oredict.ShapelessOreRecipe.class) {
+        if (recipe instanceof net.minecraftforge.oredict.ShapelessOreRecipe) {
             return new Object[]{0, 0, 0, cells(((net.minecraftforge.oredict.ShapelessOreRecipe) recipe).getInput().toArray()), output};
         }
+        return describeOwn(recipe, output);
+    }
+
+    /**
+     * A mod's own recipe class (IC2's AdvRecipe, mods' NBT recipes), read from its fields: an input array or list
+     * (stacks, ore lists or names, items, blocks, or inputs with a getter for their stacks, as IC2's IRecipeInput),
+     * with width and height fields if it is shaped. Only kept if the recipe itself accepts a grid laid out so and
+     * makes something: a reading that is wrong is never shown.
+     */
+    private static Object[] describeOwn(IRecipe recipe, ItemStack output) throws ReflectiveOperationException {
+        Integer width = null;
+        Integer height = null;
+        List<Object> inputs = new ArrayList<Object>();
+        for (Class<?> type = recipe.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                field.setAccessible(true);
+                String name = field.getName().toLowerCase(java.util.Locale.ROOT);
+                if (field.getType() == int.class && name.contains("width") && width == null) {
+                    width = field.getInt(recipe);
+                } else if (field.getType() == int.class && name.contains("height") && height == null) {
+                    height = field.getInt(recipe);
+                } else if (field.getType().isArray() && !field.getType().getComponentType().isPrimitive() || List.class.isAssignableFrom(field.getType())) {
+                    Object value = field.get(recipe);
+                    if (value != null) {
+                        inputs.add(value);
+                    }
+                }
+            }
+        }
+        for (Object candidate : inputs) {
+            Object[] elements = candidate instanceof List ? ((List<?>) candidate).toArray() : (Object[]) candidate;
+            if (elements.length == 0 || elements.length > 9) {
+                continue;
+            }
+            Object[][] cells = new Object[elements.length][];
+            boolean readable = true;
+            for (int i = 0; i < elements.length && readable; i++) {
+                cells[i] = alternatives(elements[i]);
+                readable = elements[i] == null || cells[i] != null && cells[i].length > 0;
+            }
+            if (!readable) {
+                continue;
+            }
+            boolean shaped = width != null && height != null && width * height == elements.length && width <= 3 && height <= 3;
+            int gridWidth = shaped ? width : 3;
+            int gridHeight = shaped ? height : 3;
+            Object[] sample = new Object[gridWidth * gridHeight];
+            for (int i = 0; i < cells.length && i < sample.length; i++) {
+                sample[i] = cells[i] == null ? null : sampleOf((ItemStack) cells[i][0]);
+            }
+            try {
+                InventoryCrafting grid = grid(sample, gridWidth, gridHeight);
+                if (recipe.func_77569_a(grid, null) && recipe.func_77572_b(grid) != null) { // matches, getCraftingResult
+                    return shaped ? new Object[]{1, width, height, cells, output} : new Object[]{0, 0, 0, cells, output};
+                }
+            } catch (Throwable t) {
+                // not a reading the recipe takes
+            }
+        }
         return null;
+    }
+
+    /** One recipe input as stacks it takes, or null if it isn't a kind of input known here. */
+    private static Object[] alternatives(Object input) {
+        if (input == null) {
+            return null;
+        }
+        if (input instanceof ItemStack) {
+            return new Object[]{input};
+        }
+        if (input instanceof Item) {
+            return new Object[]{new ItemStack((Item) input)};
+        }
+        if (input instanceof net.minecraft.block.Block) {
+            return new Object[]{new ItemStack((net.minecraft.block.Block) input)};
+        }
+        if (input instanceof String) {
+            return net.minecraftforge.oredict.OreDictionary.getOres((String) input).toArray();
+        }
+        if (input instanceof java.util.Collection) {
+            List<Object> stacks = new ArrayList<Object>();
+            for (Object element : (java.util.Collection<?>) input) {
+                if (element instanceof ItemStack) {
+                    stacks.add(element);
+                }
+            }
+            return stacks.toArray();
+        }
+        for (String getter : new String[]{"getInputs", "getInput", "getItems", "getStacks", "getItemStacks"}) {
+            try {
+                java.lang.reflect.Method method = input.getClass().getMethod(getter);
+                Object value = method.invoke(input);
+                Object[] found = value instanceof ItemStack[] ? (Object[]) value : value instanceof java.util.Collection ? alternatives(value) : null;
+                if (found != null && found.length > 0) {
+                    return found;
+                }
+            } catch (Throwable t) {
+                // not this getter
+            }
+        }
+        return null;
+    }
+
+    /** A stack to try a recipe with: a wildcard damage (any) as 0. */
+    private static ItemStack sampleOf(ItemStack stack) {
+        ItemStack sample = stack.func_77946_l(); // copy
+        if (sample.func_77960_j() == net.minecraftforge.oredict.OreDictionary.WILDCARD_VALUE) { // getItemDamage
+            sample.func_77964_b(0); // setItemDamage
+        }
+        return sample;
     }
 
     /** Recipe inputs (stacks, or ore lists) as arrays of alternatives. */

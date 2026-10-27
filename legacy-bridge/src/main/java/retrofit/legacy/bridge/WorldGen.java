@@ -34,14 +34,25 @@ public final class WorldGen {
     }
 
     /** The generation-only legacy world of a dimension (tile entities made during generation belong to it). */
-    public static Object genWorld(int dimension) {
+    public static Object genWorld(final int dimension) {
         synchronized (LOCK) {
             BridgeWorldServer world = WORLDS.get(dimension);
             if (world == null) {
                 // A WorldServer registers itself with DimensionManager; mods looking up the dimension must
                 // keep finding the real one, not this generation-only world.
                 WorldServer previous = DimensionManager.getWorld(dimension);
-                world = new BridgeWorldServer(null, dimension);
+                try {
+                    world = Biomes.actAs(dimension, new java.util.concurrent.Callable<BridgeWorldServer>() {
+                        @Override
+                        public BridgeWorldServer call() {
+                            return new BridgeWorldServer(null, dimension);
+                        }
+                    });
+                } catch (RuntimeException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
                 DimensionManager.setWorld(dimension, previous);
                 WORLDS.put(dimension, world);
             }

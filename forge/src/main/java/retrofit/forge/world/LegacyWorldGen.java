@@ -89,17 +89,26 @@ public final class LegacyWorldGen {
             try {
                 Object world = LegacyBridge.call("genWorld", dimension);
                 RegionHostWorld host = new RegionHostWorld(region, world, chunk);
+                LegacyDeferredBlocks.applyTo(region.getLevel().dimension(), chunk.x, chunk.z, host); // structures a neighbour's generators reached in here
                 LegacyBridge.call("generate", host, dimension, chunk.x, chunk.z);
                 host.flushTiles();
-                RegionHostWorld deep = dimension == 0 && DEEP_ORES ? RegionHostWorld.deep(region, world, chunk) : null;
-                if (deep != null) {
-                    LegacyBridge.call("generate", deep, dimension, chunk.x, chunk.z); // legacy ores below y 0 too
-                    deep.flushTiles();
+                host.fixShapes();
+                if (dimension == 0 && DEEP_ORES) {
+                    generateDeep(region, world, chunk); // legacy ores below y 0 too
                 }
             } catch (RuntimeException e) {
                 LegacyErrors.report("world generator", "generating chunk " + chunk, e);
             }
             return true;
+        }
+    }
+
+    /** The deep pass of the overworld's legacy generators over a chunk (see RegionHostWorld); also run by the play test. */
+    public static void generateDeep(WorldGenLevel region, Object legacyWorld, ChunkPos chunk) {
+        RegionHostWorld deep = RegionHostWorld.deep(region, legacyWorld, chunk);
+        if (deep != null) {
+            LegacyBridge.call("generate", deep, 0, chunk.x, chunk.z);
+            deep.flushTiles();
         }
     }
 

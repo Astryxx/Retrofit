@@ -33,6 +33,13 @@ public final class Capture {
     public static final int REVERSED = 1 << 22;
     /** Drawn with glDepthFunc(GL_EQUAL): only over what was drawn at the same depth before. */
     public static final int DEPTH_EQUAL = 1 << 23;
+    /** Drawn with GL_DEPTH_TEST on, by the function in {@link #DEPTH_FUNC} (screens clip by it: Thaumcraft's research map). */
+    public static final int DEPTH_TEST = 1 << 24;
+    /** Drawn with glDepthMask(false): the depth buffer kept as it was. */
+    public static final int NO_DEPTH_WRITE = 1 << 25;
+    /** glDepthFunc as (function - GL_NEVER) << DEPTH_FUNC_SHIFT: GL_NEVER 0 to GL_ALWAYS 7, GL_LEQUAL 3. */
+    public static final int DEPTH_FUNC_SHIFT = 26;
+    public static final int DEPTH_FUNC = 7 << DEPTH_FUNC_SHIFT;
     public static final int TEXTURE_MASK = 0xFFFF;
 
     private static float[] data = new float[FLOATS_PER_VERTEX * 1024];

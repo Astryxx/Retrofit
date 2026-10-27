@@ -46,7 +46,12 @@ public final class LegacyBlockTable {
     /** (legacy id << 4 | meta) -> 1.20.1 state, or null if no vanilla block uses that id. */
     private final BlockState[] toModern = new BlockState[LEGACY_IDS << 4];
     /** 1.20.1 state -> (legacy id << 4 | meta), for every registered state. */
-    private final Map<BlockState, Integer> toLegacy = new IdentityHashMap<>();
+    /** State -> legacy (id << 4 | meta), -1 for none; asked for every block legacy code reads, so an unboxed identity map. */
+    private final it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap<BlockState> toLegacy = new it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap<>();
+
+    {
+        toLegacy.defaultReturnValue(-1);
+    }
     /** Legacy id -> legacy Block object (vanilla only). */
     private final Object[] legacyBlocks = new Object[LEGACY_IDS];
     /** Legacy Block object -> legacy id (vanilla only). */
@@ -87,12 +92,12 @@ public final class LegacyBlockTable {
         }
         int standIns = 0;
         for (Block block : BuiltInRegistries.BLOCK) {
-            Integer viaDefault = toLegacy.get(block.defaultBlockState());
+            int viaDefault = toLegacy.getInt(block.defaultBlockState());
             for (BlockState state : block.getStateDefinition().getPossibleStates()) {
                 if (toLegacy.containsKey(state)) {
                     continue;
                 }
-                if (viaDefault != null) {
+                if (viaDefault >= 0) {
                     toLegacy.put(state, viaDefault); // e.g. a block state property 1.7.10 didn't have
                 } else if (state.isAir()) {
                     toLegacy.put(state, AIR); // cave and void air
@@ -154,8 +159,8 @@ public final class LegacyBlockTable {
      * blocks 1.7.10 never had (prismarine, deepslate, 1.20.1 mods' blocks) as Retrofit's stand-ins.
      */
     public int legacyOf(BlockState state) {
-        Integer combined = toLegacy.get(state);
-        if (combined != null) {
+        int combined = toLegacy.getInt(state);
+        if (combined >= 0) {
             return combined;
         }
         int[] standIns = modernBlockIds();

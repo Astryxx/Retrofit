@@ -78,6 +78,7 @@ public final class LegacyClientSetup {
      */
     @SubscribeEvent
     public static void onModifyBakingResult(ModelEvent.ModifyBakingResult event) {
+        LegacyBlockFaces.clear();
         Map<ResourceLocation, BakedModel> models = event.getModels();
         int replaced = 0;
         for (LegacyBlock block : LegacyContent.blocks()) {
@@ -204,6 +205,8 @@ public final class LegacyClientSetup {
             try {
                 LegacyBridge.prepareFrame(LegacyContent.legacyWorld(minecraft.level), camera.getPosition().x, camera.getPosition().y,
                         camera.getPosition().z, camera.getYRot(), camera.getXRot(), event.getPartialTick());
+                float[] clip = new org.joml.Matrix4f(event.getProjectionMatrix()).mul(event.getPoseStack().last().pose()).get(new float[16]);
+                LegacyBridge.call("setFrustum", (Object) clip); // the view legacy code culls by (Frustrum)
             } catch (RuntimeException e) {
                 LOGGER.debug("Could not update the legacy viewer", e);
             }

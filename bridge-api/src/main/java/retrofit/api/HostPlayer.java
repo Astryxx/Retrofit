@@ -69,6 +69,11 @@ public interface HostPlayer {
     default void followDimension(int dimension) {
     }
 
+    /** Client side: whether this is the local player (the others are drawn players, 1.7.10's EntityOtherPlayerMP). */
+    default boolean isLocal() {
+        return true;
+    }
+
     /** Client: the open legacy container GUI clicked a slot (GuiContainer.handleMouseClick; legacy click modes). */
     void clickSlot(int windowId, int slotId, int button, int mode);
 }

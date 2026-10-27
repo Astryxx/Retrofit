@@ -26,6 +26,11 @@ final class ClientPlayers {
         return player;
     }
 
+    /** Another player, as a 1.7.10 client knew it (EntityOtherPlayerMP): drawn, never Minecraft.thePlayer. */
+    static EntityPlayer createOther(World world, String uuid, String name) {
+        return new net.minecraft.client.entity.EntityOtherPlayerMP(world, new com.mojang.authlib.GameProfile(java.util.UUID.fromString(uuid), name));
+    }
+
     /**
      * The arm's lag behind the view, as EntityPlayerSP.onLivingUpdate moved it each tick: renderers
      * of held items sway by the difference (Thaumcraft's thaumometer). Left at 0 the item swung by

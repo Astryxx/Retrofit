@@ -41,7 +41,7 @@ public final class Bridge {
     private Bridge() {
     }
 
-    public static Object createWorld(HostWorld host, int dimension) {
+    public static Object createWorld(HostWorld host, int dimension) throws Exception {
         Object world = LegacyWorlds.create(host, dimension);
         Events.worldLoaded(world);
         return world;
@@ -88,6 +88,19 @@ public final class Bridge {
                 block.func_149750_m(),             // getLightValue
                 worldIcons(block) ? 1 : 0
         };
+    }
+
+    /** Client, each tick: isOpaqueCube of these blocks as they answer it now (some answer by where the player is). */
+    public static boolean[] opaqueCubesNow(Object[] legacyBlocks) {
+        boolean[] opaque = new boolean[legacyBlocks.length];
+        for (int i = 0; i < legacyBlocks.length; i++) {
+            try {
+                opaque[i] = ((Block) legacyBlocks[i]).func_149662_c(); // isOpaqueCube
+            } catch (RuntimeException e) {
+                opaque[i] = false;
+            }
+        }
+        return opaque;
     }
 
     /**
@@ -296,6 +309,54 @@ public final class Bridge {
         }
     }
 
+    /**
+     * Whether a block's shape depends on where it is (its neighbours, its tile entity: fences, panes, cables,
+     * covers): it overrides setBlockBoundsBasedOnState, addCollisionBoxesToList or getCollisionBoundingBoxFromPool.
+     */
+    public static boolean shapeDependsOnPlace(Object legacyBlock) {
+        Class<?> type = legacyBlock.getClass();
+        return Overrides.overrides(type, Block.class, "func_149719_a", java.lang.invoke.MethodType.methodType(void.class,
+                net.minecraft.world.IBlockAccess.class, int.class, int.class, int.class)) // setBlockBoundsBasedOnState
+                || Overrides.overrides(type, Block.class, "func_149743_a", java.lang.invoke.MethodType.methodType(void.class, World.class,
+                int.class, int.class, int.class, AxisAlignedBB.class, List.class, net.minecraft.entity.Entity.class)) // addCollisionBoxesToList
+                || Overrides.overrides(type, Block.class, "func_149668_a", java.lang.invoke.MethodType.methodType(AxisAlignedBB.class, World.class,
+                int.class, int.class, int.class)); // getCollisionBoundingBoxFromPool
+    }
+
+    /**
+     * Shape questions in the world: their own lock, not LOCK, which the client holds while it draws (a server
+     * thread's collisions would wait for each frame). 1.7.10's integrated server and client too set a block's
+     * bounds from both threads.
+     */
+    private static final Object SHAPES = new Object();
+
+    /** A block's shape where it is in a world (see blockShape for the layout; coordinates relative to the block). */
+    public static double[] blockShapeAt(Object legacyWorld, int x, int y, int z) {
+        synchronized (SHAPES) {
+            World world = (World) legacyWorld;
+            Block block = world.func_147439_a(x, y, z); // getBlock
+            block.func_149719_a(world, x, y, z); // setBlockBoundsBasedOnState
+            double[] selection = {block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
+                    block.func_149753_y(), block.func_149669_A(), block.func_149693_C()};
+            List boxes = new ArrayList();
+            AxisAlignedBB mask = AxisAlignedBB.func_72330_a(x - 1, y - 1, z - 1, x + 2, y + 2, z + 2); // getBoundingBox
+            block.func_149743_a(world, x, y, z, mask, boxes, null); // addCollisionBoxesToList
+            double[] shape = new double[6 + boxes.size() * 6];
+            System.arraycopy(selection, 0, shape, 0, 6);
+            for (int i = 0; i < boxes.size(); i++) {
+                AxisAlignedBB box = (AxisAlignedBB) boxes.get(i);
+                int o = 6 + i * 6;
+                shape[o] = box.field_72340_a - x;
+                shape[o + 1] = box.field_72338_b - y;
+                shape[o + 2] = box.field_72339_c - z;
+                shape[o + 3] = box.field_72336_d - x;
+                shape[o + 4] = box.field_72337_e - y;
+                shape[o + 5] = box.field_72334_f - z;
+            }
+            return shape;
+        }
+    }
+
     // ---- Rendering (client only; callers hold LOCK until they've read the capture) ----
 
     public static void prepareFrame(Object legacyWorld, double x, double y, double z, float yaw, float pitch, float partialTicks) {
@@ -339,6 +400,11 @@ public final class Bridge {
     /** Client: see LegacyRendering.blockItemIn3d. */
     public static boolean blockItemIn3d(Object legacyBlock) {
         return LegacyRendering.blockItemIn3d(legacyBlock);
+    }
+
+    /** Client: see LegacyRendering.renderAtmosphere. */
+    public static int renderAtmosphere(Object legacyWorld, int kind, float partialTicks) {
+        return LegacyRendering.renderAtmosphere(legacyWorld, kind, partialTicks);
     }
 
     /** Client: see LegacyRendering.renderSky. */
@@ -451,6 +517,11 @@ public final class Bridge {
     /** Client only; see {@link LegacyIcons#itemPassTextures}. */
     public static String[] itemPassTextures(Object legacyItem, int meta, int max) {
         return LegacyIcons.itemPassTextures(legacyItem, meta, max);
+    }
+
+    /** Client only; see {@link LegacyIcons#iconRegion}. */
+    public static Object[] iconRegion(String name) {
+        return LegacyIcons.iconRegion(name);
     }
 
     /** Client only; see {@link LegacyIcons#iconFolder}. */
@@ -723,7 +794,7 @@ public final class Bridge {
                 continue;
             }
             result.add(new Object[]{id, enchantment.func_77320_a(), enchantment.func_77324_c(), enchantment.func_77325_b(), // getName, getWeight, getMaxLevel
-                    enchantment.field_77351_y == null ? "all" : enchantment.field_77351_y.name()}); // type
+                    enchantment.field_77351_y == null ? "all" : enchantment.field_77351_y.name(), enchantment.getClass().getName()}); // type
         }
         return result.toArray(new Object[0][]);
     }

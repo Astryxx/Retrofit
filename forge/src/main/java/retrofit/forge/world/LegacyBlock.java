@@ -31,6 +31,8 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+
+import java.util.Map;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
@@ -59,14 +61,25 @@ public class LegacyBlock extends Block {
     private final boolean comparatorOutput;
     private final VoxelShape[] outlines = new VoxelShape[16];
     private final VoxelShape[] collisions = new VoxelShape[16];
+    /** Whether the legacy shape depends on where the block is (neighbours, tile entity): fences, panes, cables, covers. */
+    private final boolean placedShape;
+    /** Shapes where the block is, for the game tick they were asked in: pos -> {level, game time, outline, collision}. */
+    private final Map<Long, Object[]> placed = java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Long, Object[]> eldest) {
+            return size() > 2048;
+        }
+    });
+    private boolean placedFailed;
 
     /**
      * @param renderInfo see {@link LegacyBridge#blockRenderInfo}
      * @param info       see the legacy bridge's Interactions.blockInfo
      */
     private LegacyBlock(Object legacyBlock, boolean hasTileEntity, int[] renderInfo, Object[] info) {
-        super(properties(renderInfo, info));
+        super(properties(legacyBlock, renderInfo, info));
         this.legacyBlock = legacyBlock;
+        this.placedShape = placedShape(legacyBlock);
         this.harvestTool = info[3] != null ? (String) info[3] : (Integer) info[5] != 0 ? "pickaxe" : null;
         this.harvestLevel = (Integer) info[4];
         this.ticksRandomly = (Integer) info[6] != 0;
@@ -81,7 +94,15 @@ public class LegacyBlock extends Block {
         registerDefaultState(stateDefinition.any().setValue(LegacyContent.META, 0));
     }
 
-    private static BlockBehaviour.Properties properties(int[] renderInfo, Object[] info) {
+    private static boolean placedShape(Object legacyBlock) {
+        try {
+            return LegacyBridge.<Boolean>call("shapeDependsOnPlace", legacyBlock);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static BlockBehaviour.Properties properties(Object legacyBlock, int[] renderInfo, Object[] info) {
         float hardness = (Float) info[0];
         float resistance = (Float) info[1];
         BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
@@ -96,6 +117,9 @@ public class LegacyBlock extends Block {
         int light = renderInfo[3];
         if (light > 0) {
             properties.lightLevel(state -> light);
+        }
+        if (placedShape(legacyBlock)) {
+            properties.dynamicShape(); // no shape cached per state: it is asked where the block is (see shapesAt)
         }
         return properties;
     }
@@ -135,6 +159,10 @@ public class LegacyBlock extends Block {
 
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        VoxelShape[] here = shapesAt(level, pos);
+        if (here != null) {
+            return here[0];
+        }
         int meta = state.getValue(LegacyContent.META);
         if (outlines[meta] == null) {
             computeShapes(meta);
@@ -144,11 +172,48 @@ public class LegacyBlock extends Block {
 
     @Override
     public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        VoxelShape[] here = shapesAt(level, pos);
+        if (here != null) {
+            return here[1];
+        }
         int meta = state.getValue(LegacyContent.META);
         if (collisions[meta] == null) {
             computeShapes(meta);
         }
         return collisions[meta];
+    }
+
+    /**
+     * {outline, collision} where the block is in a level, as the legacy block works them out from its neighbours
+     * (1.7.10 asked setBlockBoundsBasedOnState and addCollisionBoxesToList in the world); null for blocks whose
+     * shape doesn't depend on its place, and outside a level (world generation regions, pathfinding caches: the
+     * metadata's shape, as before).
+     */
+    private VoxelShape[] shapesAt(BlockGetter level, BlockPos pos) {
+        if (!placedShape || placedFailed || !(level instanceof net.minecraft.world.level.Level world) || retrofit.forge.RetrofitMod.runtime() == null) {
+            return null;
+        }
+        long key = pos.asLong();
+        long time = world.getGameTime();
+        Object[] known = placed.get(key);
+        if (known != null && known[0] == world && (Long) known[1] == time) {
+            return new VoxelShape[]{(VoxelShape) known[2], (VoxelShape) known[3]};
+        }
+        try {
+            double[] shape = LegacyBridge.call("blockShapeAt", LegacyContent.legacyWorld(world), pos.getX(), pos.getY(), pos.getZ());
+            VoxelShape outline = box(shape, 0);
+            VoxelShape collision = Shapes.empty();
+            for (int o = 6; o + 6 <= shape.length; o += 6) {
+                collision = Shapes.or(collision, box(shape, o));
+            }
+            collision = collision.optimize();
+            placed.put(key, new Object[]{world, time, outline, collision});
+            return new VoxelShape[]{outline, collision};
+        } catch (RuntimeException e) {
+            placedFailed = true; // the metadata's shape from now on, as before
+            LegacyErrors.report(translationKey, "working out its shape where it is", e);
+            return null;
+        }
     }
 
     /** Cached per metadata value; a block whose shape code fails keeps a full cube. */
@@ -179,8 +244,36 @@ public class LegacyBlock extends Block {
         return Shapes.box(values[o], values[o + 1], values[o + 2], values[o + 3], values[o + 4], values[o + 5]);
     }
 
+    /**
+     * Client, while chunk meshes are built: a face against a legacy neighbour is skipped where
+     * 1.7.10 skipped it, behind a neighbour that is an opaque cube now (isOpaqueCube, asked each
+     * tick: OreSpawn's Crystal dimension stone is opaque only while the player is there), or
+     * behind one whose face covers it with an opaque texture (see LegacyBlockFaces). Only for
+     * neighbours that don't occlude in 1.20.1: it culls against the others itself.
+     */
+    @Override
+    public boolean skipRendering(BlockState state, BlockState adjacent, net.minecraft.core.Direction direction) {
+        if (adjacent.getBlock() instanceof LegacyBlock other && !other.opaque && (other.opaqueNow
+                || !opaque && retrofit.forge.client.LegacyBlockFaces.covers(state, direction)
+                && retrofit.forge.client.LegacyBlockFaces.covers(adjacent, direction.getOpposite()))) {
+            return true;
+        }
+        return super.skipRendering(state, adjacent, direction);
+    }
+
     public boolean isOpaque() {
         return opaque;
+    }
+
+    /** Client: whether a block that isn't an opaque cube for 1.20.1 says it is one now (see skipRendering). */
+    private volatile boolean opaqueNow;
+
+    public boolean opaqueNow() {
+        return opaqueNow;
+    }
+
+    public void setOpaqueNow(boolean opaqueNow) {
+        this.opaqueNow = opaqueNow;
     }
 
     /** The legacy render type: 0 = plain cube, -1 = drawn only by its tile entity renderer, else RenderBlocks. */

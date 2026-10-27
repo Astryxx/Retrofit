@@ -339,6 +339,24 @@ public final class Interactions {
         return new int[]{armor.field_77881_a, armor.field_77879_b, armor.func_77619_b(), armor.field_77880_c}; // armorType, damageReduceAmount, renderIndex
     }
 
+    /** Whether a legacy armor piece takes a colour, as 1.7.10 drew it tinted: leather's material, or its own getColor. */
+    public static boolean armorDyeable(Object legacyItem) {
+        if (!(legacyItem instanceof net.minecraft.item.ItemArmor)) {
+            return false;
+        }
+        net.minecraft.item.ItemArmor armor = (net.minecraft.item.ItemArmor) legacyItem;
+        return armor.func_82812_d() == net.minecraft.item.ItemArmor.ArmorMaterial.CLOTH // getArmorMaterial
+                || Overrides.overrides(armor.getClass(), net.minecraft.item.ItemArmor.class, "func_82814_b",
+                java.lang.invoke.MethodType.methodType(int.class, ItemStack.class)); // getColor
+    }
+
+    /** The colour a legacy armor stack is drawn with (ItemArmor.getColor: 0xRRGGBB, -1 for none). */
+    public static int armorColor(Object legacyStack) {
+        ItemStack stack = (ItemStack) legacyStack;
+        return stack != null && stack.func_77973_b() instanceof net.minecraft.item.ItemArmor // getItem
+                ? ((net.minecraft.item.ItemArmor) stack.func_77973_b()).func_82814_b(stack) : -1;
+    }
+
     /** 1 if the item overrides onUpdate (ticks in inventories), 2 if it overrides onArmorTick; cached per class. */
     public static int tickFlags(Object legacyItem) {
         Class<?> type = legacyItem.getClass();

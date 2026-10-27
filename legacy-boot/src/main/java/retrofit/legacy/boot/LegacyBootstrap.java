@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -89,6 +90,14 @@ public final class LegacyBootstrap {
         }
     }
 
+    /**
+     * Tweakers that rewrite Minecraft 1.7.10 itself in ways the headless game can't run, by class: their
+     * mod is left out (with why), so it doesn't stop the others. OptiFine patches the renderer, which
+     * 1.20.1 draws instead.
+     */
+    private static final Map<String, String> UNSUPPORTED_TWEAKERS = Collections.singletonMap("optifine.OptiFineForgeTweaker",
+            "OptiFine: not supported (it patches 1.7.10's renderer, which 1.20.1 replaces; use a 1.20.1 performance or shader mod)");
+
     /** Mirrors the tweaker loop in Launch.launch: tweakers may queue further tweakers. */
     private static void runTweakers(LaunchClassLoader classLoader, List<String> tweakClassNames, List<String> argumentList,
                                     File gameDir, File assetsDir) throws Exception {
@@ -101,6 +110,12 @@ public final class LegacyBootstrap {
             for (String tweakName : new ArrayList<String>(tweakClassNames)) {
                 tweakClassNames.remove(tweakName);
                 if (!seen.add(tweakName)) {
+                    continue;
+                }
+                String unsupported = UNSUPPORTED_TWEAKERS.get(tweakName);
+                if (unsupported != null) {
+                    ModFailures.leaveOut(tweakName, unsupported);
+                    System.out.println("[Retrofit] Left out tweaker " + tweakName + ": " + unsupported);
                     continue;
                 }
                 classLoader.addClassLoaderExclusion(tweakName.substring(0, tweakName.lastIndexOf('.')));

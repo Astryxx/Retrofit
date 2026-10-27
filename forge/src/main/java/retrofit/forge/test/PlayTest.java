@@ -177,9 +177,11 @@ public final class PlayTest {
         }
         if (findItem("thetitans", path -> path.endsWith("_spawn_egg"), net.minecraft.world.item.SpawnEggItem.class) != null) {
             titansEgg();
+            titansBossBar();
         }
         if (findItem("orespawn", path -> path.contains("ruby"), ArmorItem.class) != null) {
             wornArmor("orespawn", "ruby");
+            oreSpawnBossBar();
         }
         if (item("ic2:itemarmorjetpackelectric") != null) {
             jetpack();
@@ -198,6 +200,7 @@ public final class PlayTest {
             machineGui("GregTech steam macerator", "gregtech:gt.blockmachines", 101);
         }
         deepCreature();
+        deepOres();
         runtimeDimensions();
         if (findItem("orespawn", path -> path.contains("ruby"), ArmorItem.class) != null) {
             oreSpawnDimension();
@@ -220,7 +223,156 @@ public final class PlayTest {
         if (findItem("fiskheroes", path -> true, Item.class) != null) {
             heldItems("fiskheroes");
         }
+        if (findItem("manametalmod", path -> path.contains("initial_sickle"), Item.class) != null) {
+            manaMetal();
+        }
         heldInHand();
+        if (findItem("ironchest", path -> true, Item.class) != null) {
+            legacyModsScreen();
+        }
+    }
+
+    /**
+     * The 1.7.10 mods page (asked for by players): opened from the options screen as a player would,
+     * a mod found by searching and selected, its configuration opened, and Escape back to the list.
+     */
+    private static void legacyModsScreen() {
+        do_("mods page: options", 10, () -> Minecraft.getInstance().setScreen(new net.minecraft.client.gui.screens.OptionsScreen(null, Minecraft.getInstance().options)));
+        do_("mods page: open", 10, () -> press("1.7.10 Mods..."));
+        do_("mods page: search", 5, () -> {
+            for (var child : Minecraft.getInstance().screen.children()) {
+                if (child instanceof net.minecraft.client.gui.components.EditBox search) {
+                    search.setValue("iron");
+                }
+            }
+        });
+        do_("mods page: select", 5, () -> Minecraft.getInstance().screen.mouseClicked(20, 40, 0)); // the first mod in the list
+        do_("mods page: listed", 2, () -> {
+            boolean shown = Minecraft.getInstance().screen instanceof retrofit.forge.client.LegacyModsScreen;
+            result("1.7.10 mods page opens from the options screen", shown, String.valueOf(Minecraft.getInstance().screen));
+            grab("play-mods-page");
+        });
+        do_("mods page: config", 10, () -> press("Config"));
+        do_("mods page: config shown", 2, () -> {
+            var screen = Minecraft.getInstance().screen;
+            result("a 1.7.10 mod's configuration opens from it", screen instanceof retrofit.forge.client.LegacyPlainScreen, String.valueOf(screen));
+            grab("play-mods-config");
+        });
+        do_("mods page: escape", 10, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE, 0, 0));
+        do_("mods page: back", 0, () -> {
+            var screen = Minecraft.getInstance().screen;
+            result("closing it goes back to the mods page", screen instanceof retrofit.forge.client.LegacyModsScreen, String.valueOf(screen));
+            grab("play-mods-back");
+            Minecraft.getInstance().setScreen(null);
+        });
+    }
+
+    /** Presses the button of the current screen with this text. */
+    private static void press(String text) {
+        for (var child : Minecraft.getInstance().screen.children()) {
+            if (child instanceof net.minecraft.client.gui.components.Button button && button.getMessage().getString().equals(text)) {
+                button.onPress();
+                return;
+            }
+        }
+        LOGGER.info("[PlayTest] No button {} on {}", text, Minecraft.getInstance().screen);
+    }
+
+    /**
+     * ManaMetal, as players reported it (0.5.1): its own tooltips (drawn by its coremod's renderer,
+     * with icons from its font pages), the food decay bars under the hotbar's items, its scythes'
+     * projectiles (its own particles) and its instance dungeons (built straight into chunk storage).
+     */
+    private static void manaMetal() {
+        Item sickle = findItem("manametalmod", path -> path.contains("initial_sickle"), Item.class);
+        newSite("ManaMetal");
+        do_("manametal: tooltips", 5, () -> {
+            boolean modTooltips = retrofit.forge.world.LegacyBridge.<Boolean>call("modTooltips");
+            int vertices;
+            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                vertices = retrofit.forge.world.LegacyBridge.call("drawTooltip", retrofit.forge.world.LegacyStacks.toLegacy(new ItemStack(sickle)),
+                        100, 100, 800, 450, 1600, 900, 2);
+            }
+            boolean icon;
+            try {
+                java.lang.reflect.Method fontSet = net.minecraft.client.gui.Font.class.getDeclaredMethod("getFontSet", ResourceLocation.class);
+                fontSet.setAccessible(true);
+                Object glyphs = fontSet.invoke(Minecraft.getInstance().font, net.minecraft.network.chat.Style.DEFAULT_FONT);
+                icon = ((net.minecraft.client.gui.font.FontSet) glyphs).getGlyphInfo(0xE00D, false)
+                        != net.minecraft.client.gui.font.glyphs.SpecialGlyphs.MISSING;
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+            result("ManaMetal draws its own tooltips, with the icons of its font pages", modTooltips && vertices > 0 && icon,
+                    "coremod tooltips " + modTooltips + ", " + vertices + " vertices, U+E00D " + (icon ? "has a glyph" : "missing"));
+        });
+        do_("manametal: food", 10, () -> server(player -> {
+            player.getInventory().setItem(0, new ItemStack(Items.BREAD, 4));
+            player.getInventory().setItem(1, new ItemStack(sickle));
+        }));
+        do_("manametal: food decay under the hotbar", 0, () -> {
+            var window = Minecraft.getInstance().getWindow();
+            int before = -1;
+            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                retrofit.forge.world.LegacyBridge.call("drawOverlay", 0f, window.getWidth(), window.getHeight(), (int) window.getGuiScale());
+                for (Object marker : retrofit.forge.world.LegacyBridge.<Object[]>call("guiMarkers")) {
+                    if ("hotbar".equals(((Object[]) marker)[1])) {
+                        before = (Integer) ((Object[]) marker)[0];
+                    }
+                }
+            }
+            result("ManaMetal's food decay bars are drawn before the hotbar", before > 0, before + " vertices before the hotbar");
+            grab("play-manametal-hotbar");
+        });
+        do_("manametal: scythe", 5, () -> {
+            select(1);
+            Minecraft.getInstance().player.setXRot(0);
+        });
+        do_("manametal: cast", 10, () -> KeyMapping.set(Minecraft.getInstance().options.keyUse.getKey(), true)); // it fires after 10 ticks held
+        until("manametal: projectile flies", 100, () -> { // the server may be slow to fire it
+            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                return retrofit.forge.world.LegacyBridge.<Integer>call("drawParticles", 0f) > 0;
+            }
+        });
+        do_("manametal: projectile", 2, () -> {
+            int vertices;
+            int untextured = 0;
+            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                vertices = retrofit.forge.world.LegacyBridge.call("drawParticles", 0f);
+                try {
+                    int[] states = retrofit.forge.client.LegacyCapture.states();
+                    for (int v = 0; v < vertices; v++) {
+                        untextured += (states[v] & retrofit.forge.client.LegacyCapture.UNTEXTURED) != 0 ? 1 : 0;
+                    }
+                } catch (Throwable e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+            result("ManaMetal's scythe projectile draws its particles, textured", vertices > 0 && untextured == 0,
+                    vertices + " particle vertices, " + untextured + " untextured");
+            grab("play-manametal-projectile");
+        });
+        do_("manametal: projectile in flight", 6, () -> {
+        });
+        do_("manametal: projectile in flight shot", 0, () -> grab("play-manametal-projectile-flight"));
+        do_("manametal: cast done", 5, () -> KeyMapping.set(Minecraft.getInstance().options.keyUse.getKey(), false));
+        BlockPos dungeon = new BlockPos(-400, 40, -400); // 1.7.10's worlds end at y 256; the tower is 202 high
+        int[][] placed = {null};
+        do_("manametal: dungeon", 40, () -> server(player -> {
+            player.teleportTo(player.serverLevel(), dungeon.getX() - 4, dungeon.getY() + 30, dungeon.getZ() - 4, -45, 35);
+            placed[0] = retrofit.forge.world.LegacyBridge.call("testManaMetalDungeon", retrofit.forge.world.LegacyPlayers.mirror(player, false),
+                    "InstanceDungeon/IllusoryTower", dungeon.getX(), dungeon.getY(), dungeon.getZ());
+        }));
+        do_("manametal: dungeon built?", 0, () -> server(player -> {
+            int[] size = placed[0];
+            int solid = 0;
+            for (BlockPos pos : BlockPos.betweenClosed(dungeon, dungeon.offset(size[0] - 1, size[1] - 1, size[2] - 1))) {
+                solid += player.level().getBlockState(pos).isAir() ? 0 : 1;
+            }
+            result("ManaMetal's dungeon template is built in full", solid >= size[3] * 95 / 100,
+                    solid + " of the template's " + size[3] + " blocks (" + size[0] + "x" + size[1] + "x" + size[2] + ")");
+        }));
+        do_("manametal: dungeon shot", 5, () -> grab("play-manametal-dungeon"));
     }
 
     /**
@@ -437,6 +589,113 @@ public final class PlayTest {
         shot("play-titans-egg", () -> ground(2, 0).above());
     }
 
+    /**
+     * 1.7.10's boss bar (BossStatus, set by the boss's renderer) over a titan in view, alone and
+     * with a second one (players saw a bar only with two or more bosses around).
+     */
+    private static void titansBossBar() {
+        net.minecraft.world.entity.EntityType<?> type = entityType("thetitans", path -> path.contains("zombietitan"));
+        if (type == null) {
+            return;
+        }
+        List<java.util.UUID> titans = bossArena("Titans boss bar");
+        for (int count = 1; count <= 2; count++) {
+            spawnBoss("titans boss bar", type, count, titans, boss -> { });
+            faceNearestBoss("titans boss bar", type, "play-titans-bossbar-" + count);
+            int near = count;
+            do_("titans boss bar: " + count + " shown?", 0, () -> result("the boss bar shows with " + near + " titan(s) in view",
+                    retrofit.forge.client.LegacyBossBar.shown() != null, "bar: " + retrofit.forge.client.LegacyBossBar.shown()));
+        }
+        removeBosses("titans boss bar", titans);
+    }
+
+    /**
+     * OreSpawn's boss bar (its HUD names the creature the player points at, found by its own ray
+     * through the client's entities, 16 blocks ahead): Mobzilla in view, alone and with a second one
+     * (players saw a bar only with two or more around).
+     */
+    private static void oreSpawnBossBar() {
+        net.minecraft.world.entity.EntityType<?> type = entityType("orespawn", path -> path.equals("mobzilla"));
+        if (type == null) {
+            return;
+        }
+        List<java.util.UUID> bosses = bossArena("OreSpawn boss bar");
+        for (int count = 1; count <= 2; count++) {
+            spawnBoss("orespawn boss bar", type, count, bosses, boss -> boss.setSecondsOnFire(30));
+            faceNearestBoss("orespawn boss bar", type, "play-orespawn-bossbar-" + count);
+            int near = count;
+            do_("orespawn boss bar: " + count + " pointed at?", 0, () -> {
+                String seen = retrofit.forge.world.LegacyBridge.call("testClientPointedAt", "danger.orespawn.OreSpawnMain", "getPointedAtEntity", 16.0);
+                result("OreSpawn's HUD finds the Mobzilla looked at with " + near + " around", seen.startsWith("Godzilla"), seen);
+            });
+        }
+        removeBosses("orespawn boss bar", bosses);
+    }
+
+    private static net.minecraft.world.entity.EntityType<?> entityType(String namespace, java.util.function.Predicate<String> path) {
+        return ForgeRegistries.ENTITY_TYPES.getValues().stream().filter(candidate -> {
+            ResourceLocation id = ForgeRegistries.ENTITY_TYPES.getKey(candidate);
+            return id.getNamespace().equals(namespace) && path.test(id.getPath().toLowerCase(java.util.Locale.ROOT));
+        }).findFirst().orElse(null);
+    }
+
+    /**
+     * A site for big bosses: a bedrock floor they stand on and can't break (they walk off the usual
+     * patch, and Mobzilla breaks what it walks through), and nothing else around to look at. Returns
+     * the list the bosses spawned there go in.
+     */
+    private static List<java.util.UUID> bossArena(String name) {
+        newSite(name);
+        do_(name + ": arena", 20, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            for (BlockPos pos : BlockPos.betweenClosed(site.offset(-8, 0, -24), site.offset(40, 0, 40))) {
+                level.setBlock(pos, Blocks.BEDROCK.defaultBlockState(), 2);
+            }
+            level.getEntities((Entity) null, new net.minecraft.world.phys.AABB(site).inflate(96),
+                    entity -> !(entity instanceof net.minecraft.world.entity.player.Player)).forEach(Entity::discard);
+        }));
+        return new java.util.ArrayList<>();
+    }
+
+    /** The count'th boss, 14 blocks east of the site (the second 16 blocks south of the first). */
+    private static void spawnBoss(String name, net.minecraft.world.entity.EntityType<?> type, int count, List<java.util.UUID> bosses,
+                                  Consumer<Entity> setup) {
+        int dz = (count - 1) * 16;
+        do_(name + ": boss " + count, 40, () -> server(player -> {
+            Entity boss = type.create(player.serverLevel());
+            boss.moveTo(site.getX() + 14.5, site.getY() + 1, site.getZ() + 0.5 + dz, 90, 0);
+            setup.accept(boss);
+            player.serverLevel().addFreshEntity(boss);
+            bosses.add(boss.getUUID());
+        }));
+    }
+
+    /** The player 6 blocks west of the nearest boss's side (it may walk off a few before the check), looking at its middle, then a screenshot. */
+    private static void faceNearestBoss(String name, net.minecraft.world.entity.EntityType<?> type, String picture) {
+        do_(name + ": step up", 10, () -> server(player -> player.serverLevel().getEntities(type, player.getBoundingBox().inflate(64), Entity::isAlive)
+                .stream().min(java.util.Comparator.comparingDouble(boss -> boss.distanceToSqr(player))).ifPresent(boss ->
+                        player.teleportTo(player.serverLevel(), boss.getBoundingBox().minX - 6, site.getY() + 1, boss.getZ(), -90, 0))));
+        do_(name + ": look", 5, () -> {
+            var player = Minecraft.getInstance().player;
+            Minecraft.getInstance().level.getEntities((Entity) null, player.getBoundingBox().inflate(64), entity -> entity.getType() == type).stream()
+                    .min(java.util.Comparator.comparingDouble(entity -> entity.distanceToSqr(player))).ifPresent(boss -> {
+                        Vec3 to = boss.getBoundingBox().getCenter().subtract(player.getEyePosition());
+                        player.setYRot((float) (Math.toDegrees(Math.atan2(to.z, to.x)) - 90));
+                        player.setXRot((float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z))));
+                    });
+        });
+        do_("screenshot " + picture, 5, () -> grab(picture));
+    }
+
+    private static void removeBosses(String name, List<java.util.UUID> bosses) {
+        do_(name + ": remove", 20, () -> server(player -> bosses.forEach(id -> {
+            Entity boss = player.serverLevel().getEntity(id);
+            if (boss != null) {
+                boss.discard();
+            }
+        })));
+    }
+
     /** Places a Carpenter's Block, covers it with 1.20.1 oak planks, then places and hammers a slope. */
     private static void carpentersBlocks() {
         Item carpentersBlock = item("carpentersblocks:blockcarpentersblock");
@@ -565,6 +824,32 @@ public final class PlayTest {
         });
     }
 
+    /**
+     * Mods' ores below y 0 (the deep pass of world generation): players found none in the deepslate
+     * layer (0.5.2), which legacy ore generators saw as a block they don't replace. The test world is
+     * flat, so a patch of four chunks gets a deepslate layer and the deep pass runs over it.
+     */
+    private static void deepOres() {
+        net.minecraft.world.level.ChunkPos chunk = new net.minecraft.world.level.ChunkPos(-125, -125);
+        do_("deep ores", 0, () -> server(player -> {
+            ServerLevel level = player.server.overworld();
+            BlockPos from = chunk.getWorldPosition().atY(level.getMinBuildHeight() + 1);
+            BlockPos to = from.offset(31, -level.getMinBuildHeight() - 2, 31); // y -63 to -1
+            for (BlockPos pos : BlockPos.betweenClosed(from, to)) {
+                level.setBlock(pos, Blocks.DEEPSLATE.defaultBlockState(), 2 | 16);
+            }
+            retrofit.forge.world.LegacyWorldGen.generateDeep(level, retrofit.forge.world.LegacyBridge.call("genWorld", 0), chunk);
+            Map<String, Integer> ores = new java.util.TreeMap<>();
+            for (BlockPos pos : BlockPos.betweenClosed(from, to)) {
+                BlockState state = level.getBlockState(pos);
+                if (state.getBlock() instanceof retrofit.forge.world.LegacyBlock) {
+                    ores.merge(ForgeRegistries.BLOCKS.getKey(state.getBlock()).toString(), 1, Integer::sum);
+                }
+            }
+            result("mods' ores generate in the deepslate layer below y 0", !ores.isEmpty(), ores.isEmpty() ? "none" : ores.toString());
+        }));
+    }
+
     /** A legacy creature in a cave below y 0 (1.7.10 worlds ended at 0): it must stay there, alive. */
     /**
      * Dimensions mods register while playing (Galacticraft's space stations, pocket and personal dimensions):
@@ -643,7 +928,8 @@ public final class PlayTest {
         int[] utopia = {Integer.MIN_VALUE};
         do_("orespawn dimension: go", 100, () -> server(player -> {
             Object id = retrofit.forge.world.LegacyBridge.call("testModField", "danger.orespawn.OreSpawnMain", "DimensionID");
-            if (id instanceof Integer dimension) {
+            if (id instanceof Integer own) {
+                int dimension = retrofit.forge.world.LegacyBridge.<Integer>call("testRealDimension", "danger.orespawn.OreSpawnMain", own);
                 utopia[0] = dimension;
                 retrofit.forge.world.LegacyBridge.call("testTeleport", retrofit.forge.world.LegacyPlayers.mirror(player, false),
                         dimension, "danger.orespawn.OreSpawnTeleporter");
@@ -659,8 +945,101 @@ public final class PlayTest {
                     "dimension " + utopia[0] + ", player in " + where + " at " + feet + " above " + player.level().getBlockState(feet.below()));
         });
         shot("play-orespawn-utopia", () -> serverPlayer().blockPosition());
+        naturalSpawns("OreSpawn's Utopia");
+        int[] utopiaFps = frameRate("orespawn utopia");
+        // The Crystal dimension: players saw the frame rate drop wherever its crystal blocks were in view (0.5.1)
+        int[] crystal = {Integer.MIN_VALUE};
+        do_("orespawn crystal: go", 200, () -> server(player -> {
+            Object id = retrofit.forge.world.LegacyBridge.call("testModField", "danger.orespawn.OreSpawnMain", "DimensionID5");
+            if (id instanceof Integer own) {
+                crystal[0] = retrofit.forge.world.LegacyBridge.<Integer>call("testRealDimension", "danger.orespawn.OreSpawnMain", own);
+                retrofit.forge.world.LegacyBridge.call("testTeleport", retrofit.forge.world.LegacyPlayers.mirror(player, false),
+                        crystal[0], "danger.orespawn.OreSpawnTeleporter");
+            }
+        }));
+        int[] crystalFps = frameRate("orespawn crystal");
+        do_("orespawn: structures in full", 0, () -> {
+            long[] counts = retrofit.forge.world.LegacyDeferredBlocks.counts();
+            result("structures reaching past a chunk's neighbours are built in full", counts[0] == 0 || counts[1] > 0,
+                    counts[0] + " blocks placed past the generation window, " + counts[1] + " of them in their chunk since");
+        });
+        do_("orespawn crystal: frame rate", 0, () -> result("OreSpawn's Crystal dimension draws about as fast as Utopia",
+                crystalFps[0] * 2 >= utopiaFps[0], crystalFps[0] + " fps in Crystal (dimension " + crystal[0] + "), " + utopiaFps[0] + " in Utopia"));
+        shot("play-orespawn-crystal", () -> serverPlayer().blockPosition());
         do_("orespawn dimension: home", 60, () -> server(player ->
                 retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
+    }
+
+    /**
+     * Creatures spawning by themselves in the dimension the player is in, from the mod's own lists
+     * (players found none in any mod dimension, 0.5.2): mob spawning on for a while, then the legacy
+     * creatures around counted.
+     */
+    private static void naturalSpawns(String where) {
+        do_(where + ": spawning on", 400, () -> server(player ->
+                player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(true, player.server)));
+        do_(where + ": creatures spawned?", 0, () -> server(player -> {
+            player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(false, player.server);
+            Map<String, Integer> found = new java.util.TreeMap<>();
+            for (Entity entity : player.serverLevel().getEntities((Entity) null, player.getBoundingBox().inflate(128),
+                    entity -> entity instanceof retrofit.forge.world.LegacyEntityCarrier && entity.getType().getCategory() != net.minecraft.world.entity.MobCategory.MISC)) {
+                found.merge(ForgeRegistries.ENTITY_TYPES.getKey(entity.getType()).toString(), 1, Integer::sum);
+            }
+            result(where + ": creatures spawn by themselves", !found.isEmpty(), found.isEmpty() ? "none within 128 blocks" : found.toString());
+        }));
+    }
+
+    /** Index counts of the chunk sections drawn this frame, per chunk render type (dev names; what the GPU draws). */
+    private static Map<String, Long> visibleIndices() {
+        Map<String, Long> counts = new java.util.TreeMap<>();
+        try {
+            java.lang.reflect.Field inFrustum = net.minecraft.client.renderer.LevelRenderer.class.getDeclaredField("renderChunksInFrustum");
+            inFrustum.setAccessible(true);
+            java.lang.reflect.Field indexCount = com.mojang.blaze3d.vertex.VertexBuffer.class.getDeclaredField("indexCount");
+            indexCount.setAccessible(true);
+            for (Object info : (Iterable<?>) inFrustum.get(Minecraft.getInstance().levelRenderer)) {
+                java.lang.reflect.Field chunkField = info.getClass().getDeclaredField("chunk");
+                chunkField.setAccessible(true);
+                var chunk = (net.minecraft.client.renderer.chunk.ChunkRenderDispatcher.RenderChunk) chunkField.get(info);
+                for (net.minecraft.client.renderer.RenderType type : net.minecraft.client.renderer.RenderType.chunkBufferLayers()) {
+                    String name = type.toString();
+                    counts.merge(name.substring(name.indexOf('[') + 1, name.indexOf(':')), (long) indexCount.getInt(chunk.getBuffer(type)), Long::sum);
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            counts.put("unavailable: " + e, 0L);
+        }
+        return counts;
+    }
+
+    /**
+     * The frame rate over five seconds on the surface where the player is, looking out over it (the
+     * lowest of the per-second counts, uncapped), with the chunk statistics logged.
+     */
+    private static int[] frameRate(String where) {
+        int[] lowest = {Integer.MAX_VALUE};
+        int[] limit = {0};
+        do_(where + ": stand on top", 60, () -> {
+            limit[0] = Minecraft.getInstance().options.framerateLimit().get();
+            Minecraft.getInstance().options.framerateLimit().set(260); // unlimited
+            server(player -> {
+                BlockPos top = player.level().getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, player.blockPosition());
+                player.teleportTo(player.serverLevel(), top.getX() + 0.5, top.getY() + 1, top.getZ() + 0.5, 0, 15);
+            });
+        });
+        for (int second = 0; second < 6; second++) {
+            int n = second;
+            do_(where + ": frames " + n, 20, () -> {
+                Minecraft minecraft = Minecraft.getInstance();
+                if (n > 0) { // the first second still counts frames from before
+                    lowest[0] = Math.min(lowest[0], minecraft.getFps());
+                }
+                LOGGER.info("[PlayTest] {}: {} fps, {}, particles {}, {}, indices {}", where, minecraft.getFps(), minecraft.levelRenderer.getChunkStatistics(),
+                        minecraft.particleEngine.countParticles(), minecraft.levelRenderer.getEntityStatistics(), visibleIndices());
+            });
+        }
+        do_(where + ": frame limit back", 0, () -> Minecraft.getInstance().options.framerateLimit().set(limit[0]));
+        return lowest;
     }
 
     /**
@@ -672,7 +1051,8 @@ public final class PlayTest {
         int[] erebus = {Integer.MIN_VALUE};
         do_("erebus: go", 120, () -> server(player -> {
             Object id = retrofit.forge.world.LegacyBridge.call("testModField", "erebus.core.handler.configs.ConfigHandler", "INSTANCE.erebusDimensionID");
-            if (id instanceof Integer dimension) {
+            if (id instanceof Integer own) {
+                int dimension = retrofit.forge.world.LegacyBridge.<Integer>call("testRealDimension", "erebus.core.handler.configs.ConfigHandler", own);
                 erebus[0] = dimension;
                 retrofit.forge.world.LegacyBridge.call("testTeleport", retrofit.forge.world.LegacyPlayers.mirror(player, false),
                         dimension, "erebus.world.teleporter.TeleporterErebus");
@@ -694,6 +1074,7 @@ public final class PlayTest {
                             + " blocks around not air" + (errors ? ", generation errors (see the log)" : ""));
         }));
         shot("play-erebus", () -> serverPlayer().blockPosition());
+        naturalSpawns("Erebus");
         do_("erebus: home", 60, () -> server(player ->
                 retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
     }
@@ -708,21 +1089,24 @@ public final class PlayTest {
         int[] atum = {Integer.MIN_VALUE};
         do_("atum portal: step in", 0, () -> server(player -> {
             Object id = retrofit.forge.world.LegacyBridge.call("testModField", "com.teammetallurgy.atum.handler.AtumConfig", "DIMENSION_ID");
-            atum[0] = id instanceof Integer dimension ? dimension : Integer.MIN_VALUE;
+            atum[0] = id instanceof Integer dimension // Atum's own number, as Atum sees it; the game's may differ (see DimensionIds)
+                    ? retrofit.forge.world.LegacyBridge.<Integer>call("testRealDimension", "com.teammetallurgy.atum.handler.AtumConfig", dimension)
+                    : Integer.MIN_VALUE;
             BlockPos feet = player.blockPosition();
             player.serverLevel().setBlock(feet, findBlock("atum", path -> path.contains("portal")).defaultBlockState(), 2);
         }));
         until("atum portal: arrived", 400, () -> serverPlayer().level().dimension().location().toString()
                 .equals(RetrofitMod.MOD_ID + ":legacy_dim_" + atum[0]));
-        do_("atum portal: still there?", 60, () -> {
-            ServerPlayer player = serverPlayer();
+        // placed once the arrival's chunks have generated (the server thread runs queued tasks while it waits for them)
+        until("atum portal: placed", 600, () -> serverPlayer().getY() > 2);
+        do_("atum portal: still there?", 60, () -> server(player -> {
             String where = player.level().dimension().location().toString();
             boolean errors = retrofit.forge.world.LegacyErrors.reportedFor("legacy dimension " + atum[0]);
             result("Atum's portal takes the player there, the player stays, in the open", where.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + atum[0])
                     && standsFree(player) && !errors,
                     "dimension " + atum[0] + ", player in " + where + " at " + player.blockPosition() + standing(player)
                             + (errors ? ", generation errors (see the log)" : ""));
-        });
+        }));
         shot("play-atum", () -> serverPlayer().blockPosition());
         do_("atum: home", 60, () -> server(player ->
                 retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
@@ -872,6 +1256,44 @@ public final class PlayTest {
         do_("thaumcraft: scanning shot", 15, () -> grab("play-thaumcraft-scanning"));
         do_("thaumcraft: scan done", 4, () -> KeyMapping.set(Minecraft.getInstance().options.keyUse.getKey(), false));
         do_("thaumcraft: scanned shot", 2, () -> grab("play-thaumcraft-scanned"));
+        // the Thaumonomicon, all research known (as players test it): its research map clips its nodes to
+        // the page by depth (GL_GEQUAL then GL_LEQUAL), and its tooltips stand in front of the nodes
+        do_("thaumcraft: all research", 20, () -> server(player -> {
+            player.server.getCommands().performPrefixedCommand(player.createCommandSourceStack().withPermission(4),
+                    "thaumcraft research " + player.getGameProfile().getName() + " all");
+            player.getInventory().setItem(0, new ItemStack(item("thaumcraft:itemthaumonomicon")));
+        }));
+        do_("thaumcraft: open the book", 30, () -> {
+            select(0);
+            Minecraft.getInstance().gameMode.useItem(Minecraft.getInstance().player, InteractionHand.MAIN_HAND);
+        });
+        do_("thaumcraft: book shot", 2, () -> {
+            result("the Thaumonomicon opens", Minecraft.getInstance().screen instanceof retrofit.forge.client.LegacyPlainScreen,
+                    String.valueOf(Minecraft.getInstance().screen));
+            grab("play-thaumcraft-thaumonomicon");
+        });
+        do_("thaumcraft: hover a node", 5, () -> {
+            // the game's own cursor position, not the system mouse: the node left of the middle, 2 rows down
+            Minecraft minecraft = Minecraft.getInstance();
+            try {
+                java.lang.reflect.Field x = net.minecraft.client.MouseHandler.class.getDeclaredField("xpos");
+                java.lang.reflect.Field y = net.minecraft.client.MouseHandler.class.getDeclaredField("ypos");
+                x.setAccessible(true);
+                y.setAccessible(true);
+                x.setDouble(minecraft.mouseHandler, minecraft.getWindow().getScreenWidth() * 0.509);
+                y.setDouble(minecraft.mouseHandler, minecraft.getWindow().getScreenHeight() * 0.583);
+            } catch (ReflectiveOperationException e) {
+                LOGGER.warn("[PlayTest] could not place the cursor", e);
+            }
+        });
+        do_("thaumcraft: tooltip shot", 2, () -> grab("play-thaumcraft-thaumonomicon-hover"));
+        do_("thaumcraft: book closed", 5, () -> Minecraft.getInstance().setScreen(null));
+        // a wand in first person: Thaumcraft's own item renderer places it (it sat in the wrong place)
+        do_("thaumcraft: wand", 10, () -> server(player -> player.getInventory().setItem(0, new ItemStack(item("thaumcraft:wandcasting")))));
+        do_("thaumcraft: wand shot", 10, () -> {
+            Minecraft.getInstance().player.setXRot(0);
+            grab("play-thaumcraft-wand");
+        });
     }
 
     /** A FiskHeroes suit (its armor pieces, tagged with the hero), worn and seen from the front: its own 3D model must draw. */
@@ -984,6 +1406,8 @@ public final class PlayTest {
         do_("rocket: off", 20, () -> server(player -> {
             player.stopRiding();
             player.setGameMode(GameType.SURVIVAL);
+            player.getAbilities().invulnerable = true; // (survival takes it away; the later scenarios have hostile mods' creatures)
+            player.onUpdateAbilities();
             player.teleportTo(site.getX() + 0.5, site.getY() + 1, site.getZ() + 0.5);
         }));
     }

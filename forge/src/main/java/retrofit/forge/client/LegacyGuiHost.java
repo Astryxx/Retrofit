@@ -73,7 +73,7 @@ final class LegacyGuiHost {
             synchronized (LegacyBridge.renderLock()) {
                 int vertices = LegacyBridge.call("guiDraw", screen, mouseX, mouseY, partialTicks);
                 Object[] markers = LegacyBridge.call("guiMarkers");
-                LegacyGuiRenderer.draw(graphics, vertices, markers, menu);
+                LegacyGuiRenderer.draw(graphics, LegacyGuiRenderer.Captured.copy(vertices, markers), menu, true);
             }
         } catch (Throwable e) {
             fail("drawing", e);

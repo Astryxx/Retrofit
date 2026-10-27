@@ -67,11 +67,53 @@ public final class LegacySkyEffects {
         }
     }
 
+    private static boolean atmosphereFailed;
+
+    /**
+     * Draws the legacy clouds (kind 0) or rain and snow (kind 1) if the level's legacy world has a renderer for them
+     * (WorldProvider.getCloudRenderer, getWeatherRenderer: drawn relative to the camera, as 1.7.10's RenderGlobal
+     * did); false lets 1.20.1 draw its own.
+     */
+    static boolean renderLegacyAtmosphere(ClientLevel level, int kind, float partialTick, PoseStack pose) {
+        if (atmosphereFailed || RetrofitMod.runtime() == null) {
+            return false;
+        }
+        try {
+            synchronized (LegacyBridge.renderLock()) {
+                int vertices = LegacyBridge.call("renderAtmosphere", LegacyContent.legacyWorld(level), kind, partialTick);
+                if (vertices < 0) {
+                    return false;
+                }
+                MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
+                int light = kind == 0 ? net.minecraft.client.renderer.LightTexture.FULL_BRIGHT
+                        : net.minecraft.client.renderer.LevelRenderer.getLightColor(level, Minecraft.getInstance().gameRenderer.getMainCamera().getBlockPosition());
+                LegacyCapture.draw(pose.last(), buffers, vertices, light, net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY);
+                buffers.endBatch();
+            }
+            return true;
+        } catch (Throwable e) {
+            atmosphereFailed = true;
+            LegacyBridge.reportClientFailure(kind == 0 ? "cloud drawing" : "weather drawing", e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e));
+            return false;
+        }
+    }
+
     static final class Overworld extends DimensionSpecialEffects.OverworldEffects {
         @Override
         public boolean renderSky(ClientLevel level, int ticks, float partialTick, PoseStack pose, Camera camera, Matrix4f projection,
                                  boolean foggy, Runnable setupFog) {
             return renderLegacySky(level, partialTick, pose);
+        }
+
+        @Override
+        public boolean renderClouds(ClientLevel level, int ticks, float partialTick, PoseStack pose, double camX, double camY, double camZ, Matrix4f projection) {
+            return renderLegacyAtmosphere(level, 0, partialTick, pose);
+        }
+
+        @Override
+        public boolean renderSnowAndRain(ClientLevel level, int ticks, float partialTick, net.minecraft.client.renderer.LightTexture lightTexture,
+                                         double camX, double camY, double camZ) {
+            return renderLegacyAtmosphere(level, 1, partialTick, new PoseStack());
         }
     }
 
@@ -80,6 +122,17 @@ public final class LegacySkyEffects {
         public boolean renderSky(ClientLevel level, int ticks, float partialTick, PoseStack pose, Camera camera, Matrix4f projection,
                                  boolean foggy, Runnable setupFog) {
             return renderLegacySky(level, partialTick, pose);
+        }
+
+        @Override
+        public boolean renderClouds(ClientLevel level, int ticks, float partialTick, PoseStack pose, double camX, double camY, double camZ, Matrix4f projection) {
+            return renderLegacyAtmosphere(level, 0, partialTick, pose);
+        }
+
+        @Override
+        public boolean renderSnowAndRain(ClientLevel level, int ticks, float partialTick, net.minecraft.client.renderer.LightTexture lightTexture,
+                                         double camX, double camY, double camZ) {
+            return renderLegacyAtmosphere(level, 1, partialTick, new PoseStack());
         }
     }
 }

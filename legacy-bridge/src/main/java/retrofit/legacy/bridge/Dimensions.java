@@ -354,6 +354,11 @@ public final class Dimensions {
         return value;
     }
 
+    /** Tests: the real id of a dimension id a mod's class names (see DimensionIds). */
+    public static int testRealDimension(String className, int id) {
+        return DimensionIds.real(id, className);
+    }
+
     /**
      * Tests: a mirror sent as mods with their own Teleporter send players (transferPlayerToDimension), the
      * teleporter made as such mods make it: (WorldServer destination, int dimension, World from), as OreSpawn's,
@@ -374,6 +379,40 @@ public final class Dimensions {
             teleporter = constructor.newInstance(destination);
         }
         server.func_71203_ab().transferPlayerToDimension(player, dimension, (Teleporter) teleporter); // getConfigurationManager
+    }
+
+    /**
+     * Tests: one of ManaMetal's dungeon templates placed as its instance dungeons are (MMM.spawnIDungeonGZIPV2,
+     * which writes large ones straight into the chunks' block storage) in the player's world; returns
+     * {width, height, length, the template's blocks that exist and aren't air}, or null without ManaMetal.
+     */
+    public static int[] testManaMetalDungeon(Object legacyPlayer, String template, int x, int y, int z) throws Exception {
+        Class<?> schematicType;
+        try {
+            schematicType = Class.forName("project.studio.manametalmod.blueprint.Schematic", true, Dimensions.class.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+        Object schematic = schematicType.getMethod("loanIDungeonFromJar", String.class).invoke(schematicType.newInstance(), template);
+        String[] names = (String[]) schematicType.getField("blockName").get(schematic);
+        int blocks = 0;
+        java.util.Set<String> unknown = new java.util.TreeSet<String>();
+        for (String name : names) {
+            Block block = name.isEmpty() ? null : Block.func_149684_b(name); // getBlockFromName
+            if (block == null && !name.isEmpty()) {
+                unknown.add(name);
+            }
+            blocks += block == null || block == net.minecraft.init.Blocks.field_150350_a ? 0 : 1;
+        }
+        if (!unknown.isEmpty()) {
+            System.out.println("[Retrofit] Blocks of " + template + " no mod has: " + unknown);
+        }
+        net.minecraft.world.World world = ((Entity) legacyPlayer).field_70170_p; // worldObj
+        Class.forName("project.studio.manametalmod.MMM", true, Dimensions.class.getClassLoader())
+                .getMethod("spawnIDungeonGZIPV2", net.minecraft.world.World.class, int.class, int.class, int.class, schematicType, int.class)
+                .invoke(null, world, x, y, z, schematic, 0);
+        return new int[]{schematicType.getField("width").getShort(schematic), schematicType.getField("height").getShort(schematic),
+                schematicType.getField("length").getShort(schematic), blocks};
     }
 
     /** The legacy world of a dimension the host has loaded, for mods that look it up (DimensionManager.getWorld). */

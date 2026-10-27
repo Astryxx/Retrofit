@@ -1,8 +1,12 @@
 package retrofit.forge.world;
 
+import com.mojang.logging.LogUtils;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Block;
@@ -12,6 +16,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.ticks.TickPriority;
 import net.minecraftforge.registries.ForgeRegistries;
+import org.slf4j.Logger;
 import retrofit.api.HostWorld;
 
 import java.util.HashMap;
@@ -19,8 +24,11 @@ import java.util.Map;
 
 /**
  * The region of a chunk being generated, as seen by legacy world generators (see
- * {@link LegacyWorldGen}). Writes are limited to what the region allows (the chunk and its
- * neighbours, which is where 1.7.10 generators place things: 8 blocks into the next chunks).
+ * {@link LegacyWorldGen}). Writes go to what the region allows (the chunk and its neighbours,
+ * which is where 1.7.10 generators place things: 8 blocks into the next chunks); structures
+ * reaching further have the rest placed when those chunks are there (see {@link LegacyDeferredBlocks}).
+ * Every block the region does take is remembered, so the connections of fences and iron bars
+ * among later neighbours come right when the generators are done ({@link #fixShapes}).
  *
  * Tile entities legacy generators create (chests they fill, spawners they set up) are kept here
  * and written into the chunk as block entity data when the chunk is done, so the real block
@@ -34,9 +42,11 @@ import java.util.Map;
  * as the layer above, and nothing else (structures, plants) doubles.
  */
 final class RegionHostWorld implements HostWorld {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private final WorldGenLevel region;
     private final Object legacyWorld;
     private final ChunkPos center;
+    private final ResourceKey<Level> dimension;
     private final LegacyBlockTable table = LegacyBlockTable.get();
     private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
     private final Map<BlockPos, Object> tiles = new HashMap<>();
@@ -50,6 +60,8 @@ final class RegionHostWorld implements HostWorld {
      * tile entity (getLegacyTileEntity), so one read in passing never overwrites a 1.20.1 chest or spawner.
      */
     private final java.util.Set<BlockPos> placed = new java.util.HashSet<>();
+    /** Every position this run placed a block at: their connections are re-shaped once the generators are done. */
+    private final java.util.Set<BlockPos> written = new java.util.HashSet<>();
 
     RegionHostWorld(WorldGenLevel region, Object legacyWorld, ChunkPos center) {
         this(region, legacyWorld, center, false);
@@ -59,8 +71,14 @@ final class RegionHostWorld implements HostWorld {
         this.region = region;
         this.legacyWorld = legacyWorld;
         this.center = center;
+        this.dimension = region.getLevel().dimension();
         this.deep = deep;
         this.shift = deep ? -region.getMinBuildHeight() : 0;
+    }
+
+    /** The legacy world the generators run in. */
+    Object legacyWorld() {
+        return legacyWorld;
     }
 
     /** The deep pass over the same region, or null if the level doesn't go below y 0. */
@@ -97,6 +115,11 @@ final class RegionHostWorld implements HostWorld {
                 || current.is(Blocks.BEDROCK);
     }
 
+    /** A block placed past the chunks this step may write, waiting for its chunk (see LegacyDeferredBlocks); null if none. */
+    private BlockState waiting(int x, int y, int z) {
+        return deep || writable(x, y, z) ? null : LegacyDeferredBlocks.pendingState(dimension, cursor.set(x, y, z));
+    }
+
     private boolean readable(int x, int y, int z) {
         return y >= region.getMinBuildHeight() && y < region.getMaxBuildHeight() && region.hasChunk(x >> 4, z >> 4);
     }
@@ -109,35 +132,57 @@ final class RegionHostWorld implements HostWorld {
     @Override
     public Object getLegacyBlock(int x, int y, int z) {
         y -= shift;
-        if (!readable(x, y, z)) {
+        BlockState state = waiting(x, y, z);
+        if (state == null && !readable(x, y, z)) {
             return table.legacyBlock(0);
         }
-        BlockState state = region.getBlockState(cursor.set(x, y, z));
+        if (state == null) {
+            state = region.getBlockState(cursor.set(x, y, z));
+        }
         if (state.getBlock() instanceof LegacyBlock block) {
             return block.legacyBlock();
         }
-        return table.legacyBlock(table.legacyOf(state) >> 4);
+        return table.legacyBlock(legacyOf(state) >> 4);
+    }
+
+    /**
+     * As legacy generators see a block: the rock ores go into (deepslate, tuff, granite...) as stone,
+     * which 1.7.10's ore generators look for (WorldGenMinable replaces stone); as anything else,
+     * the layer below y 0 took no ores.
+     */
+    private int legacyOf(BlockState state) {
+        if (!table.hasLegacySelf(state) && (state.is(net.minecraft.tags.BlockTags.STONE_ORE_REPLACEABLES)
+                || state.is(net.minecraft.tags.BlockTags.DEEPSLATE_ORE_REPLACEABLES))) {
+            return table.legacyOf(Blocks.STONE.defaultBlockState());
+        }
+        return table.legacyOf(state);
     }
 
     @Override
     public int getLegacyMeta(int x, int y, int z) {
         y -= shift;
-        if (!readable(x, y, z)) {
+        BlockState state = waiting(x, y, z);
+        if (state == null && !readable(x, y, z)) {
             return 0;
         }
-        BlockState state = region.getBlockState(cursor.set(x, y, z));
+        if (state == null) {
+            state = region.getBlockState(cursor.set(x, y, z));
+        }
         if (state.getBlock() instanceof LegacyBlock) {
             return state.getValue(LegacyContent.META);
         }
-        return table.legacyOf(state) & 15;
+        return legacyOf(state) & 15;
     }
 
     @Override
     public boolean setLegacyBlock(int x, int y, int z, Object legacyBlock, int meta, int flags) {
         y -= shift;
         BlockState target = LegacyBlockTable.modernState(legacyBlock, meta);
-        if (target == null || !writable(x, y, z)) {
+        if (target == null) {
             return false;
+        }
+        if (!writable(x, y, z)) {
+            return defer(x, y, z, legacyBlock, meta, flags, target);
         }
         BlockPos pos = new BlockPos(x, y, z);
         if (deep) {
@@ -150,10 +195,69 @@ final class RegionHostWorld implements HostWorld {
         if (!region.setBlock(pos, target, 2)) {
             return false;
         }
+        written.add(pos);
         if (target.hasBlockEntity()) {
             placed.add(pos);
         }
         return true;
+    }
+
+    /**
+     * A write past the chunks this step may write: 1.7.10 loaded the chunk and wrote there; the
+     * write is queued for its own chunk instead (see {@link LegacyDeferredBlocks}), so the outer
+     * parts of big structures stand in the chunks they reach. A block with a tile entity gets it at
+     * once, so the generator's read-back (naming the spawner's mob, filling the chest) finds it here.
+     */
+    private boolean defer(int x, int y, int z, Object legacyBlock, int meta, int flags, BlockState target) {
+        if (deep || y < region.getMinBuildHeight() || y >= region.getMaxBuildHeight()
+                || Math.abs((x >> 4) - center.x) > LegacyDeferredBlocks.RANGE
+                || Math.abs((z >> 4) - center.z) > LegacyDeferredBlocks.RANGE) {
+            return false;
+        }
+        Object tile = null;
+        if (target.hasBlockEntity()) {
+            tile = createDeferredTile(target, legacyBlock, meta, x, y, z);
+            if (tile != null) {
+                tiles.put(new BlockPos(x, y, z), tile);
+            }
+        }
+        LegacyDeferredBlocks.enqueue(dimension, x, y, z, legacyBlock, meta, flags, target, tile);
+        return true;
+    }
+
+    /** The legacy tile entity a queued block with one will get, created now for the generator to set up. */
+    private Object createDeferredTile(BlockState target, Object legacyBlock, int meta, int x, int y, int z) {
+        if (target.getBlock() instanceof LegacyBlock block) {
+            return block.hasTileEntity() ? LegacyBridge.createTileEntity(legacyWorld, block.legacyBlock(), meta & 15, x, y, z) : null;
+        }
+        if (table.hasLegacySelf(target)) {
+            int legacy = table.legacyOf(target);
+            return LegacyBridge.createTileEntity(legacyWorld, table.legacyBlock(legacy >> 4), legacy & 15, x, y, z);
+        }
+        return null;
+    }
+
+    /**
+     * The neighbours' shapes, once the generators are done: 1.20.1 stores a fence's or iron bars'
+     * connections in the block state (1.7.10 computed them at render time), and a block placed
+     * among later neighbours keeps the state it was placed with, so the bars and fences of a
+     * generated structure stayed posts. Every block written here and its neighbours (those this
+     * step may write) get the shape their surroundings ask for.
+     */
+    void fixShapes() {
+        java.util.Set<BlockPos> around = new java.util.HashSet<>();
+        for (BlockPos pos : written) {
+            around.add(pos);
+            for (Direction direction : Direction.values()) {
+                around.add(pos.relative(direction));
+            }
+        }
+        written.clear();
+        for (BlockPos pos : around) {
+            if (writable(pos.getX(), pos.getY(), pos.getZ())) {
+                LegacyDeferredBlocks.fixShape(region, pos);
+            }
+        }
     }
 
     /**
@@ -164,12 +268,9 @@ final class RegionHostWorld implements HostWorld {
     @Override
     public Object getLegacyTileEntity(int x, int y, int z) {
         y -= shift;
-        if (!readable(x, y, z)) {
-            return null;
-        }
         BlockPos pos = new BlockPos(x, y, z);
-        Object tile = tiles.get(pos);
-        if (tile != null) {
+        Object tile = tiles.get(pos); // (a queued block's tile entity too, wherever it is)
+        if (tile != null || !readable(x, y, z)) {
             return tile;
         }
         BlockState state = region.getBlockState(pos);
@@ -200,18 +301,17 @@ final class RegionHostWorld implements HostWorld {
 
     /** Writes the tile entities legacy generators made into their chunks, for the block entities to load. */
     void flushTiles() {
-        ResourceKeyHolder.init();
         tiles.forEach((pos, tile) -> {
+            if (LegacyDeferredBlocks.isPending(dimension, pos)) {
+                // the block is queued for its own chunk: its tile entity lands with it
+                LegacyDeferredBlocks.attachTile(dimension, pos, tile);
+                return;
+            }
             if (!(region.getBlockState(pos).getBlock() instanceof LegacyBlock)) {
                 flushVanillaTile(pos, tile);
                 return;
             }
-            CompoundTag tag = new CompoundTag();
-            tag.putString("id", ResourceKeyHolder.id);
-            tag.putInt("x", pos.getX());
-            tag.putInt("y", pos.getY());
-            tag.putInt("z", pos.getZ());
-            tag.put(LegacyBlockEntity.LEGACY_TAG, LegacyStacks.fromBytes(LegacyBridge.save(tile)));
+            CompoundTag tag = legacyTileTag(pos, tile);
             if (region.getBlockEntity(pos) instanceof LegacyBlockEntity existing) {
                 existing.load(tag); // a live chunk already made its block entity
                 // Not setChanged(): it updates comparators through the live level, which from a world
@@ -238,45 +338,94 @@ final class RegionHostWorld implements HostWorld {
      */
     private void flushVanillaTile(BlockPos pos, Object tile) {
         net.minecraft.world.level.block.entity.BlockEntity target = region.getBlockEntity(pos);
-        if (target == null || target instanceof LegacyBlockEntity) {
+        if (target instanceof LegacyBlockEntity) {
             return;
         }
         try {
-            CompoundTag data = target.saveWithoutMetadata();
-            Object[] stacks = LegacyBridge.inventoryStacks(tile);
-            if (stacks != null) {
-                net.minecraft.nbt.ListTag items = new net.minecraft.nbt.ListTag();
-                for (int slot = 0; slot < stacks.length && slot < 256; slot++) {
-                    net.minecraft.world.item.ItemStack stack = LegacyStacks.toModern(stacks[slot]);
-                    if (!stack.isEmpty()) {
-                        CompoundTag item = stack.save(new CompoundTag());
-                        item.putByte("Slot", (byte) slot);
-                        items.add(item);
-                    }
-                }
-                data.put("Items", items);
+            CompoundTag data = target == null ? new CompoundTag() : target.saveWithoutMetadata();
+            if (!mergeLegacyTileData(data, tile)) {
+                return;
             }
-            String mob = LegacyBridge.spawnerEntity(tile);
-            net.minecraft.world.entity.EntityType<?> type = mob == null ? null : LegacyEntityTypes.modernTypeOf(mob);
-            if (type != null) {
-                CompoundTag legacy = LegacyStacks.fromBytes(LegacyBridge.save(tile));
-                for (String key : SPAWNER_KEYS) {
-                    if (legacy.contains(key)) {
-                        data.put(key, legacy.get(key).copy());
-                    }
+            if (target == null) {
+                // A proto chunk (only a marker holds the block entity's place yet): the data goes with
+                // the chunk, for the real block entity to load when the chunk is finished.
+                BlockState state = region.getBlockState(pos);
+                if (!(state.getBlock() instanceof net.minecraft.world.level.block.EntityBlock block)) {
+                    return;
                 }
-                CompoundTag entity = new CompoundTag();
-                entity.putString("id", net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
-                CompoundTag spawnData = new CompoundTag();
-                spawnData.put("entity", entity);
-                data.put("SpawnData", spawnData);
-                data.remove("SpawnPotentials"); // (a list would win over SpawnData)
+                net.minecraft.world.level.block.entity.BlockEntity placeholder = block.newBlockEntity(pos, state);
+                if (placeholder == null) {
+                    return;
+                }
+                data.putString("id", net.minecraft.core.registries.BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(placeholder.getType()).toString());
+                data.putInt("x", pos.getX());
+                data.putInt("y", pos.getY());
+                data.putInt("z", pos.getZ());
+                region.getChunk(pos).setBlockEntityNbt(data);
+                return;
             }
             target.load(data);
             region.getChunk(pos).setUnsaved(true);
         } catch (RuntimeException e) {
             LegacyErrors.report(region.getBlockState(pos).getBlock(), "writing a generated tile entity", e);
         }
+    }
+
+    /** Legacy mob names a generated spawner asked for that map to no 1.20.1 entity (reported once each). */
+    private static final java.util.Set<String> UNMAPPED_MOBS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * A legacy tile entity's data into a 1.20.1 block entity's NBT: its inventory converted stack
+     * by stack (mods' items too), a spawner's mob and settings. True if anything was converted.
+     */
+    static boolean mergeLegacyTileData(CompoundTag data, Object tile) {
+        boolean converted = false;
+        Object[] stacks = LegacyBridge.inventoryStacks(tile);
+        if (stacks != null) {
+            net.minecraft.nbt.ListTag items = new net.minecraft.nbt.ListTag();
+            for (int slot = 0; slot < stacks.length && slot < 256; slot++) {
+                net.minecraft.world.item.ItemStack stack = LegacyStacks.toModern(stacks[slot]);
+                if (!stack.isEmpty()) {
+                    CompoundTag item = stack.save(new CompoundTag());
+                    item.putByte("Slot", (byte) slot);
+                    items.add(item);
+                }
+            }
+            data.put("Items", items);
+            converted = true;
+        }
+        String mob = LegacyBridge.spawnerEntity(tile);
+        net.minecraft.world.entity.EntityType<?> type = mob == null ? null : LegacyEntityTypes.modernTypeOf(mob);
+        if (type != null) {
+            CompoundTag legacy = LegacyStacks.fromBytes(LegacyBridge.save(tile));
+            for (String key : SPAWNER_KEYS) {
+                if (legacy.contains(key)) {
+                    data.put(key, legacy.get(key).copy());
+                }
+            }
+            CompoundTag entity = new CompoundTag();
+            entity.putString("id", net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
+            CompoundTag spawnData = new CompoundTag();
+            spawnData.put("entity", entity);
+            data.put("SpawnData", spawnData);
+            data.remove("SpawnPotentials"); // (a list would win over SpawnData)
+            converted = true;
+        } else if (mob != null && UNMAPPED_MOBS.add(mob)) {
+            LOGGER.warn("A legacy generator set a mob spawner to {}, which has no 1.20.1 entity; the spawner keeps the mob it had", mob);
+        }
+        return converted;
+    }
+
+    /** A legacy block's tile entity as the NBT its block entity loads. */
+    static CompoundTag legacyTileTag(BlockPos pos, Object tile) {
+        ResourceKeyHolder.init();
+        CompoundTag tag = new CompoundTag();
+        tag.putString("id", ResourceKeyHolder.id);
+        tag.putInt("x", pos.getX());
+        tag.putInt("y", pos.getY());
+        tag.putInt("z", pos.getZ());
+        tag.put(LegacyBlockEntity.LEGACY_TAG, LegacyStacks.fromBytes(LegacyBridge.save(tile)));
+        return tag;
     }
 
     /** The registry id of the legacy block entity type, looked up once. */

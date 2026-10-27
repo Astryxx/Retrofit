@@ -10,13 +10,13 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.5.2-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.6.0-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.5.2-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.0-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory, or in `mods/` with your
    other mods (as launchers like CurseForge do). 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -28,6 +28,8 @@ supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects
    Maven and Maven Central; nothing is downloaded without a yes), and 1.7.10 mods load after a
    restart. Every start spends about 5-10 seconds booting 1.7.10 during mod loading.
    `-Dretrofit.minecraftHome=<dir>` points Retrofit to a launcher folder other than `.minecraft`.
+4. Options, "1.7.10 Mods...": the 1.7.10 mods (and why any didn't load), their configurations, and
+   Retrofit's own settings.
 
 Servers: the same, on a Forge 1.20.1 server. Clients and the server need the same 1.7.10 mods;
 Connecting with a different set is refused with a message. Java 17 or newer (tested with 17, 21, and 26).
@@ -75,14 +77,14 @@ Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
 
 | Area | What works | Limits |
 |---|---|---|
-| Blocks | Mod blocks with metadata, shapes and collision, hardness, tools and tool tiers (as 1.20.1 tags), sounds, light, redstone and comparators, random and scheduled ticks, neighbour updates, right/left click, placing through the mod's own ItemBlock, breakBlock, drops (fortune, silk touch), experience, fluid blocks | Shapes that depend on neighbours use their stand-alone form for collision |
-| Rendering | Plain cubes as 1.20.1 JSON models with the mods' own 1.7.10 textures (animated ones too, sprite sheets and mods' own sprite loaders); custom block renderers drawn in place in the world, with their neighbours, tile entity and the world's light (connected textures, covers, pipes); tile entity renderers and Forge item renderers every frame through a GL 1.1 emulation, items in inventories and hands placed as 1.7.10 placed them (custom renderers that handle only some views, like OreSpawn's big swords, too) | Only the GL subset models need (quads, triangles, lines); mods' shaders run as plain drawing |
+| Blocks | Mod blocks with metadata, shapes and collision, hardness, tools and tool tiers (as 1.20.1 tags), sounds, light, redstone and comparators, random and scheduled ticks, neighbour updates, right/left click, placing through the mod's own ItemBlock, breakBlock, drops (fortune, silk touch), experience, fluid blocks | |
+| Rendering | Plain cubes as 1.20.1 JSON models with the mods' own 1.7.10 textures (animated ones too, sprite sheets and mods' own sprite loaders); custom block renderers drawn in place in the world, with their neighbours, tile entity and the world's light (connected textures, covers, pipes); tile entity renderers and Forge item renderers every frame through a GL 1.1 emulation, items in inventories and hands placed as 1.7.10 placed them (custom renderers that handle only some views, like OreSpawn's big swords, too); mods' own particles (custom EntityFX); icons mods draw in text from their own font pages | Only the GL subset models need (quads, triangles, strips, fans, polygons, lines); mods' shaders run as plain drawing |
 | Tile entities | Ticking on both sides, NBT saving, description packet sync, chunk unload, inventories as Forge item handlers (hoppers, pipes); vanilla and modern inventories as 1.7.10 tile entities for legacy pipes and machines | |
-| Items | Subtypes, the mods' own item names, durability, use on blocks and in the air (either hand), use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel, enchantments (mods' own become 1.20.1 enchantments), each mod's own creative tab | Items used over time work in the main hand only |
-| Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick; pieces with their own model (getArmorModel) draw it | Dyed armor's colour |
+| Items | Subtypes, the mods' own item names, durability, use on blocks and in the air (either hand), use over time (food, bows), mining speed and harvest checks, weapon damage, inventory ticks, fuel, enchantments (mods' own become 1.20.1 enchantments), each mod's own creative tab | |
+| Armor | Real 1.20.1 armor with the legacy texture, armor points and onArmorTick; pieces with their own model (getArmorModel) draw it | |
 | GUIs | Container GUIs (FML openGui, and container mods open themselves, as IC2 does) with the mod's own drawing, slots, shift-click, drag, progress bars and buttons; plain screens; mod packets from GUIs | |
 | Entities | Mod creatures and things with their own AI and pathfinding, damage both ways, death and drops, saving, the mod's own renderer, spawn eggs, natural spawning from the 1.7.10 biome lists, leads, riding (the player on legacy mounts, legacy creatures on each other); vanilla entities legacy code spawns (arrows, mobs) become 1.20.1 ones; 1.7.10 spawn setup (equipment, variants) for mobs 1.20.1 spawns; pathfinding below y 0; a carrier another 1.20.1 mod removes (entity removers, lag clearers) takes its legacy entity out of the legacy world, dead, so mods tracking entities themselves (boss bars) let go; watchable attributes (bosses' own health attributes) reach client copies, as 1.7.10 synced them; 1.7.10's vanilla-style boss bar (BossStatus) shows in 1.20.1's boss bar overlay | |
-| Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, flight, chat, teleports, damage from legacy mobs, permission levels, potion effects both ways (mod potions' attribute modifiers too), extended properties saved with the player; FakePlayers; RenderPlayerEvent (Pre, Specials, Post) around the local player's model | Render events for other players |
+| Players | Legacy code sees a real EntityPlayerMP/EntityClientPlayerMP mirror: inventory, food, health, flight, chat, teleports, damage from legacy mobs, permission levels, potion effects both ways (mod potions' attribute modifiers too), extended properties saved with the player; FakePlayers; RenderPlayerEvent (Pre, Specials, Post) around the local player's model | |
 | World | Mod world generators (ores, structures, generated chests), world saved data, chunk load/unload/data events with per-chunk mod data, chunk access, per-world ID maps (stable when mods change), mods' dimensions as 1.20.1 dimensions (their generators, creatures, fog and sky colours, Teleporters), also those made while playing (space stations, pocket dimensions), ForgeChunkManager chunk loading; ores also generated below y 0 in the overworld | Generation is serialized |
 | Recipes | Every crafting recipe (through the legacy recipe list, mods' own recipe classes included), furnace recipes, fuel; shaped and shapeless crafting recipes (vanilla and Ore Dictionary ones) in the recipe book, JEI, REI and EMI | Recipes of mods' own recipe classes (IC2's, Tinkers' tools) craft but don't show in the recipe book or viewers |
 | Events | FML ticks (server, world, player, client, render), login/logout/respawn/dimension, server lifecycle, PlayerInteractEvent, living events (attack, hurt, death, fall, jump, heal, break speed, update), EntityJoinWorldEvent, item tooltips, world load/save, chunk events, texture stitching, key bindings and KeyInputEvent, HUD (RenderGameOverlayEvent Pre and Post, in GuiIngameForge's order), RenderWorldLastEvent, RenderPlayerEvent, DrawBlockHighlightEvent | |
@@ -90,7 +92,7 @@ Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
 | Achievements | Mods' achievements as advancements, a tab per achievement page | |
 | Sounds | Mod sounds.json and .ogg files; common 1.7.10 vanilla sound names mapped | |
 | Network | SimpleNetworkWrapper, FMLEventChannel and raw custom payloads, all targets; clients and servers with different legacy mods refuse each other | |
-| With 1.20.1 mods | Energy (RF and IC2 EU <-> Forge Energy, both ways, IC2's energy net included), items (1.20.1 items in legacy inventories, pipes, machines and recipes; Ore Dictionary <-> tags), fluids (every legacy fluid is a 1.20.1 fluid and back; tanks both ways), creatures (legacy mobs target and fight 1.20.1 creatures and the reverse; legacy magnets pick up 1.20.1 items), blocks (1.20.1 mods' blocks drop and break right for legacy quarries and miners), wood types (legacy woods as `<mod>:<wood>_planks`/`_log` for Every Compat and the like), block tags from the Ore Dictionary, villager trades (mods' trade handlers for 1.20.1 villagers and wandering traders) | IC2's energy net gets 1.20.1 energy at low voltage (32 EU/t per block) |
+| With 1.20.1 mods | Energy (RF and IC2 EU <-> Forge Energy, both ways, IC2's energy net included), items (1.20.1 items in legacy inventories, pipes, machines and recipes; Ore Dictionary <-> tags), fluids (every legacy fluid is a 1.20.1 fluid and back; tanks both ways), creatures (legacy mobs target and fight 1.20.1 creatures and the reverse; legacy magnets pick up 1.20.1 items), blocks (1.20.1 mods' blocks drop and break right for legacy quarries and miners), wood types (legacy woods as `<mod>:<wood>_planks`/`_log` for Every Compat and the like), block tags from the Ore Dictionary, villager trades (mods' trade handlers for 1.20.1 villagers and wandering traders) | |
 | Coremods | Loaded as 1.7.10 did, in FML's order (CodeChickenCore, DragonAPI, Ars Magica 2's, IC2's, Thaumcraft's); their patches apply to the legacy side | |
 | Java 17+ | 1.7.10 mods' Java 8 tricks work: opening JDK members (setAccessible), writing final fields (Field.modifiers, also on Java 18+), enlarging the potion and biome arrays, coremods defining classes; ASM 5.2 instead of 5.0.3; short network timeouts for dead update servers | |
 
@@ -106,15 +108,14 @@ Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
 - 1.7.10 mods may not download other mods themselves (CodeChicken's DepLoader in CodeChickenCore,
   Thaumcraft and NEI would): dependencies they name are listed in Retrofit's download question
   instead, and any other such download is refused with a message naming the file.
-- Mods' own cloud and weather renderers (`WorldProvider.getCloudRenderer`/`getWeatherRenderer`)
-  aren't drawn; legacy dimensions get 1.20.1's clouds and weather (their own sky renderers are drawn).
 - FML logs "missing any signature data", and some mods log signature warnings. Cosmetic.
-- Two mods with the same dimension id: the mod that registers it second has no dimension, as in a 1.7.10
-  pack, and its portal leads to the other mod's dimension (Atum and Advent of Ascension both default to 17).
-  Change one of them in `retrofit/config`.
-- Clients and servers need the same 1.7.10 configs (`retrofit/config`), as in a 1.7.10 pack: mods
-  that number their potions, biomes, or enchantments in their configs (Witchery) otherwise refuse
-  to connect with "Missing registry data".
+- "Mismatched mod list" when joining means the client and server ended up with different 1.7.10 mods
+  (or versions), for example when a mod failed to load on one side only (Thaumcraft and ManaMetal don't
+  load together). Each side's log has a line "Network version ... from the 1.7.10 mods [...]": the two
+  lists show what differs.
+- A player joining a dedicated server whose 1.7.10 configs (`retrofit/config`) differ from theirs is asked
+  whether to use the server's, and then restarts once: 1.7.10 mods read their configs only at startup. Config
+  files named `*client*` are each player's own and are never sent.
 
 ## How it works
 
@@ -157,7 +158,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.5.2-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.0-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

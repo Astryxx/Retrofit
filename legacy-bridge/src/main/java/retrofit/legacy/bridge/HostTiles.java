@@ -1239,8 +1239,9 @@ final class HostTiles {
             if (energy == null) {
                 return 0;
             }
-            double offered = energy.extract(-1, Integer.MAX_VALUE, true) / (double) Energy.FE_PER_EU;
-            return Math.min(offered, Energy.EU_SOURCE_PACKET);
+            // all of it, at low voltage: IC2's net is a circuit, the amount sets the current (cables carry what
+            // they can), the tier the voltage (which decides what explodes), so every IC2 machine still takes it
+            return energy.extract(-1, Integer.MAX_VALUE, true) / (double) Energy.FE_PER_EU;
         }
 
         @Override
@@ -1338,8 +1339,9 @@ final class HostTiles {
             if (energy == null) {
                 return 0;
             }
-            double offered = energy.extract(-1, Integer.MAX_VALUE, true) / (double) Energy.FE_PER_EU;
-            return Math.min(offered, Energy.EU_SOURCE_PACKET);
+            // all of it, at low voltage: IC2's net is a circuit, the amount sets the current (cables carry what
+            // they can), the tier the voltage (which decides what explodes), so every IC2 machine still takes it
+            return energy.extract(-1, Integer.MAX_VALUE, true) / (double) Energy.FE_PER_EU;
         }
 
         @Override

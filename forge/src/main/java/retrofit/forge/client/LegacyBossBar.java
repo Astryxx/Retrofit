@@ -16,7 +16,7 @@ import java.util.UUID;
  * entry in the overlay for it, drawn and lerped like the host's own bosses' bars. 1.7.10's bar was
  * the pink progress bar, with none of the music, screen darkening or fog the modern packet carries.
  */
-final class LegacyBossBar {
+public final class LegacyBossBar {
     /** A fixed id of our own, so the entry survives progress and name updates and nothing claims it. */
     private static final UUID ID = new UUID(0x726574726F666974L, 0x526574726F466974L); // "retrofit" twice, as hex
     private static BossEvent bar;
@@ -24,6 +24,12 @@ final class LegacyBossBar {
     private static boolean failed;
 
     private LegacyBossBar() {
+    }
+
+    /** Tests: the name on the legacy boss bar the overlay shows, or null if none. */
+    public static String shown() {
+        BossEvent shown = bar;
+        return shown == null ? null : shown.getName().getString();
     }
 
     /** The legacy state ({show, name or null, progress}), read once per HUD frame. */

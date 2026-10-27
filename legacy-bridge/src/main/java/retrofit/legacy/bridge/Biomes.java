@@ -25,8 +25,8 @@ import java.util.Set;
  * real array is returned, and biomes reach 1.20.1 by name (WorldGlue).
  */
 public final class Biomes {
-    /** The mods that are part of the game itself; their biomes are everybody's (see ModFailures.CORE). */
-    private static final Set<String> CORE = new HashSet<String>(Arrays.asList("mcp", "FML", "Forge", "Minecraft"));
+    /** The mods that are part of the game itself; their biomes are everybody's. */
+    private static final Set<String> CORE = ModOwners.CORE;
 
     private static final Object LOCK = new Object();
 
@@ -178,7 +178,8 @@ public final class Biomes {
     }
 
     /**
-     * The registering mod's id while FML runs its loading events, or null any other time. Read from
+     * The registering mod's id while FML runs its loading events, or the mod Retrofit acts for (see actAs), or
+     * null any other time. Read from
      * LoadController's activeContainer field, which FML sets only while it sends a mod its events:
      * Loader.activeModContainer falls back to guessing the mod from the call stack, and world generation
      * would then see a mod's loading view (HBM's generator asking Erebus for a biome got HBM's view,
@@ -192,12 +193,42 @@ public final class Biomes {
             Object controller = CONTROLLER.get(Loader.instance());
             ModContainer container = controller == null ? null : (ModContainer) ACTIVE.get(controller);
             if (container == null) {
-                return null;
+                return ACTING.get();
             }
             String id = container.getModId();
             return CORE.contains(id) ? null : id;
         } catch (Throwable notUpYet) {
             return null; // before FML, or not the FML we expect: the shared array, as on 1.7.10
+        }
+    }
+
+    /** The mod Retrofit runs code of on this thread outside FML's loading events (see actAs), or null. */
+    private static final ThreadLocal<String> ACTING = new ThreadLocal<String>();
+
+    /**
+     * Runs {@code work} as the mod whose dimension it makes a world for: a dimension's provider can make its
+     * biomes then (HBM's planets do, whenever a world is made for them), and they are that mod's, checked
+     * against its own view and moved off another mod's id, as while it loaded.
+     */
+    static <T> T actAs(int dimension, java.util.concurrent.Callable<T> work) throws Exception {
+        String before = ACTING.get();
+        ACTING.set(providerMod(dimension));
+        try {
+            return work.call();
+        } finally {
+            ACTING.set(before);
+        }
+    }
+
+    /** The mod whose provider class a dimension has, or null for vanilla's and unknown ones. */
+    private static String providerMod(int dimension) {
+        try {
+            java.lang.reflect.Field providers = net.minecraftforge.common.DimensionManager.class.getDeclaredField("providers");
+            providers.setAccessible(true);
+            Class<?> provider = (Class<?>) ((Map<?, ?>) providers.get(null)).get(net.minecraftforge.common.DimensionManager.getProviderType(dimension));
+            return provider == null ? null : ModOwners.of(provider.getName());
+        } catch (Throwable t) {
+            return null; // the shared array, as on 1.7.10
         }
     }
 

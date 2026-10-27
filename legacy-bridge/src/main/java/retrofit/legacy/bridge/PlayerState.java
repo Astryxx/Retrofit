@@ -376,9 +376,21 @@ public final class PlayerState {
     /** Mod potions, for the host's registry: {id, name key, colour, harmful (0/1)} per potion. */
     public static Object[][] modPotions() {
         List<Object[]> result = new ArrayList<Object[]>();
+        java.util.Set<Object> held = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object, Boolean>());
         for (Potion potion : Potion.field_76425_a) {
             if (potion != null && potion.field_76415_H > LAST_VANILLA_POTION) { // id
-                result.add(new Object[]{potion.field_76415_H, potion.func_76393_a(), potion.func_76401_j(), harmful(potion) ? 1 : 0});
+                held.add(potion);
+                result.add(new Object[]{potion.field_76415_H, potion.func_76393_a(), potion.func_76401_j(), harmful(potion) ? 1 : 0,
+                        potion.getClass().getName()});
+            }
+        }
+        // those that lost their slot once the ids ran out (id -1): which ones do depends on the order mods made them,
+        // which differs between client and server, so both register them all (see LegacyIds.potionsMade)
+        for (Object made : retrofit.legacy.boot.LegacyIds.potionsMade()) {
+            Potion potion = (Potion) made;
+            if (potion.field_76415_H > LAST_VANILLA_POTION && !held.contains(potion)) {
+                held.add(potion);
+                result.add(new Object[]{-1, potion.func_76393_a(), potion.func_76401_j(), harmful(potion) ? 1 : 0, potion.getClass().getName()});
             }
         }
         return result.toArray(new Object[0][]);
