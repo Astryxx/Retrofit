@@ -22,7 +22,18 @@ import net.minecraftforge.network.NetworkHooks;
  * {@link LegacyEntityCore}): no 1.20.1 AI or physics run on servers.
  */
 public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, LegacyEntityCarrier {
+    private static final net.minecraft.network.syncher.EntityDataAccessor<Boolean> LEGACY_DYING =
+            net.minecraft.network.syncher.SynchedEntityData.defineId(LegacyMob.class, net.minecraft.network.syncher.EntityDataSerializers.BOOLEAN);
     private final LegacyEntityCore core;
+
+    @Override
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        entityData.define(LEGACY_DYING, false);
+    }
+
+    void setLegacyDying(boolean dying) { entityData.set(LEGACY_DYING, dying); }
+    boolean legacyDying() { return entityData.get(LEGACY_DYING); }
 
     public LegacyMob(EntityType<? extends LegacyMob> type, Level level, String legacyName, float width, float height) {
         super(type, level);

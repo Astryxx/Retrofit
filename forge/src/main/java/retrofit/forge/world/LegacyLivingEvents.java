@@ -59,7 +59,7 @@ public final class LegacyLivingEvents {
     private static Object attacker(DamageSource source) {
         Entity entity = source.getEntity();
         if (entity instanceof Player player) {
-            return LegacyPlayers.mirror(player, false);
+            return LegacyPlayers.mirror(player, true);
         }
         if (entity instanceof LegacyEntityCarrier carrier) {
             return carrier.core().legacy();
@@ -77,15 +77,25 @@ public final class LegacyLivingEvents {
         LegacyErrors.report("event handler", event, e);
     }
 
+    private static Object damageTarget(net.minecraft.world.entity.LivingEntity entity) {
+        if (entity instanceof LegacyEntityCarrier || entity.level().isClientSide) return null;
+        return entity instanceof ServerPlayer player ? LegacyPlayers.mirror(player, true)
+                : LegacyEntityCore.legacyOf(entity.level(), entity);
+    }
+
     @SubscribeEvent(priority = EventPriority.HIGH)
     public static void onAttack(LivingAttackEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player && wants(ATTACK)) {
+        if (!event.getEntity().level().isClientSide && !(event.getEntity() instanceof LegacyEntityCarrier) && wants(ATTACK)) {
             try {
-                Object mirror = LegacyPlayers.mirror(player, false);
-                if (LegacyBridge.<Boolean>call("livingAttack", mirror, event.getSource().getMsgId(), attacker(event.getSource()),
+                Object mirror = damageTarget(event.getEntity());
+                if (mirror == null) return;
+                Object source = attacker(event.getSource());
+                if (LegacyBridge.<Boolean>call("livingAttack", mirror, event.getSource().getMsgId(), source,
                         flags(event.getSource()), event.getAmount())) {
                     event.setCanceled(true);
                 }
+                if (event.getEntity() instanceof Player player) LegacyPlayers.writeBack(player, mirror);
+                if (event.getSource().getEntity() instanceof Player player) LegacyPlayers.writeBack(player, source);
             } catch (RuntimeException e) {
                 report("LivingAttackEvent", e);
             }
@@ -94,17 +104,20 @@ public final class LegacyLivingEvents {
 
     @SubscribeEvent(priority = EventPriority.HIGH)
     public static void onHurt(LivingHurtEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player && wants(HURT)) {
+        if (!event.getEntity().level().isClientSide && !(event.getEntity() instanceof LegacyEntityCarrier) && wants(HURT)) {
             try {
-                Object mirror = LegacyPlayers.mirror(player, false);
-                float amount = LegacyBridge.call("livingHurt", mirror, event.getSource().getMsgId(), attacker(event.getSource()),
+                Object mirror = damageTarget(event.getEntity());
+                if (mirror == null) return;
+                Object source = attacker(event.getSource());
+                float amount = LegacyBridge.call("livingHurt", mirror, event.getSource().getMsgId(), source,
                         flags(event.getSource()), event.getAmount());
                 if (Float.isNaN(amount)) {
                     event.setCanceled(true);
                 } else {
                     event.setAmount(amount);
                 }
-                LegacyPlayers.writeBack(player, mirror); // shields and the like may have changed health or effects
+                if (event.getEntity() instanceof Player player) LegacyPlayers.writeBack(player, mirror);
+                if (event.getSource().getEntity() instanceof Player player) LegacyPlayers.writeBack(player, source);
             } catch (RuntimeException e) {
                 report("LivingHurtEvent", e);
             }

@@ -11,6 +11,10 @@ public final class GL13 {
     private GL13() {
     }
 
+    public static void glActiveTexture(int texture) {
+        GL11.activeTexture(texture - GL_TEXTURE0);
+    }
+
     public static void glClientActiveTexture(int texture) {
         GL11.clientActiveTexture(texture - GL_TEXTURE0);
     }

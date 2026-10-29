@@ -406,8 +406,8 @@ public final class Entities {
      * regen, OreSpawn's Godzilla pool), and the watcher packets that carry the server's value only
      * arrive when it changes, so what a mod's HUD read (The Titans' boss bar) could sit far above
      * the real health for seconds at a time. The host entity carries the server's health every tick
-     * (it is what HostCreatures' stand-ins show, and what the host's own overlays read), so after
-     * the update the copy is put back onto it, exactly as the next 1.7.10 watcher packet would have.
+     * (it is what HostCreatures' stand-ins show, and what the host's own overlays read). Apply it
+     * before the update so stale health cannot advance death, and again afterwards to undo client regen.
      */
     public static void entityClientTick(Object entity, double x, double y, double z, float yaw, float pitch, float headYaw, double health, double maxHealth) {
         Entity legacy = (Entity) entity;
@@ -419,7 +419,13 @@ public final class Entities {
         if (legacy instanceof EntityLivingBase) {
             legacy.func_70034_d(headYaw); // setRotationYawHead
         }
+        syncClientHealth(legacy, health, maxHealth);
         legacy.func_70071_h_(); // onUpdate
+        syncClientHealth(legacy, health, maxHealth);
+    }
+
+    /** A transient host health write can be refused by the server-side boss. Never animate that as a client death. */
+    private static void syncClientHealth(Entity legacy, double health, double maxHealth) {
         if (legacy instanceof EntityLivingBase && maxHealth > 0.0) {
             EntityLivingBase living = (EntityLivingBase) legacy;
             if ((float) maxHealth > living.func_110138_aP()) { // getMaxHealth: only raise it (the watcher sync owns lowering it)
@@ -427,6 +433,10 @@ public final class Entities {
             }
             if (living.func_110143_aJ() != (float) health) { // getHealth
                 living.func_70606_j((float) health); // setHealth (clamps to max health, as 1.7.10 did)
+            }
+            if (health > 0.0) {
+                living.field_70725_aQ = 0; // deathTime: only an authoritative death may keep advancing it
+                living.field_70128_L = false; // isDead: a stale client death must not remove a living server entity
             }
         }
     }

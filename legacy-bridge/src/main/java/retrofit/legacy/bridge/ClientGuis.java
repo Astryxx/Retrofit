@@ -149,7 +149,11 @@ public final class ClientGuis {
     /** RenderItem.renderItemAndEffectIntoGUI and renderItemIntoGUI */
     public static void drawItem(RenderItem renderer, FontRenderer font, TextureManager textures, ItemStack stack, int x, int y) {
         if (stack != null) {
-            Capture.mark("item", stack, GL11.transform(x, y, renderer.field_77023_b)); // zLevel
+            // 1.7.10 renders non-null zero-count stacks (progress/recipe icons). Modern inventories
+            // call them empty; normalize only this drawing copy, never the actual player's stack.
+            ItemStack display = stack.func_77946_l(); // copy
+            if (display.field_77994_a <= 0) display.field_77994_a = 1;
+            Capture.mark("item", display, GL11.transform(x, y, renderer.field_77023_b)); // zLevel
         }
     }
 
@@ -160,7 +164,12 @@ public final class ClientGuis {
 
     public static void drawItemOverlayText(RenderItem renderer, FontRenderer font, TextureManager textures, ItemStack stack, int x, int y, String text) {
         if (stack != null) {
-            Capture.mark("overlay", new Object[]{stack, text}, GL11.transform(x, y, renderer.field_77023_b));
+            ItemStack display = stack.func_77946_l();
+            if (display.field_77994_a <= 0) {
+                if (text == null) text = Integer.toString(display.field_77994_a);
+                display.field_77994_a = 1;
+            }
+            Capture.mark("overlay", new Object[]{display, text}, GL11.transform(x, y, renderer.field_77023_b));
         }
     }
 

@@ -401,7 +401,7 @@ public final class Dimensions {
     /**
      * Tests: one of ManaMetal's dungeon templates placed as its instance dungeons are (MMM.spawnIDungeonGZIPV2,
      * which writes large ones straight into the chunks' block storage) in the player's world; returns
-     * {width, height, length, the template's blocks that exist and aren't air}, or null without ManaMetal.
+     * {width, height, length, expected non-air blocks, matching placed blocks}, or null without ManaMetal.
      */
     public static int[] testManaMetalDungeon(Object legacyPlayer, String template, int x, int y, int z) throws Exception {
         Class<?> schematicType;
@@ -428,8 +428,20 @@ public final class Dimensions {
         Class.forName("project.studio.manametalmod.MMM", true, Dimensions.class.getClassLoader())
                 .getMethod("spawnIDungeonGZIPV2", net.minecraft.world.World.class, int.class, int.class, int.class, schematicType, int.class)
                 .invoke(null, world, x, y, z, schematic, 0);
-        return new int[]{schematicType.getField("width").getShort(schematic), schematicType.getField("height").getShort(schematic),
-                schematicType.getField("length").getShort(schematic), blocks};
+        int width = schematicType.getField("width").getShort(schematic);
+        int height = schematicType.getField("height").getShort(schematic);
+        int length = schematicType.getField("length").getShort(schematic);
+        java.util.Map<String, Block> palette = new java.util.HashMap<String, Block>();
+        int matching = 0;
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i];
+            if (name.isEmpty()) continue;
+            Block expected = palette.get(name);
+            if (expected == null) { expected = Block.func_149684_b(name); palette.put(name, expected); }
+            if (expected != null && expected != net.minecraft.init.Blocks.field_150350_a
+                    && world.func_147439_a(x + i % width, y + i / (width * length), z + i / width % length) == expected) matching++;
+        }
+        return new int[]{width, height, length, blocks, matching};
     }
 
     /** The legacy world of a dimension the host has loaded, for mods that look it up (DimensionManager.getWorld). */

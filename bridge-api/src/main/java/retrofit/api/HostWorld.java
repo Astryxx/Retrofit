@@ -12,6 +12,11 @@ package retrofit.api;
  * simple hosts (tests, the isolated one-block world) only implement what they need.
  */
 public interface HostWorld {
+    /** The real world's shared spawn, or null for a host without a persistent world. */
+    default int[] getSpawnPosition() {
+        return null;
+    }
+
     // ---- Blocks and tile entities ----
 
     /** The legacy Block at a position: a legacy mod block, or the legacy equivalent of a host block. */

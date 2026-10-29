@@ -409,6 +409,43 @@ public final class LegacyEvents {
     // ---- Worlds ----
 
     @SubscribeEvent
+    public static void onBreakBlock(net.minecraftforge.event.level.BlockEvent.BreakEvent event) {
+        if (!active() || event.getPlayer() == null || event.getPlayer().level().isClientSide) return;
+        fire("BlockEvent.BreakEvent", () -> {
+            Player player = event.getPlayer();
+            Object mirror = LegacyPlayers.mirror(player, true);
+            var pos = event.getPos();
+            int[] result = LegacyBridge.call("playerBreakBlock", mirror, LegacyContent.legacyWorld(player.level()),
+                    pos.getX(), pos.getY(), pos.getZ(), event.getExpToDrop());
+            LegacyPlayers.writeBack(player, mirror);
+            if (result[0] != 0) event.setCanceled(true);
+            event.setExpToDrop(result[1]);
+        });
+    }
+
+    @SubscribeEvent
+    public static void onPickupItem(net.minecraftforge.event.entity.player.EntityItemPickupEvent event) {
+        if (!active() || event.getEntity().level().isClientSide) return;
+        fire("EntityItemPickupEvent", () -> {
+            var drop = event.getItem();
+            Object stack = LegacyStacks.toLegacy(drop.getItem());
+            if (stack == null) return;
+            Object mirror = LegacyPlayers.mirror(event.getEntity(), true);
+            Object[] result = LegacyBridge.call("playerPickupItem", mirror, stack, drop.getX(), drop.getY(), drop.getZ());
+            LegacyPlayers.writeBack(event.getEntity(), mirror);
+            var remaining = LegacyStacks.toModern(result[3]);
+            drop.setItem(remaining);
+            if ((Boolean) result[2] || remaining.isEmpty()) {
+                drop.discard();
+                event.setCanceled(true);
+            } else {
+                if ((Boolean) result[0]) event.setCanceled(true);
+                event.setResult(Event.Result.values()[(Integer) result[1]]);
+            }
+        });
+    }
+
+    @SubscribeEvent
     public static void onLevelSave(LevelEvent.Save event) {
         if (active() && event.getLevel() instanceof Level level && !level.isClientSide && LegacyContent.hasLegacyWorld(level)) {
             Object world = LegacyContent.legacyWorld(level);

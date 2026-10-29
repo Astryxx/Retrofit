@@ -9,6 +9,8 @@ OUT = pathlib.Path('legacy-bridge/src/main/java/retrofit/legacy/bridge')
 
 # (javadoc, signature, body) - SRG names; MCP names in the javadoc.
 METHODS = [
+    ("getSpawnPoint", "public net.minecraft.util.ChunkCoordinates func_72861_E()",
+     "int[] at = host == null ? null : host.getSpawnPosition();\n        return at == null ? super.func_72861_E() : new net.minecraft.util.ChunkCoordinates(at[0], at[1], at[2]);"),
     ("getBlock", "public Block func_147439_a(int x, int y, int z)", "return WorldGlue.getBlock(host, x, y, z);"),
     ("getBlockMetadata", "public int func_72805_g(int x, int y, int z)", "return WorldGlue.getMeta(host, x, y, z);"),
     ("setBlock(x, y, z, block, meta, flags)", "public boolean func_147465_d(int x, int y, int z, Block block, int meta, int flags)",
@@ -145,8 +147,34 @@ public class BridgeWorld extends World {""", """    public BridgeWorld(HostWorld
 public class BridgeWorldServer extends WorldServer {""", """    public BridgeWorldServer(HostWorld host, int dimension) {
         super(LegacyWorlds.server(), BridgeSaveHandler.create(true), "Retrofit", dimension, LegacyWorlds.survivalSettings(), new Profiler());
         this.host = host;
+        shareMapStorage();
         this.field_73013_u = net.minecraft.world.EnumDifficulty.NORMAL; // difficultySetting, until the host's first tick
         WorldGlue.installPlayerManager(this);
+    }
+
+    /** The map storage every bridged server world of this server session uses (see shareMapStorage). */
+    private static net.minecraft.world.storage.MapStorage sharedMapStorage;
+
+    /**
+     * A server's dimensions share one map storage (world.mapStorage: the world data mods keep for the whole
+     * game), as 1.7.10's WorldServerMulti took its overworld's. Forge's World constructor shares it only between
+     * worlds made one after the other from the same save handler, and the client's bridged worlds come between:
+     * dimensions made later (while playing) got storage of their own, and saw nothing the others kept there
+     * (Galacticraft's space stations: "bad home planet ID").
+     */
+    private void shareMapStorage() {
+        synchronized (BridgeWorldServer.class) {
+            if (sharedMapStorage == null) {
+                sharedMapStorage = this.field_72988_C; // mapStorage
+            } else {
+                this.field_72988_C = sharedMapStorage;
+            }
+        }
+    }
+
+    /** As a server starts: its worlds share a map storage of their own. */
+    static synchronized void resetSharedMapStorage() {
+        sharedMapStorage = null;
     }
 
     /** getEntityByID: WorldServer's id map only has entities it spawned itself; legacy entities and players are in the entity list. */
@@ -194,6 +222,54 @@ public class BridgeWorldClient extends WorldClient {""", """    public BridgeWor
 """, "import net.minecraft.client.multiplayer.WorldClient;\nimport net.minecraft.profiler.Profiler;\nimport net.minecraft.world.EnumDifficulty;\n"),
 }
 
+# Server-specific semantics also belong in the generator, so regeneration preserves them.
+SERVER_METHODS = {
+    'func_72825_h': """    /**
+     * getTopSolidOrLiquidBlock. While a chunk generates, -1 for a column outside its region, as 1.7.10 answered
+     * for one with nothing in it: ExtraPlanets walks down from the answer while it finds air (its own stop never
+     * ends the loop), which -1 never starts and a height over such an all-air column never ended (worldgen hung
+     * holding the generation lock, and the server with it). Playing, 1.7.10 loaded the chunk and answered: so
+     * does the host (Galacticraft builds its space stations in chunks nothing loaded yet).
+     */
+    @Override
+    public int func_72825_h(int x, int z) {
+        if (host == null) {
+            return 64;
+        }
+        return WorldGen.isGenWorld(this) && !host.blockLoaded(x, 64, z) ? -1 : host.getHeight(x, z);
+    }
+""",
+    'func_72807_a': """    /**
+     * getBiomeGenForCoords. A mod's dimension is one 1.20.1 biome standing for the whole of it ("retrofit:legacy_dim_N",
+     * with its fog and sky): there, the dimension's own biome provider answers, as 1.7.10's WorldProvider did
+     * (Erebus's caves take their biome as one of Erebus's own, and got plains). Under the generation lock: biome
+     * layers share caches (IntCache) that 1.7.10 only ever used from one thread.
+     */
+    @Override
+    public BiomeGenBase func_72807_a(int x, int z) {
+        int dimension = field_73011_w.field_76574_g; // provider.dimensionId
+        if (host != null && dimension != 0 && dimension != -1 && dimension != 1) {
+            BiomeGenBase own;
+            synchronized (WorldGen.LOCK) {
+                own = field_73011_w.field_76578_c.func_76935_a(x, z); // provider.worldChunkMgr.getBiomeGenAt
+            }
+            if (own != null) {
+                return own;
+            }
+        }
+        return WorldGlue.biome(host, x, z);
+    }
+""",
+    'func_72970_h': """    /** createChunkProvider; also theChunkProviderServer, as WorldServer's own makes it (see BridgeChunkProviderServer) */
+    @Override
+    protected IChunkProvider func_72970_h() {
+        BridgeChunkProviderServer provider = new BridgeChunkProviderServer(this, new BridgeChunkProvider(this));
+        this.field_73059_b = provider; // theChunkProviderServer
+        return provider;
+    }
+""",
+}
+
 for name, (header, constructor, extra_imports) in CLASSES.items():
     lines = ["package retrofit.legacy.bridge;", "", extra_imports + IMPORTS, header, "    private HostWorld host;", "", constructor]
     lines.append("""    public HostWorld host() {
@@ -206,7 +282,8 @@ for name, (header, constructor, extra_imports) in CLASSES.items():
     }
 """)
     for doc, signature, body in METHODS:
-        lines.append(f"    /** {doc} */\n    @Override\n    {signature} {{\n        {body}\n    }}\n")
+        override = next((value for method, value in SERVER_METHODS.items() if method + "(" in signature), None) if name == "BridgeWorldServer" else None
+        lines.append(override if override is not None else f"    /** {doc} */\n    @Override\n    {signature} {{\n        {body}\n    }}\n")
     lines.append("}\n")
     (OUT / f"{name}.java").write_text("\n".join(lines), encoding="utf-8")
     print("wrote", name)

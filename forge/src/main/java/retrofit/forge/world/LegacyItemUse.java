@@ -209,10 +209,21 @@ final class LegacyItemUse {
 
     // ---- Mining and fighting ----
 
-    /**
-     * A player's hit landed: the legacy item's hitEntity (weapons poison, burn or wear there), on the
-     * target as legacy code sees it. False if legacy code can't see the target.
-     */
+    /** Item.onEntitySwing, including weapons that create their attack when the swing starts. */
+    static boolean swing(ItemStack stack, LivingEntity entity) {
+        if (!(entity instanceof Player player) || player.getMainHandItem() != stack) return false;
+        try {
+            Object mirror = LegacyPlayers.mirror(player, true);
+            boolean canceled = LegacyBridge.call("swingItem", mirror);
+            LegacyPlayers.writeBack(player, mirror);
+            return canceled;
+        } catch (RuntimeException e) {
+            LegacyErrors.report(stack.getItem(), "swinging", e);
+            return false;
+        }
+    }
+
+    /** A landed hit: the original item's hitEntity applies wear, poison, fire, and other effects. */
     static boolean hitEntity(ItemStack stack, LivingEntity target, Player player) {
         try {
             Object legacy = LegacyEntityCore.legacyOf(player.level(), target);

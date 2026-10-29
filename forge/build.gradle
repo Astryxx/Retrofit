@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.6.1-beta.2'
+version = '0.6.1-beta.3'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -53,6 +53,9 @@ minecraft {
             }
         }
         client {
+            if (project.hasProperty('clientGameDir')) {
+                workingDirectory rootProject.file(project.property('clientGameDir'))
+            }
             // -PquickPlay="World Name" joins that singleplayer world on launch, -PquickPlayServer=host:port joins a
             // server; -PworldTest runs the world test (retrofit.forge.test), -PrenderTest LegacyModelTestRenderer.
             if (project.hasProperty('quickPlay')) {
@@ -74,6 +77,9 @@ minecraft {
             }
             if (project.hasProperty('playTest')) {
                 args '--width', '1600', '--height', '900'
+                ['manaReview', 'manaTutorialOnly', 'queenReview', 'aoaReview', 'dimensionReview', 'testGameMode', 'testWorld'].each { key ->
+                    if (project.hasProperty(key)) property 'retrofit.' + key, project.property(key).toString()
+                }
                 property 'retrofit.playTest', 'true' // retrofit.forge.test.PlayTest: the corpus mods played through the client
                 if (project.hasProperty('mobBattleRepeats')) {
                     property 'retrofit.mobBattleRepeats', project.property('mobBattleRepeats').toString()
@@ -191,11 +197,12 @@ tasks.named('jar', Jar) {
 tasks.matching { it.name == 'runClient' }.configureEach {
     dependsOn ':testmods:hello1710:jar'
     doFirst {
+        def clientDir = project.hasProperty('clientGameDir') ? rootProject.file(project.property('clientGameDir')) : file('run')
         copy {
             from project(':testmods:hello1710').tasks.jar.archiveFile
-            into file('run/retrofit/mods')
+            into new File(clientDir, 'retrofit/mods')
         }
-        rootProject.syncCorpus(file('run/retrofit/mods')) // real 1.7.10 mods under test (not in git)
+        rootProject.syncCorpus(new File(clientDir, 'retrofit/mods')) // real 1.7.10 mods under test (not in git)
     }
 }
 

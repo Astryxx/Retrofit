@@ -128,7 +128,7 @@ final class BridgePlayerMP extends EntityPlayerMP {
     /** attackEntityFrom: legacy mobs, projectiles and effects hurt the real player. */
     @Override
     public boolean func_70097_a(net.minecraft.util.DamageSource source, float amount) {
-        return host.hurt(source.field_76373_n, source.func_76346_g(), amount); // damageType, getEntity
+        return LivingEvents.damageHost(host, this, source, amount);
     }
 
     /** travelToDimension: the host moves the player (see BridgePlayerList for mods' teleporters). */

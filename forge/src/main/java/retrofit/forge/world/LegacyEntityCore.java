@@ -251,6 +251,7 @@ public final class LegacyEntityCore {
         host.setDeltaMovement(new Vec3(state[7], state[8], state[9]));
         host.setOnGround(state[15] != 0);
         if (host instanceof LivingEntity living) {
+            if (host instanceof LegacyMob mob) mob.setLegacyDying(state[10] <= 0);
             living.setYHeadRot((float) state[5]);
             living.yBodyRot = (float) state[6];
             if (state[11] > 0 && living.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH) != null
@@ -278,7 +279,9 @@ public final class LegacyEntityCore {
             double health = 0.0;
             double maxHealth = 0.0;
             if (host instanceof LivingEntity living) {
-                health = living.getHealth();
+                // apply() keeps the host barely alive while the legacy death sequence runs. That
+                // placeholder must not revive the client's real legacy death animation.
+                health = host instanceof LegacyMob mob && mob.legacyDying() ? 0 : living.getHealth();
                 maxHealth = living.getMaxHealth();
             }
             LegacyBridge.call("entityClientTick", entity, host.getX(), host.getY(), host.getZ(), host.getYRot(), host.getXRot(), headYaw, health, maxHealth);

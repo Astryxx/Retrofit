@@ -34,6 +34,11 @@ public interface HostPlayer {
      */
     boolean hurt(String kind, Object legacyAttacker, float amount);
 
+    /** Absolute damage explicitly allowed against creative players (a mod's kill command). */
+    default boolean hurtAbsolute(String kind, Object legacyAttacker, float amount) {
+        return hurt(kind, legacyAttacker, amount);
+    }
+
     /** The player's permission level (0 to 4; operators usually 4), for legacy command checks. */
     int permissionLevel();
 

@@ -118,7 +118,9 @@ public final class ClientHooks {
         }
         LocalPlayer player = Minecraft.getInstance().player;
         if (player != null) {
-            LegacyNetwork.deliver(new LegacyNetwork.Payload(channel, data), LegacyPlayers.mirror(player, true));
+            Object mirror = LegacyPlayers.mirror(player, true);
+            LegacyNetwork.deliver(new LegacyNetwork.Payload(channel, data), mirror);
+            LegacyPlayers.applyMotion(player, mirror);
         }
     }
 

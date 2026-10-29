@@ -16,6 +16,7 @@ import retrofit.forge.world.LegacyPlayers;
  */
 @Mod.EventBusSubscriber(modid = RetrofitMod.MOD_ID, value = Dist.CLIENT)
 public final class LegacyClientEvents {
+    private static Object tickPlayer;
 
     private LegacyClientEvents() {
     }
@@ -30,9 +31,10 @@ public final class LegacyClientEvents {
             run(() -> LegacyEntityCore.sweepRemovedCarriers(true)); // carriers removed without remove() (other mods' removal tools)
         }
         run(() -> {
-            if (start && Minecraft.getInstance().player != null) {
+            if (Minecraft.getInstance().player != null) {
                 // with the inventory: client renderers and HUDs read what the player holds and wears (Thaumcraft's goggles)
                 Object mirror = LegacyPlayers.mirror(Minecraft.getInstance().player, true);
+                tickPlayer = mirror;
                 LegacyPlayers.syncClientRiding(Minecraft.getInstance().player, mirror);
                 syncMouseOver(Minecraft.getInstance());
             }
@@ -40,6 +42,11 @@ public final class LegacyClientEvents {
                 LegacyBridge.call("tickParticles"); // as 1.7.10's runTick: before the tick's end handlers, not while paused
             }
             LegacyBridge.call("clientTick", start);
+            if (Minecraft.getInstance().player != null && tickPlayer != null) {
+                LegacyPlayers.applyMotion(Minecraft.getInstance().player, tickPlayer);
+            } else {
+                tickPlayer = null;
+            }
             if (!start) {
                 LegacyBlockFaces.refreshOpacity();
             }
@@ -80,8 +87,7 @@ public final class LegacyClientEvents {
         if (modTooltips == null) {
             modTooltips = LegacyBridge.<Boolean>call("modTooltips");
         }
-        if (!modTooltips || !(stack.getItem() instanceof retrofit.forge.world.LegacyStackItem
-                || net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).getNamespace().equals("minecraft"))) {
+        if (!modTooltips) {
             return;
         }
         run(() -> {

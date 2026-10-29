@@ -507,6 +507,12 @@ final class RegionHostWorld implements HostWorld {
     }
 
     @Override
+    public int[] getSpawnPosition() {
+        BlockPos pos = region.getLevel().getSharedSpawnPos();
+        return new int[]{pos.getX(), pos.getY() + shift, pos.getZ()};
+    }
+
+    @Override
     public long getSeed() {
         return deep ? region.getSeed() ^ 0x5DEECE66DL * 31 : region.getSeed(); // the deep pass gets its own veins
     }

@@ -21,8 +21,24 @@ CLIENT_ONLY = {'ClientGuis', 'ClientTextures', 'BridgeRenderGlobal', 'ClientEven
                'BridgeSoundHandler', 'BridgeEffectRenderer', 'BridgeSkinManager', 'BridgeWorldClient',
                'LegacyRendering', 'LegacyIcons', 'CameraEntity', 'BridgeGuiIngame', 'BridgeGuiIngame$Chat'}
 
+# Mixed server/client bridge classes have explicitly client-only entry points too. Keep this
+# scoped to methods: allowing their whole classes would conceal real server-side mistakes.
+CLIENT_METHODS = {
+    ('Bridge', 'legacyResource'), ('Bridge', 'codeTranslations'), ('Bridge', 'blockRendersFaces'),
+    ('Bridge', 'legacyCreativeTabContents'), ('Bridge', 'subItemStacks'),
+    ('Entities', 'entityApplyWatcher'), ('LegacyPlayers', 'removeClientPlayer'),
+    ('ModernContent$ModernBlock', 'func_149651_a'), ('ModernContent$ModernBlock', 'func_149691_a'),
+}
+GUARDED_REFERENCES = {
+    # Selection boxes are client-only in 1.7.10; these shared shape queries catch their absence
+    # on servers and retain the collision box they already computed.
+    ('Bridge', 'blockShape', 'net/minecraft/block/Block.func_149633_g'),
+    ('Bridge', 'blockShapeAt', 'net/minecraft/block/Block.func_149633_g'),
+}
+
 # Known and fine: called only on clients, guarded, or not 1.7.10 classes at all.
 ALLOWED = {
+    'cpw/mods/fml/common/eventhandler/Event$Result.ordinal',  # inherited java.lang.Enum method
     'net/minecraft/creativetab/CreativeTabs.func_151244_d',   # getIconItemStack: Bridge.legacyCreativeTabIcon, clients only
     'net/minecraft/item/Item.func_150895_a',                  # getSubItems: Bridge.legacyCreativeTabContents, clients only
     'net/minecraft/enchantment/EnumEnchantmentType.name',     # java.lang.Enum
@@ -88,9 +104,21 @@ def main():
         if path.stem.split('$')[0] in CLIENT_ONLY:
             continue
         out = subprocess.run([JAVAP, '-c', '-p', str(path)], capture_output=True, text=True).stdout
-        for match in re.finditer(r'// (?:Method|InterfaceMethod|Field) ([\w/$]+)\.("?[\w<>]+"?):', out):
+        references = []
+        method = None
+        for line in out.splitlines():
+            header = re.match(r'  (?:public|protected|private).*? ([\w.$<>]+)\(', line)
+            if header:
+                method = header.group(1)
+            elif line.strip() == 'static {};':
+                method = '<clinit>'
+            if (path.stem, method) not in CLIENT_METHODS:
+                references.extend((method, match) for match in re.finditer(r'// (?:Method|InterfaceMethod|Field) ([\w/$]+)\.("?[\w<>]+"?):', line))
+        for method, match in references:
             owner, member = match.group(1), match.group(2).strip('"')
             if not owner.startswith(('net/minecraft', 'cpw/')) or member == '<init>':
+                continue
+            if (path.stem, method, f'{owner}.{member}') in GUARDED_REFERENCES:
                 continue
             checked += 1
             names = members(owner)

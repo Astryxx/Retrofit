@@ -263,6 +263,11 @@ public class LegacyItem extends Item implements LegacyStackItem {
         return true;
     }
 
+    @Override
+    public boolean onEntitySwing(ItemStack stack, LivingEntity entity) {
+        return LegacyItemUse.swing(stack, entity);
+    }
+
     /** Legacy fuel values (the legacy furnace rules and mods' fuel handlers). */
     @Override
     public int getBurnTime(ItemStack stack, @javax.annotation.Nullable net.minecraft.world.item.crafting.RecipeType<?> type) {

@@ -136,6 +136,7 @@ public final class GL11 {
         matrixMode = GL_MODELVIEW;
         blend = false;
         textured = true;
+        activeTextureUnit = 0;
         additive = false;
         lighting = true;
         cullFace = true;
@@ -201,7 +202,7 @@ public final class GL11 {
     }
 
     public static void glBindTexture(int target, int texture) {
-        if (target != GL_TEXTURE_2D) {
+        if (target != GL_TEXTURE_2D || activeTextureUnit != 0) {
             return;
         }
         boundTexture = texture;
@@ -217,6 +218,14 @@ public final class GL11 {
 
     /** The texture id last bound: the one glTexImage2D fills (legacy code binds, then uploads). */
     private static volatile int boundTexture;
+    /** Lightmap texture state is separate from the main atlas/font. Its coordinates are captured as packed light. */
+    private static int activeTextureUnit;
+
+    static void activeTexture(final int unit) {
+        submit(new Op() {
+            public void run() { activeTextureUnit = unit; }
+        });
+    }
 
     /** A texture legacy code made from pixels (DragonAPI's sprite sheets, 1.7.10's DynamicTexture), ARGB, top row first. */
     private static final class Pixels {
@@ -338,7 +347,7 @@ public final class GL11 {
         final int index = Capture.textureIndex(location);
         submit(new Op() {
             public void run() {
-                texture = index;
+                if (activeTextureUnit == 0) texture = index;
             }
         });
     }
@@ -1027,7 +1036,7 @@ public final class GL11 {
         } else if (cap == GL_TEXTURE_2D) {
             submit(new Op() {
                 public void run() {
-                    textured = enabled;
+                    if (activeTextureUnit == 0) textured = enabled;
                 }
             });
         } else if (cap == GL_LIGHTING) {
@@ -1059,7 +1068,7 @@ public final class GL11 {
         submit(new Op() {
             public void run() {
                 attribStack.add(new float[]{red, green, blue, alpha, blend ? 1 : 0, texture, light, textured ? 1 : 0, additive ? 1 : 0, lighting ? 1 : 0, cullFace ? 1 : 0, depthEqual ? 1 : 0,
-                        depthTest ? 1 : 0, depthFunc, depthWrite ? 1 : 0});
+                        depthTest ? 1 : 0, depthFunc, depthWrite ? 1 : 0, activeTextureUnit});
             }
         });
     }
@@ -1084,6 +1093,7 @@ public final class GL11 {
                     depthTest = saved[12] != 0;
                     depthFunc = (int) saved[13];
                     depthWrite = saved[14] != 0;
+                    activeTextureUnit = (int) saved[15];
                 }
             }
         });

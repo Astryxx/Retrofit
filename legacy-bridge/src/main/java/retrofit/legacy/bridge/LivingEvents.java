@@ -39,6 +39,26 @@ public final class LivingEvents {
     private static final Map<String, DamageSource> STATIC_SOURCES = new HashMap<String, DamageSource>();
     private static Constructor<DamageSource> newSource;
     private static Integer wanted;
+    private static final ThreadLocal<Object[]> HOST_DAMAGE = new ThreadLocal<Object[]>();
+
+    /** Keep mod damage-source identity through the synchronous host damage/event round trip. */
+    static boolean damageHost(retrofit.api.HostPlayer host, Object player, DamageSource source, float amount) {
+        Object[] previous = HOST_DAMAGE.get();
+        HOST_DAMAGE.set(new Object[]{player, source});
+        try {
+            return source.func_151517_h() && source.func_82725_o()
+                    ? host.hurtAbsolute(source.field_76373_n, source.func_76346_g(), amount)
+                    : host.hurt(source.field_76373_n, source.func_76346_g(), amount);
+        } finally {
+            if (previous == null) HOST_DAMAGE.remove();
+            else HOST_DAMAGE.set(previous);
+        }
+    }
+
+    private static DamageSource playerSource(Object player, String type, Object attacker, int flags) throws ReflectiveOperationException {
+        Object[] pending = HOST_DAMAGE.get();
+        return pending != null && pending[0] == player ? (DamageSource) pending[1] : source(type, attacker, flags);
+    }
 
     private LivingEvents() {
     }
@@ -108,18 +128,18 @@ public final class LivingEvents {
 
     /** LivingAttackEvent; true if a mod cancelled the attack. */
     public static boolean livingAttack(Object player, String type, Object attacker, int flags, float amount) throws ReflectiveOperationException {
-        return MinecraftForge.EVENT_BUS.post(new LivingAttackEvent((EntityLivingBase) player, source(type, attacker, flags), amount));
+        return MinecraftForge.EVENT_BUS.post(new LivingAttackEvent((EntityLivingBase) player, playerSource(player, type, attacker, flags), amount));
     }
 
     /** LivingHurtEvent; the amount after the mods (NaN if cancelled). */
     public static float livingHurt(Object player, String type, Object attacker, int flags, float amount) throws ReflectiveOperationException {
-        LivingHurtEvent event = new LivingHurtEvent((EntityLivingBase) player, source(type, attacker, flags), amount);
+        LivingHurtEvent event = new LivingHurtEvent((EntityLivingBase) player, playerSource(player, type, attacker, flags), amount);
         return MinecraftForge.EVENT_BUS.post(event) ? Float.NaN : event.ammount;
     }
 
     /** LivingDeathEvent; true if a mod cancelled the death (and, typically, healed the player). */
     public static boolean livingDeath(Object player, String type, Object attacker, int flags) throws ReflectiveOperationException {
-        return MinecraftForge.EVENT_BUS.post(new LivingDeathEvent((EntityLivingBase) player, source(type, attacker, flags)));
+        return MinecraftForge.EVENT_BUS.post(new LivingDeathEvent((EntityLivingBase) player, playerSource(player, type, attacker, flags)));
     }
 
     /** LivingFallEvent; the fall distance after the mods (NaN if cancelled). */

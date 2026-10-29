@@ -355,7 +355,7 @@ public final class LegacyPlayers {
         if ((float) motion[3] != player.fallDistance) {
             player.fallDistance = (float) motion[3];
         }
-        if (player.level().isClientSide || motion[4] != 0) {
+        if (motion[5] != 0 && (player.level().isClientSide || motion[4] != 0)) {
             player.setDeltaMovement(motion[0], motion[1], motion[2]);
             if (!player.level().isClientSide) {
                 player.hurtMarked = true; // sends the motion to the client
@@ -523,6 +523,12 @@ public final class LegacyPlayers {
             }
             net.minecraft.world.damagesource.DamageSource source = HostCreatures.damageSource(target, kind, legacyAttacker);
             return target.hurt(source, amount);
+        }
+
+        @Override
+        public boolean hurtAbsolute(String kind, Object legacyAttacker, float amount) {
+            Player target = player;
+            return target != null && !target.level().isClientSide && target.hurt(target.damageSources().genericKill(), amount);
         }
 
         @Override

@@ -389,7 +389,11 @@ public final class Bridge {
             block.func_149719_a(world, 0, 0, 0); // setBlockBoundsBasedOnState
             double[] selection = {block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
                     block.func_149753_y(), block.func_149669_A(), block.func_149693_C()}; // min x y z, max x y z
-            if (block.func_149633_g(world, 0, 0, 0) == null) java.util.Arrays.fill(selection, 0);
+            try {
+                if (block.func_149633_g(world, 0, 0, 0) == null) java.util.Arrays.fill(selection, 0);
+            } catch (NoSuchMethodError absentOnDedicatedServer) {
+                // 1.7.10 strips selection boxes on servers; collision boxes still apply below.
+            }
             List boxes = new ArrayList();
             AxisAlignedBB mask = AxisAlignedBB.func_72330_a(-1, -1, -1, 2, 2, 2); // getBoundingBox
             block.func_149743_a(world, 0, 0, 0, mask, boxes, null); // addCollisionBoxesToList
@@ -438,7 +442,11 @@ public final class Bridge {
             block.func_149719_a(world, x, y, z); // setBlockBoundsBasedOnState
             double[] selection = {block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
                     block.func_149753_y(), block.func_149669_A(), block.func_149693_C()};
-            if (block.func_149633_g(world, x, y, z) == null) java.util.Arrays.fill(selection, 0);
+            try {
+                if (block.func_149633_g(world, x, y, z) == null) java.util.Arrays.fill(selection, 0);
+            } catch (NoSuchMethodError absentOnDedicatedServer) {
+                // Keep the block bounds and collect its server-side collision boxes below.
+            }
             List boxes = new ArrayList();
             AxisAlignedBB mask = AxisAlignedBB.func_72330_a(x - 1, y - 1, z - 1, x + 2, y + 2, z + 2); // getBoundingBox
             block.func_149743_a(world, x, y, z, mask, boxes, null); // addCollisionBoxesToList

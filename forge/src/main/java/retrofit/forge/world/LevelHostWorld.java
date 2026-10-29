@@ -413,6 +413,12 @@ final class LevelHostWorld implements HostWorld {
     }
 
     @Override
+    public int[] getSpawnPosition() {
+        BlockPos pos = level.getSharedSpawnPos();
+        return new int[]{pos.getX(), pos.getY(), pos.getZ()};
+    }
+
+    @Override
     public long getDayTime() {
         return level.getDayTime();
     }

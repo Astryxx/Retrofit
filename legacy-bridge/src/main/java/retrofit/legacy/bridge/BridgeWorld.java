@@ -50,6 +50,13 @@ public class BridgeWorld extends World {
         this.host = host;
     }
 
+    /** getSpawnPoint */
+    @Override
+    public net.minecraft.util.ChunkCoordinates func_72861_E() {
+        int[] at = host == null ? null : host.getSpawnPosition();
+        return at == null ? super.func_72861_E() : new net.minecraft.util.ChunkCoordinates(at[0], at[1], at[2]);
+    }
+
     /** getBlock */
     @Override
     public Block func_147439_a(int x, int y, int z) {

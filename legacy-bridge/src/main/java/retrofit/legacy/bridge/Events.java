@@ -158,6 +158,7 @@ public final class Events {
         if (MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.player.AttackEntityEvent(attacker, (net.minecraft.entity.Entity) target))) {
             return true;
         }
+        if (!ManaMetalCompatibility.canUseWeapon(attacker)) return true;
         net.minecraft.item.ItemStack stack = attacker.func_71045_bC(); // getCurrentEquippedItem
         return stack != null && stack.func_77973_b().onLeftClickEntity(stack, attacker, (net.minecraft.entity.Entity) target);
     }
@@ -168,6 +169,26 @@ public final class Events {
     }
 
     // ---- Server lifecycle ----
+
+    /** The cancellable pre-harvest event, with the block still present in the world. */
+    public static int[] playerBreakBlock(Object player, Object world, int x, int y, int z, int experience) {
+        World level = (World) world;
+        net.minecraftforge.event.world.BlockEvent.BreakEvent event = new net.minecraftforge.event.world.BlockEvent.BreakEvent(
+                x, y, z, level, level.func_147439_a(x, y, z), level.func_72805_g(x, y, z), (EntityPlayer) player);
+        event.setExpToDrop(experience);
+        MinecraftForge.EVENT_BUS.post(event);
+        return new int[]{event.isCanceled() ? 1 : 0, event.getExpToDrop()};
+    }
+
+    /** Item pickup handlers may consume the drop (currency), change it, or refuse pickup. */
+    public static Object[] playerPickupItem(Object player, Object stack, double x, double y, double z) {
+        EntityPlayer owner = (EntityPlayer) player;
+        net.minecraft.entity.item.EntityItem drop = new net.minecraft.entity.item.EntityItem(owner.field_70170_p, x, y, z,
+                (net.minecraft.item.ItemStack) stack);
+        net.minecraftforge.event.entity.player.EntityItemPickupEvent event = new net.minecraftforge.event.entity.player.EntityItemPickupEvent(owner, drop);
+        MinecraftForge.EVENT_BUS.post(event);
+        return new Object[]{event.isCanceled(), event.getResult().ordinal(), drop.field_70128_L, drop.func_92059_d()};
+    }
 
     /**
      * Before the host server starts: where legacy world data lives, the world's legacy numeric

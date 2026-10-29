@@ -207,6 +207,7 @@ public final class Interactions {
     /** onItemRightClick; the result replaces the held stack, as ItemInWorldManager did. */
     public static void rightClick(Object legacyPlayer, Object world) {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
+        if (!ManaMetalCompatibility.canUseWeapon(player)) return;
         ItemStack stack = player.func_71045_bC();
         if (stack == null) {
             return;
@@ -240,6 +241,12 @@ public final class Interactions {
     }
 
     /** A hit landed with the held item: hitEntity (weapons' effects and their wear), as attackTargetEntityWithCurrentItem did. */
+    public static boolean swingItem(Object legacyPlayer) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        ItemStack stack = player.func_71045_bC();
+        return stack != null && stack.func_77973_b().onEntitySwing(player, stack);
+    }
+
     public static void hitEntity(Object legacyPlayer, Object target) {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
         ItemStack stack = player.func_71045_bC();

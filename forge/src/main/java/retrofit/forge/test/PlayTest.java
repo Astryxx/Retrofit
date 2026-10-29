@@ -84,6 +84,42 @@ public final class PlayTest {
     /** Where the current scenario happens: a fresh patch of the flat world, away from the last one. */
     private static BlockPos site;
     private static int sites;
+    private static Object animationFixture;
+    private static int foodFrames, visibleFoodFrames;
+
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST, receiveCanceled = true)
+    public static void onFoodOverlay(net.minecraftforge.client.event.RenderGuiOverlayEvent.Pre event) {
+        if (ENABLED && event.getOverlay() == net.minecraftforge.client.gui.overlay.VanillaGuiOverlay.FOOD_LEVEL.type()) {
+            foodFrames++;
+            if (!event.isCanceled()) visibleFoodFrames++;
+        }
+    }
+
+    /** Exercise the original skill renderer through the host's actual texture upload and draw path. */
+    @SubscribeEvent
+    public static void onAnimationScene(net.minecraftforge.client.event.RenderLevelStageEvent event) {
+        if (!ENABLED || animationFixture == null || event.getStage() != net.minecraftforge.client.event.RenderLevelStageEvent.Stage.AFTER_PARTICLES) return;
+        var mc = Minecraft.getInstance();
+        var pose = event.getPoseStack();
+        var buffers = mc.renderBuffers().bufferSource();
+        var camera = event.getCamera().getPosition();
+        synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+            try {
+                int index = 0;
+                for (int time : new int[]{1, 3, 6, 9}) {
+                    animationFixture.getClass().getField("time").setInt(animationFixture, time);
+                    int vertices = retrofit.forge.world.LegacyBridge.call("renderEntity", animationFixture, 0f, 0f);
+                    pose.pushPose();
+                    try {
+                        pose.translate(site.getX() + 6 - camera.x, site.getY() + 2 - camera.y, site.getZ() - 6 + index++ * 4 - camera.z);
+                        retrofit.forge.client.LegacyCapture.draw(pose.last(), buffers, vertices, net.minecraft.client.renderer.LightTexture.FULL_BRIGHT,
+                                net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY, false);
+                    } finally { pose.popPose(); }
+                }
+                buffers.endBatch();
+            } catch (Throwable e) { animationFixture = null; LOGGER.error("[PlayTest] Animation scene failed", e); }
+        }
+    }
 
     private PlayTest() {
     }
@@ -147,7 +183,21 @@ public final class PlayTest {
     // ---- Scenarios ----
 
     private static void plan() {
+        if (Boolean.getBoolean("retrofit.manaReview")) {
+            until("ManaMetal tutorial entry", 800, () -> serverPlayer().level().dimension().location().getPath().equals("legacy_dim_"
+                    + retrofit.forge.world.LegacyBridge.call("testModField", "project.studio.manametalmod.config.M3Config", "WorldPeaceAcademyID")));
+            do_("tutorial arrived", 20, () -> server(player -> {
+                int id = retrofit.forge.world.LegacyBridge.call("testModField", "project.studio.manametalmod.config.M3Config", "WorldPeaceAcademyID");
+                result("ManaMetal automatically enters the tutorial in a fresh " + player.gameMode.getGameModeForPlayer() + " world",
+                        player.level().dimension().location().getPath().equals("legacy_dim_" + id), player.level().dimension().location().toString());
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0);
+            }));
+        }
         do_("start", 10, () -> server(player -> {
+            if (legacyModLoaded("manametalmod")) {
+                Object expected = retrofit.forge.world.LegacyBridge.call("testModField", "project.studio.manametalmod.config.M3Config", "WorldPeaceAcademyID");
+                LOGGER.info("[PlayTest] Fresh ManaMetal world: mode {}, dimension {}, tutorial dimension {}", player.gameMode.getGameModeForPlayer(), player.level().dimension().location(), expected);
+            }
             player.setGameMode(GameType.SURVIVAL);
             player.getAbilities().invulnerable = true;
             player.onUpdateAbilities();
@@ -164,6 +214,24 @@ public final class PlayTest {
             result("legacy asset pack built, with its textures", counts != null
                     && Integer.parseInt(counts[0]) >= Integer.parseInt(counts[1]) * 95 / 100, String.valueOf(build));
         });
+        if (Boolean.getBoolean("retrofit.aoaReview")) {
+            aoaReview();
+            return;
+        }
+        if (Boolean.getBoolean("retrofit.dimensionReview")) {
+            if (legacyModLoaded("erebus")) erebusDimension();
+            if (legacyModLoaded("thebetweenlands")) modDimension("The Betweenlands", "thebetweenlands", "thebetweenlands.utils.confighandler.ConfigHandler", "DIMENSION_ID", "thebetweenlands.world.teleporter.TeleporterBetweenlands");
+            return;
+        }
+        if (Boolean.getBoolean("retrofit.queenReview")) {
+            queenReview();
+            return;
+        }
+        if (Boolean.getBoolean("retrofit.manaReview")) {
+            if (Boolean.getBoolean("retrofit.manaTutorialOnly")) return;
+            manaMetal();
+            return;
+        }
         if (Boolean.getBoolean("retrofit.crazyCraftTest")) {
             crazyCraft();
             return;
@@ -343,9 +411,281 @@ public final class PlayTest {
      * with icons from its font pages), the food decay bars under the hotbar's items, its scythes'
      * projectiles (its own particles) and its instance dungeons (built straight into chunk storage).
      */
+    private static Object legacyField(Object object, String name) {
+        for (Class<?> type = object.getClass(); type != null; type = type.getSuperclass()) {
+            try { var field = type.getDeclaredField(name); field.setAccessible(true); return field.get(object); }
+            catch (NoSuchFieldException e) { }
+            catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+        }
+        throw new IllegalArgumentException(name);
+    }
+
+    private static void aoaReview() {
+        for (String weaponClass : java.util.List.of("net.nevermine.item.weapon.greatblade.Grandsword", "net.nevermine.item.weapon.scythe.ErebonScythe")) {
+            Item weapon = net.minecraft.core.registries.BuiltInRegistries.ITEM.stream().filter(i -> i instanceof retrofit.forge.world.LegacyStackItem l
+                    && l.legacyItem().getClass().getName().equals(weaponClass)).findFirst().orElseThrow();
+            String label = weaponClass.substring(weaponClass.lastIndexOf('.') + 1);
+            java.util.List<java.util.UUID> targets = new java.util.ArrayList<>();
+            newSite("AoA " + label);
+            do_(label + " targets", 10, () -> server(player -> {
+                player.setYRot(0);
+                player.setXRot(0);
+                player.getInventory().selected = 0;
+                player.getInventory().setItem(0, new ItemStack(weapon));
+                for (int i = 0; i < 4; i++) {
+                    var target = net.minecraft.world.entity.EntityType.COW.spawn(player.serverLevel(), ground(i % 2 == 0 ? 0 : 2, i % 2 == 0 ? 2 : 0).above(), MobSpawnType.COMMAND);
+                    target.setNoAi(true);
+                    target.setNoGravity(true);
+                    target.setPos(target.getX(), target.getY() + 0.5, target.getZ());
+                    target.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH).setBaseValue(100);
+                    target.setHealth(100);
+                    targets.add(target.getUUID());
+                }
+            }));
+            do_(label + " swing", 20, () -> server(player -> {
+                player.swing(InteractionHand.MAIN_HAND);
+                long fired = player.serverLevel().getEntities((Entity) null, player.getBoundingBox().inflate(32), e -> e instanceof retrofit.forge.world.LegacyEntityCarrier c
+                        && (c.core().legacy().getClass().getSimpleName().equals("EntityGreatblade") || c.core().legacy().getClass().getSimpleName().equals("EntityScythe"))).size();
+                result("AoA " + label + " swing creates its attack", fired > 0, fired + " attack entities");
+            }));
+            do_(label + " damage", 0, () -> server(player -> {
+                int hurt = 0;
+                for (var id : targets) {
+                    var target = player.serverLevel().getEntity(id);
+                    if (target == null || ((net.minecraft.world.entity.LivingEntity) target).getHealth() < 100) hurt++;
+                    if (target != null) target.discard();
+                }
+                result("AoA " + label + " damages modern targets", hurt > 0, hurt + " targets damaged");
+            }));
+        }
+    }
+
+    private static void queenReview() {
+        var type = java.util.Arrays.stream(retrofit.forge.world.LegacyBridge.<Object[][]>call("modEntities"))
+                .filter(row -> "danger.orespawn.TheQueen".equals(row[8]))
+                .map(row -> retrofit.forge.world.LegacyEntityTypes.byName((String) row[0])).findFirst().orElseThrow();
+        java.util.UUID[] queen = new java.util.UUID[1];
+        newSite("OreSpawn Queen");
+        do_("Queen spawn", 60, () -> server(player -> {
+            Entity entity = type.spawn(player.serverLevel(), ground(12, 0).above(), MobSpawnType.COMMAND);
+            ((net.minecraft.world.entity.Mob) entity).setNoAi(true);
+            queen[0] = entity.getUUID();
+        }));
+        do_("Queen baseline", 0, () -> queenState(queen[0], "before combat"));
+        if (net.minecraftforge.fml.ModList.get().isLoaded("chaospersists")) {
+            java.util.UUID[] opponent = new java.util.UUID[1];
+            do_("Chaos Persists Queen combat", 0, () -> server(player -> {
+                var original = (net.minecraft.world.entity.Mob) player.serverLevel().getEntity(queen[0]);
+                var modernType = ForgeRegistries.ENTITY_TYPES.getEntries().stream()
+                        .filter(entry -> entry.getKey().location().getNamespace().equals("chaospersists") && entry.getKey().location().getPath().contains("queen"))
+                        .map(java.util.Map.Entry::getValue).filter(candidate -> {
+                            Entity sample = candidate.create(player.serverLevel());
+                            return sample != null && sample.getClass().getName().equals("com.astryxion.chaospersists.entity.TheQueen");
+                        }).findFirst().orElseThrow(() -> new IllegalStateException("Chaos Persists Queen type unavailable"));
+                var modern = (net.minecraft.world.entity.Mob) modernType.spawn(player.serverLevel(), original.blockPosition().offset(12, 0, 0), MobSpawnType.COMMAND);
+                original.setNoAi(false);
+                original.setTarget(modern);
+                modern.setTarget(original);
+                original.setLastHurtByMob(modern);
+                original.hurt(original.damageSources().mobAttack(modern), 1000);
+                opponent[0] = modern.getUUID();
+                LOGGER.info("[PlayTest] Queen duel started against {}", modern.getType());
+            }));
+            int[] combat = new int[3];
+            until("Queen duel observation", 800, () -> {
+                combat[0]++;
+                var original = Minecraft.getInstance().level.getEntities((Entity) null, Minecraft.getInstance().player.getBoundingBox().inflate(512), e -> e.getUUID().equals(queen[0]));
+                for (Entity entity : original) {
+                    combat[1]++;
+                    Object legacy = ((retrofit.forge.world.LegacyEntityCarrier) entity).clientLegacy();
+                    if (((LivingEntity) entity).isAlive() && ((Number) legacyField(legacy, "field_70725_aQ")).intValue() > 0) combat[2]++;
+                }
+                return combat[0] >= 600;
+            });
+            do_("Queen duel result", 0, () -> {
+                result("OreSpawn Queen has no false death pose fighting Chaos Persists 0.9.1", combat[1] > 100 && combat[2] == 0,
+                        combat[1] + " observations, " + combat[2] + " alive with death animation");
+                queenState(queen[0], "after Chaos Persists combat");
+                grab("play-queen-chaos-combat");
+                server(player -> { Entity modern = player.serverLevel().getEntity(opponent[0]); if (modern != null) modern.discard(); });
+            });
+        }
+        do_("Queen forced damage", 80, () -> server(player -> {
+            var entity = (net.minecraft.world.entity.LivingEntity) player.serverLevel().getEntity(queen[0]);
+            var attacker = net.minecraft.world.entity.EntityType.COW.spawn(player.serverLevel(), ground(20, 0).above(), MobSpawnType.COMMAND);
+            entity.setLastHurtByMob(attacker);
+            entity.setHealth(0);
+        }));
+        do_("Queen after damage", 0, () -> queenState(queen[0], "after a modern creature forces health to zero"));
+    }
+
+    private static void queenState(java.util.UUID id, String stage) {
+        var mc = Minecraft.getInstance();
+        var entities = mc.level.getEntities((Entity) null, mc.player.getBoundingBox().inflate(256), e -> e.getUUID().equals(id));
+        for (Entity entity : entities) {
+            Object legacy = ((retrofit.forge.world.LegacyEntityCarrier) entity).clientLegacy();
+            int death = ((Number) legacyField(legacy, "field_70725_aQ")).intValue();
+            LOGGER.info("[PlayTest] Queen {}: client host health {}, legacy health {}, hurt {}, death {}, dead {}", stage,
+                    ((net.minecraft.world.entity.LivingEntity) entity).getHealth(), retrofit.forge.world.LegacyBridge.call("testHealth", legacy),
+                    legacyField(legacy, "field_70737_aN"), death, legacyField(legacy, "field_70128_L"));
+            result("Queen remains upright " + stage, death == 0, "death animation ticks " + death);
+        }
+    }
+
     private static void manaMetal() {
         Item sickle = findItem("manametalmod", path -> path.contains("initial_sickle"), Item.class);
         newSite("ManaMetal");
+        until("manametal: arrive on the test platform", 400, () -> {
+            var player = Minecraft.getInstance().player;
+            return player.onGround() && Math.abs(player.getX() - site.getX() - 0.5) < 0.75 && Math.abs(player.getY() - site.getY() - 1) < 0.1;
+        });
+        do_("manametal: prepare dash", 10, () -> server(player -> {
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, true);
+            retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SPMax", 400);
+            retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SP", 400);
+            retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SPCD", 0);
+        }));
+        double[] dash = new double[2];
+        do_("manametal: walk before dashing", 8, () -> {
+            Minecraft.getInstance().player.setYRot(-90);
+            KeyMapping.set(Minecraft.getInstance().options.keyUp.getKey(), true);
+        });
+        until("manametal: moving before dash", 100, () -> Minecraft.getInstance().player.getDeltaMovement().x > 0.06);
+        do_("manametal: send original dash packet", 0, () -> {
+            server(owner -> {
+                Object mirror = retrofit.forge.world.LegacyPlayers.mirror(owner, true);
+                retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SPMax", 400);
+                retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SP", 400);
+                retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SPCD", 0);
+            });
+            var player = Minecraft.getInstance().player;
+            dash[0] = player.getX();
+            try {
+                ClassLoader loader = RetrofitMod.runtime().gameLoader();
+                Object packet = Class.forName("project.studio.manametalmod.network.MessagePlayerSPMove", true, loader).getConstructor(int.class).newInstance(1);
+                Object network = Class.forName("project.studio.manametalmod.network.PacketHandlerMana", true, loader).getField("INSTANCE").get(null);
+                network.getClass().getMethod("sendToServer", Class.forName("cpw.mods.fml.common.network.simpleimpl.IMessage", true, loader)).invoke(network, packet);
+            } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+        });
+        until("manametal: dash movement reply", 100, () -> {
+            var player = Minecraft.getInstance().player;
+            dash[1] = Math.max(dash[1], Math.abs(player.getDeltaMovement().x));
+            return dash[1] > 0.3;
+        });
+        do_("manametal: dash movement", 0, () -> server(player -> {
+            KeyMapping.set(Minecraft.getInstance().options.keyUp.getKey(), false);
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
+            int stamina = retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.SP", null);
+            result("ManaMetal dash moves the actual client and spends stamina", dash[1] > 0.3 && stamina < 400,
+                    "peak X velocity " + dash[1] + ", distance " + (Minecraft.getInstance().player.getX() - dash[0]) + ", stamina " + stamina);
+        }));
+        Object[] classScreen = new Object[1];
+        do_("manametal: class status data", 10, () -> server(player -> {
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
+            retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.careerType", 1);
+        }));
+        do_("manametal: class status screen", 10, () -> {
+            try {
+                ClassLoader loader = RetrofitMod.runtime().gameLoader();
+                Object mirror = retrofit.forge.world.LegacyPlayers.mirror(Minecraft.getInstance().player, true);
+                Class<?> playerClass = Class.forName("net.minecraft.entity.player.EntityPlayer", true, loader);
+                Class<?> rootClass = Class.forName("project.studio.manametalmod.entity.nbt.ManaMetalModRoot", true, loader);
+                Object rootData = Class.forName("project.studio.manametalmod.MMM", true, loader).getMethod("getEntityNBT", playerClass).invoke(null, mirror);
+                Object career = legacyField(rootData, "carrer");
+                career.getClass().getField("careerType").setInt(career, 1);
+                Object screen = Class.forName("project.studio.manametalmod.client.GuiCareerPoints", true, loader)
+                        .getConstructor(playerClass, rootClass, boolean.class).newInstance(mirror, rootData, false);
+                java.util.List<?> items = (java.util.List<?>) screen.getClass().getField("AttributesItemListCopy").get(screen);
+                java.util.List<?> registered = (java.util.List<?>) Class.forName("project.studio.manametalmod.ManaMetalAPI", true, loader).getField("AttributesItemList").get(null);
+                result("ManaMetal permanent consumables populate the class panel", !items.isEmpty(),
+                        items.size() + " visible, " + registered.size() + " registered");
+                classScreen[0] = screen;
+                retrofit.forge.client.ClientHooks.displayLegacyScreen(screen);
+            } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+        });
+        do_("manametal: class status screenshot", 5, () -> {
+            grab("play-manametal-class-status");
+            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                int vertices = retrofit.forge.world.LegacyBridge.call("guiDraw", classScreen[0], 0, 0, 0f);
+                int icons = 0;
+                for (Object entry : retrofit.forge.world.LegacyBridge.<Object[]>call("guiMarkers")) {
+                    Object[] marker = (Object[]) entry;
+                    if ("item".equals(marker[1]) && !retrofit.forge.world.LegacyStacks.toModern(marker[2]).isEmpty()) icons++;
+                }
+                result("ManaMetal zero-progress consumable icons remain drawable", icons >= 31, icons + " drawable icons");
+                try { LOGGER.info("[PlayTest] Class status capture: {}", retrofit.forge.client.LegacyCapture.describe(vertices)); }
+                catch (Throwable e) { throw new IllegalStateException(e); }
+            }
+        });
+        do_("manametal: close class status", 5, () -> Minecraft.getInstance().setScreen(null));
+        do_("manametal: warrior animation frames", 0, () -> {
+            try {
+                ClassLoader loader = RetrofitMod.runtime().gameLoader();
+                Object mirror = retrofit.forge.world.LegacyPlayers.mirror(Minecraft.getInstance().player, false);
+                Object world = legacyField(mirror, "field_70170_p");
+                Class<?> fx = Class.forName("project.studio.manametalmod.fx.EntityPlayerAttackFX", true, loader);
+                Object effect = fx.getConstructor(Class.forName("net.minecraft.world.World", true, loader), int.class, int.class, int.class).newInstance(world, 10, 0, 0);
+                java.util.Set<String> frames = new java.util.HashSet<>();
+                boolean textured = true;
+                synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                    for (int time : new int[]{1, 3, 6, 9}) {
+                        fx.getField("time").setInt(effect, time);
+                        int vertices = retrofit.forge.world.LegacyBridge.call("renderEntity", effect, 0f, 0f);
+                        String description = retrofit.forge.client.LegacyCapture.describe(vertices);
+                        frames.add(description.substring(description.indexOf("textures")));
+                        textured &= vertices > 0 && !description.contains("untextured") && !description.contains("missing");
+                        LOGGER.info("[PlayTest] Warrior slash frame {}: {}", time, description);
+                    }
+                }
+                result("ManaMetal warrior slash uses four distinct textured animation frames", textured && frames.size() == 4, frames.toString());
+                animationFixture = effect;
+            } catch (Throwable e) { throw new IllegalStateException(e); }
+        });
+        do_("manametal: view original animation frames", 20, () -> {
+            server(player -> player.teleportTo(player.serverLevel(), site.getX() - 5, site.getY() + 1, site.getZ() - 5, 0, 0));
+        });
+        shot("play-manametal-warrior-frames", () -> ground(6, 0).above(2));
+        do_("manametal: animation scene done", 0, () -> animationFixture = null);
+        int[] wallet = new int[1];
+        do_("manametal: profession currency pickup", 10, () -> server(player -> {
+            Item coin = net.minecraft.core.registries.BuiltInRegistries.ITEM.stream().filter(i -> i instanceof retrofit.forge.world.LegacyStackItem l
+                    && l.legacyItem().getClass().getName().endsWith(".ItemCoinSpecial")).findFirst().orElseThrow();
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, true);
+            int[] before = ((int[]) retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "money.coins", null)).clone();
+            ItemStack stack = ((retrofit.forge.world.LegacyStackItem) coin).stackOf(0);
+            stack.setCount(3);
+            var drop = new net.minecraft.world.entity.item.ItemEntity(player.level(), player.getX(), player.getY(), player.getZ(), stack);
+            drop.setNoPickUpDelay();
+            player.serverLevel().addFreshEntity(drop);
+            drop.playerTouch(player);
+            int[] after = retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "money.coins", null);
+            int gained = java.util.Arrays.stream(after).sum() - java.util.Arrays.stream(before).sum();
+            wallet[0] = java.util.Arrays.stream(after).sum();
+            boolean inInventory = player.getInventory().contains(new ItemStack(coin));
+            result("ManaMetal profession coins enter the wallet without entering inventory", gained == 3 && !drop.isAlive() && !inInventory,
+                    "wallet gained " + gained + ", drop alive " + drop.isAlive() + ", inventory " + inInventory);
+        }));
+        until("manametal: profession wallet sync", 200, () -> {
+            int[] coins = retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", null, "money.coins", null);
+            return java.util.Arrays.stream(coins).sum() == wallet[0];
+        });
+        do_("manametal: profession wallet on client", 0, () -> {
+            int[] coins = retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", null, "money.coins", null);
+            result("ManaMetal profession wallet reaches the client", java.util.Arrays.stream(coins).sum() == wallet[0],
+                    "server " + wallet[0] + ", client " + java.util.Arrays.stream(coins).sum());
+        });
+        do_("manametal: mining fatigue", 0, () -> server(player -> {
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, true);
+            String root = "project.studio.manametalmod.MMM";
+            int before = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.Fatigue", null);
+            player.getInventory().setItem(0, new ItemStack(Items.DIAMOND_PICKAXE));
+            player.getInventory().selected = 0;
+            BlockPos block = player.blockPosition().offset(2, 0, 0);
+            player.level().setBlockAndUpdate(block, Blocks.STONE.defaultBlockState());
+            boolean broken = player.gameMode.destroyBlock(block);
+            int after = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.Fatigue", null);
+            result("ManaMetal mining depletes fatigue", broken && after < before, before + " -> " + after + ", broken " + broken);
+        }));
         do_("manametal: tooltips", 5, () -> {
             boolean modTooltips = retrofit.forge.world.LegacyBridge.<Boolean>call("modTooltips");
             int vertices;
@@ -366,10 +706,13 @@ public final class PlayTest {
             result("ManaMetal draws its own tooltips, with the icons of its font pages", modTooltips && vertices > 0 && icon,
                     "coremod tooltips " + modTooltips + ", " + vertices + " vertices, U+E00D " + (icon ? "has a glyph" : "missing"));
         });
-        do_("manametal: food", 10, () -> server(player -> {
+        do_("manametal: food", 10, () -> {
+            foodFrames = visibleFoodFrames = 0;
+            server(player -> {
             player.getInventory().setItem(0, new ItemStack(Items.BREAD, 4));
             player.getInventory().setItem(1, new ItemStack(sickle));
-        }));
+            });
+        });
         do_("manametal: food decay under the hotbar", 0, () -> {
             var window = Minecraft.getInstance().getWindow();
             int before = -1;
@@ -382,12 +725,16 @@ public final class PlayTest {
                 }
             }
             result("ManaMetal's food decay bars are drawn before the hotbar", before > 0, before + " vertices before the hotbar");
+            result("ManaMetal HUD suppresses the actual vanilla hunger overlay", foodFrames > 0 && visibleFoodFrames == 0,
+                    foodFrames + " food-overlay events, " + visibleFoodFrames + " visible");
             grab("play-manametal-hotbar");
         });
         // its stats tick in Muya's LivingUpdateEvent on the server and reach the client (players saw mana never come back)
         String root = "project.studio.manametalmod.MMM";
         Object[] mana = new Object[5];
-        do_("manametal: drain mana", 10, () -> server(player -> {
+        int[] manaStart = new int[1];
+        do_("manametal: drain mana", 0, () -> server(player -> {
+            manaStart[0] = player.server.getTickCount();
             Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
             Object owner = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.entity", null);
             mana[3] = (owner == mirror ? "data on the mirror " : "data on another entity " + owner + ", mirror " + mirror)
@@ -395,7 +742,8 @@ public final class PlayTest {
             mana[0] = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.Water", null);
             retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.magic", 100);
         }));
-        do_("manametal: mana back?", 240, () -> {
+        until("manametal: twelve server seconds", 1600, () -> Minecraft.getInstance().getSingleplayerServer().getTickCount() - manaStart[0] >= 240);
+        do_("manametal: mana back?", 0, () -> {
             server(player -> {
                 Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
                 mana[1] = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.magic", null);
@@ -421,10 +769,34 @@ public final class PlayTest {
             Minecraft.getInstance().player.setXRot(0);
         });
         do_("manametal: cast", 10, () -> KeyMapping.set(Minecraft.getInstance().options.keyUse.getKey(), true)); // it fires after 10 ticks held
-        until("manametal: projectile flies", 100, () -> { // the server may be slow to fire it
-            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
-                return retrofit.forge.world.LegacyBridge.<Integer>call("drawParticles", 0f) > 0;
+        until("manametal: projectile flies", 400, () -> {
+            var mc = Minecraft.getInstance();
+            return !mc.level.getEntities((Entity) null, mc.player.getBoundingBox().inflate(128), e -> e.getType().toString().toLowerCase(java.util.Locale.ROOT).contains("magicball") && e.tickCount > 2).isEmpty();
+        });
+        do_("manametal: orb renderer", 0, () -> {
+            var mc = Minecraft.getInstance();
+            var orbs = mc.level.getEntities((Entity) null, mc.player.getBoundingBox().inflate(128), e -> e.getType().toString().toLowerCase(java.util.Locale.ROOT).contains("magicball"));
+            boolean drawn = false;
+            String details = "no orb entity on client";
+            for (Entity orb : orbs) {
+                if (orb instanceof retrofit.forge.world.LegacyEntityCarrier carrier) {
+                    synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                        int vertices = retrofit.forge.world.LegacyBridge.call("renderEntity", carrier.clientLegacy(), orb.getYRot(), 0f);
+                        if (vertices == 0) vertices = retrofit.forge.world.LegacyBridge.call("drawWorldLast", 0f); // renderers may defer transparent effects
+                        try { details = retrofit.forge.client.LegacyCapture.describe(vertices); }
+                        catch (Throwable e) { throw new IllegalStateException(e); }
+                        drawn |= vertices > 0 && !details.contains("missing");
+                        try {
+                            Object legacy = carrier.clientLegacy();
+                            Object renderer = Class.forName("project.studio.manametalmod.renderer.RenderMagicBallNew", true, legacy.getClass().getClassLoader()).getConstructor().newInstance();
+                            Object elements = legacy.getClass().getMethod("GetElements").invoke(legacy);
+                            Object icon = renderer.getClass().getMethod("getIcon", elements.getClass(), legacy.getClass()).invoke(renderer, elements, legacy);
+                            details += "; age " + legacyField(legacy, "field_70173_aa") + ", elements " + elements + ", icon " + icon;
+                        } catch (ReflectiveOperationException e) { details += "; " + e; }
+                    }
+                }
             }
+            result("ManaMetal scythe orb entity draws independently of its particle trail", drawn, details);
         });
         do_("manametal: projectile", 2, () -> {
             int vertices;
@@ -457,14 +829,77 @@ public final class PlayTest {
         }));
         do_("manametal: dungeon built?", 0, () -> server(player -> {
             int[] size = placed[0];
-            int solid = 0;
-            for (BlockPos pos : BlockPos.betweenClosed(dungeon, dungeon.offset(size[0] - 1, size[1] - 1, size[2] - 1))) {
-                solid += player.level().getBlockState(pos).isAir() ? 0 : 1;
-            }
+            int solid = size[4]; // compare the template's own positions; surrounding terrain must not make this pass
             result("ManaMetal's dungeon template is built in full", solid >= size[3] * 95 / 100,
                     solid + " of the template's " + size[3] + " blocks (" + size[0] + "x" + size[1] + "x" + size[2] + ")");
         }));
         do_("manametal: dungeon shot", 5, () -> grab("play-manametal-dungeon"));
+        do_("manametal: weapon level requirement", 40, () -> server(player -> {
+            Item weapon = net.minecraft.core.registries.BuiltInRegistries.ITEM.stream()
+                    .filter(item -> item instanceof retrofit.forge.world.LegacyStackItem legacy && legacy.legacyItem().getClass().getName().endsWith(".ItemToolSickle"))
+                    .findFirst().orElseThrow(() -> new IllegalStateException("ManaMetal scythe unavailable"));
+            Object legacyItem = ((retrofit.forge.world.LegacyStackItem) weapon).legacyItem();
+            try {
+                var balance = (java.util.Map<?, ?>) Class.forName("project.studio.manametalmod.ManaMetalAPI", true, RetrofitMod.runtime().gameLoader()).getField("ItemAttackBalance").get(null);
+                Object definition = balance.getOrDefault(legacyItem, null);
+                if (definition == null) definition = legacyItem;
+                var field = definition.getClass().getField("needLV");
+                int original = field.getInt(definition);
+                try {
+                    field.setInt(definition, 100);
+                    player.getInventory().selected = 0;
+                    player.getInventory().setItem(0, new ItemStack(weapon));
+                    Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, true);
+                    ClassLoader loader = RetrofitMod.runtime().gameLoader();
+                    Object verdict = Class.forName("project.studio.manametalmod.MMM", true, loader)
+                            .getMethod("playerCanUseWeapon", Class.forName("net.minecraft.entity.player.EntityPlayer", true, loader)).invoke(null, mirror);
+                    LOGGER.info("[PlayTest] Weapon restriction fixture: {} need {}, career level {}, verdict {}", definition.getClass().getName(), field.getInt(definition),
+                            retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.careerLV", null), verdict);
+                    if (!"fail".equals(((Enum<?>) verdict).name())) throw new IllegalStateException("fixture did not create an ineligible weapon");
+                    var target = net.minecraft.world.entity.EntityType.COW.spawn(player.serverLevel(), ground(2, 0).above(), MobSpawnType.COMMAND);
+                    float health = target.getHealth();
+                    player.attack(target);
+                    result("ManaMetal weapon level requirements protect modern targets", target.getHealth() == health, health + " -> " + target.getHealth());
+                    target.discard();
+                } finally { field.setInt(definition, original); }
+            } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+        }));
+        do_("manametal: eligible weapon still damages", 10, () -> server(player -> {
+            Item weapon = findItem("manametalmod", path -> path.contains("initial_sword"), Item.class);
+            player.getInventory().selected = 0;
+            player.getInventory().setItem(0, new ItemStack(weapon));
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, true);
+            retrofit.forge.world.LegacyBridge.call("testEntityData", "project.studio.manametalmod.MMM", "getEntityNBT", mirror, "carrer.attackSpeed", 0d);
+            var target = net.minecraft.world.entity.EntityType.COW.spawn(player.serverLevel(), player.blockPosition().offset(2, 0, 0), MobSpawnType.COMMAND);
+            float health = target.getHealth();
+            player.attack(target);
+            result("ManaMetal eligible weapons still damage modern targets", target.getHealth() < health, health + " -> " + target.getHealth());
+            target.discard();
+        }));
+        do_("manametal: downed state", 10, () -> server(player -> {
+            player.getAbilities().invulnerable = false;
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, true);
+            try {
+                Class<?> playerClass = Class.forName("net.minecraft.entity.player.EntityPlayer", true, RetrofitMod.runtime().gameLoader());
+                Object rootData = Class.forName("project.studio.manametalmod.MMM", true, RetrofitMod.runtime().gameLoader()).getMethod("getEntityNBT", playerClass).invoke(null, mirror);
+                Object career = legacyField(rootData, "carrer");
+                career.getClass().getMethod("setDead", boolean.class).invoke(career, true);
+                career.getClass().getMethod("sendtoplayer").invoke(career);
+                player.setHealth(1);
+            } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+        }));
+        do_("manametal: death button packet", 40, () -> {
+            try {
+                ClassLoader loader = RetrofitMod.runtime().gameLoader();
+                Object packet = Class.forName("project.studio.manametalmod.network.MessageKey", true, loader).getConstructor(int.class).newInstance(-1);
+                Object network = Class.forName("project.studio.manametalmod.network.PacketHandlerMana", true, loader).getField("INSTANCE").get(null);
+                network.getClass().getMethod("sendToServer", Class.forName("cpw.mods.fml.common.network.simpleimpl.IMessage", true, loader)).invoke(network, packet);
+            } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+        });
+        until("manametal: death state finalized", 400, () -> serverPlayer().isDeadOrDying());
+        do_("manametal: death button completes", 0, () -> server(player -> result("ManaMetal death button ends the downed state with an actual death", player.isDeadOrDying(), "health " + player.getHealth())));
+
+
     }
 
     /**
@@ -862,8 +1297,15 @@ public final class PlayTest {
             Object legacy = client instanceof retrofit.forge.world.LegacyEntityCarrier carrier ? carrier.clientLegacy() : null;
             float health = legacy == null ? -1 : retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacy);
             result("client legacy health follows the server", Math.abs(health - 22) < 0.01, "health " + health);
-            server(player -> player.serverLevel().getEntity(id[0]).discard());
+            server(player -> ((LivingEntity) player.serverLevel().getEntity(id[0])).hurt(player.damageSources().playerAttack(player), 10000));
         });
+        do_("real legacy death still animates", 30, () -> {
+            var client = Minecraft.getInstance().level.getEntities((Entity) null, Minecraft.getInstance().player.getBoundingBox().inflate(64), e -> e.getUUID().equals(id[0]));
+            int death = client.isEmpty() ? -1 : ((Number) legacyField(((retrofit.forge.world.LegacyEntityCarrier) client.get(0)).clientLegacy(), "field_70725_aQ")).intValue();
+            result("actual legacy death still advances its animation", death > 0, "death ticks " + death);
+        });
+        do_("real legacy death removes the creature", 0, () -> server(player -> result("actual legacy death still removes the creature",
+                player.serverLevel().getEntity(id[0]) == null, "removed " + (player.serverLevel().getEntity(id[0]) == null))));
     }
 
     private static void gearOnLegacyMobs() {
@@ -2722,10 +3164,10 @@ public final class PlayTest {
             LOGGER.warn("[PlayTest] Could not clear the previous run", e);
         }
         LOGGER.info("[PlayTest] Creating world {}", WORLD);
-        LevelSettings settings = new LevelSettings(WORLD, GameType.SURVIVAL, false, Difficulty.NORMAL, true, new GameRules(),
+        LevelSettings settings = new LevelSettings(WORLD, GameType.byName(System.getProperty("retrofit.testGameMode", "survival")), false, Difficulty.NORMAL, true, new GameRules(),
                 WorldDataConfiguration.DEFAULT);
         minecraft.createWorldOpenFlows().createFreshLevel(WORLD, settings, new WorldOptions(1710L, false, false),
-                registries -> registries.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT).value()
+                registries -> registries.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow("normal".equals(System.getProperty("retrofit.testWorld")) ? WorldPresets.NORMAL : WorldPresets.FLAT).value()
                         .createWorldDimensions());
     }
 }

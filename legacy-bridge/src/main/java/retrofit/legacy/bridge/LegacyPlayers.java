@@ -56,8 +56,22 @@ public final class LegacyPlayers {
     }
 
     /** The mirror of a host player in a legacy world, created on first use. */
+    /** Publish joins after releasing the mirror-map monitor: handlers may build terrain and need the render lock. */
+    public static Object player(Object legacyWorld, HostPlayer host, String uuid, String name) {
+        Object[] found = findPlayer(legacyWorld, host, uuid, name);
+        EntityPlayer player = (EntityPlayer) found[0];
+        if (Boolean.TRUE.equals(found[1])) {
+            try {
+                net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.EntityJoinWorldEvent(player, (World) legacyWorld));
+            } catch (Throwable t) {
+                System.out.println("[Retrofit] An EntityJoinWorldEvent handler failed for player " + name + ": " + t);
+            }
+        }
+        return player;
+    }
+
     @SuppressWarnings("unchecked")
-    public static synchronized Object player(Object legacyWorld, HostPlayer host, String uuid, String name) {
+    private static synchronized Object[] findPlayer(Object legacyWorld, HostPlayer host, String uuid, String name) {
         World world = (World) legacyWorld;
         Map<String, EntityPlayer> players = PLAYERS.get(world);
         if (players == null) {
@@ -65,11 +79,12 @@ public final class LegacyPlayers {
             PLAYERS.put(world, players);
         }
         EntityPlayer player = players.get(uuid);
+        boolean joined = false;
         if (player == null) {
             player = movedHere(uuid, world);
             if (player != null) {
                 players.put(uuid, player);
-                return player;
+                return new Object[]{player, Boolean.FALSE};
             }
         }
         if (player == null) {
@@ -94,14 +109,9 @@ public final class LegacyPlayers {
             world.field_73010_i.add(player); // playerEntities
             world.field_72996_f.add(player); // loadedEntityList
             players.put(uuid, player);
-            // As when a 1.7.10 player joined a world (login, dimension change): mods load and sync player data here.
-            try {
-                net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.EntityJoinWorldEvent(player, world));
-            } catch (Throwable t) {
-                System.out.println("[Retrofit] An EntityJoinWorldEvent handler failed for player " + name + ": " + t);
-            }
+            joined = true;
         }
-        return player;
+        return new Object[]{player, Boolean.valueOf(joined)};
     }
 
     /** Removes a player's mirrors from every legacy world (logout, or leaving for another dimension). */
@@ -241,17 +251,18 @@ public final class LegacyPlayers {
     private static final Map<EntityPlayer, double[]> GIVEN_MOTION = new WeakHashMap<EntityPlayer, double[]>();
 
     /**
-     * {motionX, motionY, motionZ, fallDistance, velocityChanged (0/1)} if legacy code changed the
+     * {motionX, motionY, motionZ, fallDistance, velocityChanged (0/1), motionChanged (0/1)} if legacy code changed the
      * player's motion or fall distance since {@link #sync} (jetpacks, flying armor, leaps, knockback,
      * boots that soften falls), else null.
      */
     public static double[] changedMotion(Object legacyPlayer) {
         EntityPlayer player = (EntityPlayer) legacyPlayer;
         double[] given = GIVEN_MOTION.get(player);
-        double[] now = {player.field_70159_w, player.field_70181_x, player.field_70179_y, player.field_70143_R, player.field_70133_I ? 1 : 0};
+        double[] now = {player.field_70159_w, player.field_70181_x, player.field_70179_y, player.field_70143_R, player.field_70133_I ? 1 : 0, 0};
         if (given == null || given[0] == now[0] && given[1] == now[1] && given[2] == now[2] && (float) given[3] == (float) now[3] && now[4] == 0) {
             return null;
         }
+        now[5] = given[0] != now[0] || given[1] != now[1] || given[2] != now[2] || now[4] != 0 ? 1 : 0;
         GIVEN_MOTION.put(player, new double[]{now[0], now[1], now[2], now[3]});
         player.field_70133_I = false;
         return now;

@@ -201,7 +201,11 @@ final class LegacyGuiRenderer {
             case "overlay" -> {
                 Object[] overlay = (Object[]) subject;
                 ItemStack stack = LegacyStacks.toModern(overlay[0]);
-                graphics.renderItemDecorations(font, stack, x, y, (String) overlay[1]);
+                graphics.pose().pushPose();
+                graphics.pose().translate(at[0], at[1], 0);
+                graphics.pose().scale(at[3], at[3], 1);
+                graphics.renderItemDecorations(font, stack, 0, 0, (String) overlay[1]);
+                graphics.pose().popPose();
             }
             case "tooltip" -> {
                 ItemStack stack = LegacyStacks.toModern(subject);

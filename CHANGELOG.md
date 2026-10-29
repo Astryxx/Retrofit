@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.6.1-beta.3 - ManaMetal and combat regressions (2026-10-29)
+
+- Use the host world's real spawn point for legacy code. ManaMetal builds its newcomer village
+  near the player and its original spawn-point tile sends the player to the tutorial.
+- Publish player world-join events outside the mirror-map monitor, avoiding a deadlock when a
+  join handler builds terrain while the renderer needs a player mirror.
+- Forward cancellable block-break and item-pickup events, including changed XP, remaining drops,
+  consumed currency, and inventory changes. ManaMetal mining fatigue and profession wallets use
+  their original handlers.
+- Apply motion changed by client packet/tick handlers. A fall-distance-only update no longer
+  overwrites current movement, restoring ManaMetal dash movement.
+- Preserve original damage-source identity through player damage callbacks. Absolute kill damage
+  reaches the modern kill path, allowing ManaMetal's death button to finish the downed state.
+- Separate lightmap texture state from the main font/atlas. Correct class-menu text, scale item
+  count overlays with their icons, and offer legacy custom tooltips for modern mod items too.
+- Render zero-count GUI icons and their original count labels using drawing-only copies. This
+  restores ManaMetal's unused permanent-consumable icons without adding items to inventories.
+- Suppress the separate modern hunger overlay while ManaMetal owns the health HUD.
+- Forward player attack/hurt events for modern living targets. Honor ManaMetal's own weapon
+  eligibility result before allowing an ordinary host attack or legacy item use.
+- Deliver legacy item swing callbacks, restoring AoA greatblade and scythe attacks.
+- Synchronize client health before and after legacy animation updates. Clear stale death state
+  for living bosses; explicitly synchronize genuine legacy dying state so real death sequences
+  still animate and remove the creature.
+- Keep world-generation fixes in the world-class generator so regeneration preserves custom
+  biome providers, shared storage, server chunk providers, and out-of-region height handling.
+- Retain server collision shapes when the 1.7.10 client-only selection-box method is absent.
+- Add isolated ManaMetal, AoA, dimension-spawn, Queen/Chaos Persists, and HUD regression checks.
+
 ## 0.6.1-beta.2 — CrazyCraft 3 testing fixes (2026-10-29)
 
 - Detect duplicate mods from actual FML `@Mod` annotations, including jars without `mcmod.info`.

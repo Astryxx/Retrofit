@@ -250,6 +250,9 @@ public final class ClientEvents {
                 MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Post(parent, type));
             }
             MinecraftForge.EVENT_BUS.post(new RenderGameOverlayEvent.Post(parent, RenderGameOverlayEvent.ElementType.ALL));
+            // ManaMetal replaces the health HUD and includes its own food meter. The modern
+            // food overlay is independent and otherwise draws over the replacement.
+            if (hidden.contains("HEALTH") && manaMetalHud()) hidden.add("FOOD");
         } finally {
             LegacyRendering.resetTessellatorIfDrawing();
         }
@@ -258,6 +261,20 @@ public final class ClientEvents {
 
     /** The HUD elements whose Pre listeners cancelled them in the last drawOverlay: the host leaves out its own. */
     private static final Set<String> hidden = new HashSet<String>();
+    private static java.lang.reflect.Field manaHud;
+    private static boolean checkedManaHud;
+
+    private static boolean manaMetalHud() {
+        if (!cpw.mods.fml.common.Loader.isModLoaded("manametalmod")) return false;
+        try {
+            if (!checkedManaHud) {
+                checkedManaHud = true;
+                ClassLoader loader = ClientEvents.class.getClassLoader();
+                manaHud = Class.forName("project.studio.manametalmod.hudgui.GuiHUD", false, loader).getField("instance");
+            }
+            return manaHud != null && manaHud.get(null) != null;
+        } catch (ReflectiveOperationException e) { return false; }
+    }
 
     public static String[] hiddenElements() {
         return hidden.toArray(new String[0]);
