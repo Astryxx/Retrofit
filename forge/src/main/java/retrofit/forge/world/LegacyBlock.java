@@ -122,6 +122,9 @@ public class LegacyBlock extends Block {
         if (renderInfo[1] == 0) {
             properties.noOcclusion(); // not an opaque cube: neighbours must still draw their faces
         }
+        if (info.length > 10 && (Integer) info[10] != 0) {
+            properties.air().noCollission().replaceable(); // Railcraft heat and other invisible air markers
+        }
         int light = renderInfo[3];
         if (light > 0) {
             properties.lightLevel(state -> light);
@@ -527,6 +530,7 @@ public class LegacyBlock extends Block {
     public void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean moving) {
         super.onPlace(state, level, pos, oldState, moving);
         if (!oldState.is(this) && !level.isClientSide) {
+            if (level.getBlockEntity(pos) instanceof LegacyBlockEntity tile && !tile.markLegacyAdded()) return;
             try {
                 LegacyBridge.call("added", legacyBlock, LegacyContent.legacyWorld(level), pos.getX(), pos.getY(), pos.getZ());
             } catch (RuntimeException e) {

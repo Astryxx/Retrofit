@@ -30,6 +30,31 @@ public final class LegacyModMismatch {
         if (LegacyNetwork.takeMismatch()) {
             event.setNewScreen(new DisconnectedScreen(new JoinMultiplayerScreen(new TitleScreen()),
                     Component.translatable("retrofit.mismatch.title"), Component.translatable("retrofit.mismatch.version")));
+        } else {
+            // Forge assumes every registry namespace has a modern ModInfo. Legacy namespaces
+            // have none; its mismatch panel dereferences null while explaining an incomplete pack.
+            try {
+                java.lang.reflect.Field field = ModMismatchDisconnectedScreen.class.getDeclaredField("presentModData");
+                field.setAccessible(true);
+                java.util.Map<?, ?> present = (java.util.Map<?, ?>) field.get(event.getNewScreen());
+                java.util.Set<Object> keys = new java.util.HashSet<>();
+                for (String name : new String[]{"missingModData", "mismatchedModData"}) {
+                    java.lang.reflect.Field data = ModMismatchDisconnectedScreen.class.getDeclaredField(name);
+                    data.setAccessible(true);
+                    Object value = data.get(event.getNewScreen());
+                    if (value instanceof java.util.Map<?, ?> map) keys.addAll(map.keySet());
+                    if (value instanceof java.util.Collection<?> list) keys.addAll(list);
+                }
+                if (keys.stream().anyMatch(key -> !present.containsKey(key) || key instanceof net.minecraft.resources.ResourceLocation id
+                        && !net.minecraftforge.fml.ModList.get().isLoaded(id.getNamespace()))) {
+                    event.setNewScreen(new DisconnectedScreen(new JoinMultiplayerScreen(new TitleScreen()),
+                            Component.translatable("retrofit.mismatch.title"), Component.literal(
+                            "The server and client loaded different legacy content. Check retrofit/mods and retrofit/duplicates "
+                                    + "on both computers, and logs/latest.log for mods that failed to load. Both sides need the same legacy pack.")));
+                }
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                com.mojang.logging.LogUtils.getLogger().debug("Could not inspect Forge's mismatch data", e);
+            }
         }
     }
 }

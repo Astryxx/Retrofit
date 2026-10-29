@@ -39,6 +39,14 @@ public class LegacyBlockEntity extends BlockEntity {
     private CompoundTag pendingNbt;
     private byte[] pendingDescription;
     private boolean broken;
+    private boolean legacyAdded;
+
+    /** onBlockAdded runs before legacy onBlockPlacedBy and only once for this placement. */
+    boolean markLegacyAdded() {
+        if (legacyAdded) return false;
+        legacyAdded = true;
+        return true;
+    }
 
     public LegacyBlockEntity(BlockPos pos, BlockState state) {
         super(LegacyContent.blockEntityType(), pos, state);

@@ -45,6 +45,7 @@ public final class Interactions {
                 block.func_149744_f() ? 1 : 0, // canProvidePower
                 block.func_149740_M() ? 1 : 0, // hasComparatorInputOverride
                 block.func_149717_k(), // getLightOpacity
+                block.func_149688_o() == net.minecraft.block.material.Material.field_151579_a ? 1 : 0, // air material
         };
     }
 

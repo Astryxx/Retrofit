@@ -135,6 +135,19 @@ public final class Bridge {
         };
     }
 
+    /** Some TESR blocks keep render type 0 but suppress every ordinary face (DarkCore/TARDIS). */
+    public static boolean blockRendersFaces(Object legacyBlock, int meta) {
+        Block block = (Block) legacyBlock;
+        if (!block.hasTileEntity(meta)) return true;
+        World world = IsolatedHost.with(block, meta);
+        int[][] offsets = {{0,-1,0},{0,1,0},{0,0,-1},{0,0,1},{-1,0,0},{1,0,0}};
+        for (int side = 0; side < 6; side++) {
+            int[] at = offsets[side];
+            if (block.func_149646_a(world, at[0], at[1], at[2], side)) return true;
+        }
+        return false;
+    }
+
     /** Client, each tick: isOpaqueCube of these blocks as they answer it now (some answer by where the player is). */
     public static boolean[] opaqueCubesNow(Object[] legacyBlocks) {
         boolean[] opaque = new boolean[legacyBlocks.length];
@@ -376,6 +389,7 @@ public final class Bridge {
             block.func_149719_a(world, 0, 0, 0); // setBlockBoundsBasedOnState
             double[] selection = {block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
                     block.func_149753_y(), block.func_149669_A(), block.func_149693_C()}; // min x y z, max x y z
+            if (block.func_149633_g(world, 0, 0, 0) == null) java.util.Arrays.fill(selection, 0);
             List boxes = new ArrayList();
             AxisAlignedBB mask = AxisAlignedBB.func_72330_a(-1, -1, -1, 2, 2, 2); // getBoundingBox
             block.func_149743_a(world, 0, 0, 0, mask, boxes, null); // addCollisionBoxesToList
@@ -424,6 +438,7 @@ public final class Bridge {
             block.func_149719_a(world, x, y, z); // setBlockBoundsBasedOnState
             double[] selection = {block.func_149704_x(), block.func_149665_z(), block.func_149706_B(),
                     block.func_149753_y(), block.func_149669_A(), block.func_149693_C()};
+            if (block.func_149633_g(world, x, y, z) == null) java.util.Arrays.fill(selection, 0);
             List boxes = new ArrayList();
             AxisAlignedBB mask = AxisAlignedBB.func_72330_a(x - 1, y - 1, z - 1, x + 2, y + 2, z + 2); // getBoundingBox
             block.func_149743_a(world, x, y, z, mask, boxes, null); // addCollisionBoxesToList
@@ -723,6 +738,18 @@ public final class Bridge {
                 result.add(new String[]{language.getKey(), key, language.getValue().getProperty(key)});
             }
         }
+        // Several mods override getTranslatedTabLabel instead of adding a LanguageRegistry key.
+        // Ask the tab on the client so its own chosen name also reaches the modern UI.
+        for (net.minecraft.creativetab.CreativeTabs tab : net.minecraft.creativetab.CreativeTabs.field_78032_a) {
+            if (tab == null) continue;
+            String label = tab.func_78013_b(); // getTabLabel
+            String name = tab.func_78024_c(); // getTranslatedTabLabel
+            if (name != null && !name.equals("itemGroup." + label)) {
+                result.add(new String[]{"en_US", "itemGroup." + label, name});
+            }
+            result.add(new String[]{"en_US", "retrofit.creative_tab." + tab.func_78021_a(),
+                    name == null || name.equals("itemGroup." + label) ? label : name});
+        }
         return result.toArray(new String[0][]);
     }
 
@@ -932,6 +959,14 @@ public final class Bridge {
         }
         net.minecraft.creativetab.CreativeTabs tab = all[index];
         List<Object> stacks = new ArrayList<Object>();
+        // Mods can populate tabs themselves (SecurityCraft, MCHeli); the vanilla implementation
+        // already iterates every item's getCreativeTabs/getSubItems for us.
+        try {
+            tab.func_78018_a((List) stacks); // displayAllRelevantItems
+            return stacks.toArray();
+        } catch (Throwable failedTab) {
+            stacks.clear(); // retain the per-item fallback for one broken tab implementation
+        }
         for (Object element : Item.field_150901_e) { // itemRegistry
             Item item = (Item) element;
             String name = Item.field_150901_e.func_148750_c(item); // getNameForObject

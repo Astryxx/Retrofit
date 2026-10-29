@@ -47,7 +47,7 @@ public final class LegacyClientEvents {
     }
 
     /** What the player looks at, as 1.7.10's Minecraft.objectMouseOver (Thaumcraft's goggles and thaumometer, HUDs). */
-    private static void syncMouseOver(Minecraft minecraft) {
+    static void syncMouseOver(Minecraft minecraft) {
         net.minecraft.world.phys.HitResult hit = minecraft.hitResult;
         if (hit instanceof net.minecraft.world.phys.BlockHitResult block && hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
             var pos = block.getBlockPos();

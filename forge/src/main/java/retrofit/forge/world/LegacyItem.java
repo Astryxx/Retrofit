@@ -147,7 +147,8 @@ public class LegacyItem extends Item implements LegacyStackItem {
 
         net.minecraft.network.chat.Component of(ItemStack stack, String descriptionId,
                 java.util.function.Supplier<net.minecraft.network.chat.Component> translated) {
-            Object key = java.util.Arrays.asList(stack.getTag() == null ? null : stack.getTag().toString(), stack.getDamageValue());
+            Object key = java.util.Arrays.asList(stack.getTag() == null ? null : stack.getTag().toString(), stack.getDamageValue(),
+                    net.minecraft.locale.Language.getInstance());
             net.minecraft.network.chat.Component cached = recent.get(key);
             if (cached != null) {
                 return cached;
@@ -157,7 +158,16 @@ public class LegacyItem extends Item implements LegacyStackItem {
                 Object legacy = LegacyStacks.toLegacy(stack);
                 String text = legacy == null ? null : LegacyBridge.call("itemDisplayName", legacy);
                 if (text == null || text.isEmpty() || text.equals(descriptionId)) {
-                    name = translated.get();
+                    if (!net.minecraft.locale.Language.getInstance().has(descriptionId)
+                            && (descriptionId.startsWith("item.") || descriptionId.startsWith("tile."))) {
+                        String fallback = descriptionId.replaceFirst("\\.name$", "");
+                        fallback = fallback.substring(Math.max(fallback.lastIndexOf('.'), fallback.lastIndexOf(':')) + 1)
+                                .replaceAll("([a-z0-9])([A-Z])", "$1 $2").replace('_', ' ');
+                        name = fallback.isEmpty() ? translated.get() : net.minecraft.network.chat.Component.literal(
+                                Character.toUpperCase(fallback.charAt(0)) + fallback.substring(1));
+                    } else {
+                        name = translated.get();
+                    }
                 } else if (net.minecraft.locale.Language.getInstance().has(text)) {
                     // a key the mod's code didn't find on the legacy side (IC2 puts its names there itself, and a
                     // resource reload takes them out again), which the asset pack has: its translation

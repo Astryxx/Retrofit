@@ -35,7 +35,7 @@ ext.syncCorpus = { File modsDir ->
     }
     def parts = rootProject.findProperty('corpus')?.toString()?.toLowerCase()?.split(',')?.collect { it.trim() }?.findAll { it }
     def excluded = rootProject.findProperty('corpusExclude')?.toString()?.toLowerCase()?.split(',')?.collect { it.trim() }?.findAll { it } ?: []
-    rootProject.file('corpus').listFiles().findAll { it.isFile() && (it.name.endsWith('.jar') || it.name.endsWith('.zip')) }.each { mod ->
+    rootProject.file(rootProject.findProperty('corpusDir') ?: 'corpus').listFiles().findAll { it.isFile() && (it.name.endsWith('.jar') || it.name.endsWith('.zip')) }.each { mod ->
         if ((parts == null || parts.any { mod.name.toLowerCase().contains(it) }) && !excluded.any { mod.name.toLowerCase().contains(it) }) {
             java.nio.file.Files.copy(mod.toPath(), new File(modsDir, mod.name).toPath())
         }

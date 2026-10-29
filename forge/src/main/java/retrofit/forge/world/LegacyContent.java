@@ -207,7 +207,7 @@ public final class LegacyContent {
                 }
                 helper.register(new ResourceLocation(RetrofitMod.MOD_ID, path),
                         net.minecraft.world.item.CreativeModeTab.builder()
-                                .title(net.minecraft.network.chat.Component.translatable("itemGroup." + label))
+                                .title(net.minecraft.network.chat.Component.translatable("retrofit.creative_tab." + index))
                                 .icon(() -> creativeTabIcon(index))
                                 .displayItems((parameters, output) -> addTabContents(index, output::accept))
                                 .build());

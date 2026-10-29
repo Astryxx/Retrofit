@@ -551,6 +551,18 @@ public final class LegacyIcons {
         @Override
         public TextureAtlasSprite getTextureExtry(String name) {
             TextureAtlasSprite own = custom.get(name);
+            if (own == null && icons.containsKey(name)) {
+                // MalisisCore normally converts vanilla sprites during atlas loading, which the
+                // recorder replaces. Its doors require the converted type even for shared vanilla
+                // door textures. Keep it as a custom sprite so host UV updates reach it too.
+                try {
+                    Class<?> type = Class.forName("net.malisis.core.renderer.icon.MalisisIcon", false, LegacyIcons.class.getClassLoader());
+                    own = (TextureAtlasSprite) type.getConstructor(String.class).newInstance(name);
+                    custom.put(name, own);
+                } catch (ReflectiveOperationException | LinkageError absent) {
+                    // no MalisisCore in this pack
+                }
+            }
             return own != null ? own : icons.get(name);
         }
 

@@ -205,9 +205,9 @@ public final class LegacyEvents {
         }
         boolean start = event.phase == TickEvent.Phase.START;
         fire("player tick", () -> {
-            Object mirror = LegacyPlayers.mirror(player, false);
+            Object mirror = LegacyPlayers.mirror(player, true);
             LegacyBridge.call("playerTick", mirror, start);
-            LegacyPlayers.applyMotion(player, mirror);
+            LegacyPlayers.writeBack(player, mirror);
         });
         if (!start) {
             if (player instanceof ServerPlayer server) {

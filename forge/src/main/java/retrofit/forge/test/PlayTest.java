@@ -164,6 +164,10 @@ public final class PlayTest {
             result("legacy asset pack built, with its textures", counts != null
                     && Integer.parseInt(counts[0]) >= Integer.parseInt(counts[1]) * 95 / 100, String.valueOf(build));
         });
+        if (Boolean.getBoolean("retrofit.crazyCraftTest")) {
+            crazyCraft();
+            return;
+        }
         String compare = System.getProperty("retrofit.compare");
         if (compare != null) {
             compare(Path.of(compare));
@@ -1287,6 +1291,105 @@ public final class PlayTest {
                 boss.discard();
             }
         })));
+    }
+
+    /** Regression checks for the reported CrazyCraft 3 failures, through the real client and server. */
+    private static void crazyCraft() {
+        do_("CC3 creative tabs", 0, () -> {
+            Object[][] tabs = retrofit.forge.world.LegacyBridge.call("legacyCreativeTabs");
+            for (Object[] tab : tabs) {
+                String label = (String) tab[1];
+                Object[] contents = retrofit.forge.world.LegacyBridge.call("legacyCreativeTabContents", tab[0]);
+                LOGGER.info("[PlayTest] CC3 tab {}: {} stacks", label, contents.length);
+                if (List.of("CarpentersBlocks", "Battlegear2", "FoodPlusTab", "Inventory Pets", "tabSecurityCraft").contains(label)) {
+                    result("CC3 tab name " + label, net.minecraft.locale.Language.getInstance().has("itemGroup." + label),
+                            net.minecraft.network.chat.Component.translatable("itemGroup." + label).getString());
+                }
+            }
+            long aircraft = ForgeRegistries.ITEMS.getKeys().stream().filter(id -> id.getNamespace().equals("mcheli")).count();
+            result("CC3 MCHeli content loaded", aircraft > 30, aircraft + " items");
+            String mods = retrofit.forge.world.LegacyBridge.call("modList");
+            result("CC3 Controlling and LuckyBlocks coexist", mods.contains("surpriseeggs@") && mods.contains("lucky@"), mods);
+        });
+        newSite("CC3 heat and creative inventory");
+        do_("CC3 heat", 10, () -> server(player -> {
+            Block heat = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("railcraft:residual.heat"));
+            BlockPos pos = ground(1, 0).above();
+            player.serverLevel().setBlock(pos, heat.defaultBlockState(), 3);
+            var state = player.serverLevel().getBlockState(pos);
+            result("CC3 heat is air without an outline", state.isAir() && state.getShape(player.serverLevel(), pos).isEmpty(), state.toString());
+            player.setGameMode(GameType.CREATIVE);
+        }));
+        do_("CC3 creative add", 30, () -> {
+            Minecraft.getInstance().player.getInventory().setItem(0, new ItemStack(Items.DIAMOND, 7));
+            Minecraft.getInstance().gameMode.handleCreativeModeItemAdd(new ItemStack(Items.DIAMOND, 7), 36);
+        });
+        do_("CC3 creative add check", 0, () -> result("CC3 creative inventory accepts items",
+                serverPlayer().getInventory().getItem(0).is(Items.DIAMOND) && Minecraft.getInstance().player.getInventory().getItem(0).is(Items.DIAMOND),
+                "server=" + serverPlayer().getInventory().getItem(0) + ", client=" + Minecraft.getInstance().player.getInventory().getItem(0)));
+        do_("CC3 creative clear", 30, () -> {
+            Minecraft.getInstance().player.getInventory().setItem(0, ItemStack.EMPTY);
+            Minecraft.getInstance().gameMode.handleCreativeModeItemAdd(ItemStack.EMPTY, 36);
+        });
+        do_("CC3 creative clear check", 0, () -> result("CC3 creative inventory clears items",
+                serverPlayer().getInventory().getItem(0).isEmpty() && Minecraft.getInstance().player.getInventory().getItem(0).isEmpty(),
+                "server=" + serverPlayer().getInventory().getItem(0) + ", client=" + Minecraft.getInstance().player.getInventory().getItem(0)));
+        Item slope = item("carpentersblocks:blockcarpentersslope");
+        if (slope != null) {
+            String[] tags = new String[4];
+            newSite("CC3 directional placement");
+            for (int i = 0; i < 4; i++) {
+                final int n = i;
+                do_("CC3 face " + i, 10, () -> {
+                    server(player -> player.getInventory().setItem(0, new ItemStack(slope)));
+                    select(0);
+                    Minecraft.getInstance().player.setYRot(n * 90);
+                    Minecraft.getInstance().player.setXRot(45);
+                });
+                do_("CC3 slope place " + i, 15, () -> useOn(ground(2, 0), Direction.UP));
+                do_("CC3 slope record " + i, 5, () -> {
+                    tags[n] = blockEntityTag(ground(2, 0).above());
+                    LOGGER.info("[PlayTest] CC3 slope yaw {} data {}", n * 90, tags[n]);
+                    server(player -> player.serverLevel().setBlock(ground(2, 0).above(), Blocks.AIR.defaultBlockState(), 3));
+                });
+            }
+            do_("CC3 directional result", 0, () -> result("CC3 slopes follow four player directions",
+                    java.util.Arrays.stream(tags).filter(java.util.Objects::nonNull).distinct().count() == 4, java.util.Arrays.toString(tags)));
+            Object guard = new Object() {
+                @SubscribeEvent public void cancel(net.minecraftforge.event.level.BlockEvent.EntityPlaceEvent event) {
+                    if (event.getPos().equals(ground(2, 0).above())) event.setCanceled(true);
+                }
+            };
+            do_("CC3 placement guard", 10, () -> {
+                net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(guard);
+                server(player -> player.getInventory().setItem(0, new ItemStack(slope)));
+            });
+            do_("CC3 cancelled placement", 15, () -> useOn(ground(2, 0), Direction.UP));
+            do_("CC3 cancellation check", 0, () -> {
+                net.minecraftforge.common.MinecraftForge.EVENT_BUS.unregister(guard);
+                result("CC3 Forge can still cancel legacy placement", serverBlock(ground(2, 0).above()) == Blocks.AIR,
+                        "block=" + serverBlock(ground(2, 0).above()));
+            });
+        }
+        do_("CC3 generated furniture texture", 0, () -> {
+            byte[] png = retrofit.forge.world.LegacyBridge.call("legacyResource", "customnpcs", "textures/cache/planks_oak.png");
+            result("CC3 generated furniture texture", png != null && png.length > 100, png == null ? "missing" : png.length + " bytes");
+        });
+        do_("CC3 custom skin fallback", 0, () -> result("CC3 custom skin fallback pixels loaded",
+                retrofit.forge.world.LegacyBridge.<Boolean>call("testCustomTextureFallback"), "offline custom texture lifecycle"));
+        List<ItemStack> furniture = ForgeRegistries.ITEMS.getValues().stream().filter(value -> {
+            var id = ForgeRegistries.ITEMS.getKey(value);
+            return id.getNamespace().equals("customnpcs") && (id.getPath().contains("chair") || id.getPath().contains("table"));
+        }).map(ItemStack::new).toList();
+        if (!furniture.isEmpty()) inventoryShot("cc3-furniture", furniture);
+        Block tardis = legacyBlockOfClass("tardis.common.blocks.TardisBlock");
+        if (tardis instanceof retrofit.forge.world.LegacyBlock legacy) {
+            newSite("CC3 TARDIS exterior");
+            do_("CC3 TARDIS place", 80, () -> server(player -> player.serverLevel().setBlock(ground(3, 0).above(), tardis.defaultBlockState(), 3)));
+            do_("CC3 TARDIS ordinary faces", 0, () -> result("CC3 TARDIS suppresses diagnostic cube faces",
+                    !retrofit.forge.world.LegacyBridge.<Boolean>call("blockRendersFaces", legacy.legacyBlock(), 0), "uses its tile renderer"));
+            shot("play-cc3-tardis-exterior", () -> ground(3, 0).above());
+        }
     }
 
     /** Places a Carpenter's Block, covers it with 1.20.1 oak planks, then places and hammers a slope. */

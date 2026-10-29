@@ -256,7 +256,8 @@ final class LegacyAssetPack implements PackResources {
             boundsByMeta[meta] = block.renderType() == 0 ? renderBounds(block, meta) : null;
             String modelPath = "block/legacy/" + key.getNamespace() + "/" + key.getPath() + "/m" + meta;
             JsonObject model = blockModel(block, faces, textureIds, boundsByMeta[meta]);
-            if (block.renderType() == -1) {
+            if (block.renderType() == -1 || block.renderType() == 0
+                    && !LegacyBridge.<Boolean>call("blockRendersFaces", block.legacyBlock(), meta)) {
                 model = emptyModel(model); // drawn entirely by its tile entity renderer
             }
             putJson("retrofit", "models/" + modelPath + ".json", model);

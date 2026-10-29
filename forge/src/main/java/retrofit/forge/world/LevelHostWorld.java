@@ -92,7 +92,17 @@ final class LevelHostWorld implements HostWorld {
             return false;
         }
         // Legacy flags 1 (notify neighbours), 2 (send to clients) and 4 (no re-render) mean the same in 1.20.1.
-        return level.setBlock(new BlockPos(x, y, z), target, flags & 7);
+        BlockPos pos = new BlockPos(x, y, z);
+        BlockState previous = level.getBlockState(pos);
+        boolean changed = level.setBlock(pos, target, flags & 7);
+        // Forge defers onPlace until the item call returns. Legacy ItemBlock calls placedBy
+        // inside that call, so tile initialization must happen now, before orientation/covers.
+        // Keep snapshots intact: Forge still fires its cancellable placement event afterwards.
+        if (changed && level.captureBlockSnapshots && !previous.is(target.getBlock())
+                && target.hasBlockEntity() && target.getBlock() instanceof LegacyBlock block) {
+            block.onPlace(target, level, pos, previous, false);
+        }
+        return changed;
     }
 
     @Override

@@ -146,9 +146,10 @@ public final class LegacyPlayers {
      * legacy code added go to the player; mod potions show on the player (as display-only effects).
      */
     public static void tickServer(ServerPlayer player) {
-        Object mirror = mirror(player, false);
+        Object mirror = mirror(player, true);
         tickRiding(player, mirror);
         LegacyBridge.call("tickServerPlayer", mirror);
+        writeBack(player, mirror);
         applyNewEffects(player, mirror);
         int[] modEffects = LegacyBridge.call("modEffects", mirror);
         java.util.Set<Integer> shown = SHOWN_MOD_EFFECTS.computeIfAbsent(player.getUUID(), id -> new java.util.HashSet<>());

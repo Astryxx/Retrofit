@@ -60,8 +60,9 @@ public class HeadlessTransformer implements IClassTransformer {
         stub("cpw.mods.fml.client.FMLClientHandler", "processWindowMessages()V", NO_HOOK); // pumps LWJGL Display
         stub("net.minecraftforge.common.ForgeVersion", "startVersionCheck()V", NO_HOOK); // calls a long-dead URL
         // bindTexture: the GL emulation tags captured quads with the texture; the host loads and binds it.
-        stub("net.minecraft.client.renderer.texture.TextureManager", "func_110577_a(Lnet/minecraft/util/ResourceLocation;)V", "bindTexture");
-        // loadTexture: registered without a GL upload, under an id that binds the texture in the emulation.
+        redirect("net.minecraft.client.renderer.texture.TextureManager", "func_110577_a(Lnet/minecraft/util/ResourceLocation;)V",
+                "retrofit/legacy/bridge/ClientTextures.bindTexture");
+        // Static files are host-loaded; custom texture objects load their fallback/generated pixels in the emulation.
         redirect("net.minecraft.client.renderer.texture.TextureManager",
                 "func_110579_a(Lnet/minecraft/util/ResourceLocation;Lnet/minecraft/client/renderer/texture/ITextureObject;)Z",
                 "retrofit/legacy/bridge/ClientTextures.loadTexture");
@@ -196,6 +197,7 @@ public class HeadlessTransformer implements IClassTransformer {
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
+        basicClass = ModResources.transform(transformedName, basicClass);
         Map<String, String> methods = STUBS.get(transformedName);
         Map<String, String> redirects = BRIDGE_PRESENT ? REDIRECTS.get(transformedName) : null;
         Map<String, String> constructors = BRIDGE_PRESENT ? CONSTRUCTORS.get(transformedName) : null;

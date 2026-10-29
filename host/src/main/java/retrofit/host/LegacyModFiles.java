@@ -200,7 +200,8 @@ public final class LegacyModFiles {
             if (mods != null) {
                 for (com.google.gson.JsonElement mod : mods) {
                     if (mod.isJsonObject() && mod.getAsJsonObject().has("mcversion")) {
-                        String version = mod.getAsJsonObject().get("mcversion").getAsString().trim();
+                        String version = mod.getAsJsonObject().get("mcversion").getAsString()
+                                .replaceAll("[\u00a7\ufffd][0-9a-fk-orA-FK-OR]", "").trim();
                         if (!version.isEmpty() && !version.contains("${")) {
                             return version;
                         }

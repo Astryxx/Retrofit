@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.1-beta.2 — CrazyCraft 3 testing fixes (2026-10-29)
+
+- Detect duplicate mods from actual FML `@Mod` annotations, including jars without `mcmod.info`.
+  Gravity Gun and TrailMix duplicates no longer stop all legacy initialization; unrelated mods
+  with placeholder `examplemod` metadata (Controlling and LuckyBlocks) coexist.
+- Strip formatting codes from declared Minecraft versions so MrCrayfish's Furniture Mod loads.
+- Keep Railcraft's air-material heat markers invisible, replaceable, and without selection outlines.
+- Synchronize carried items around legacy player tick/living-update hooks, preventing stale
+  inventories from being sent by legacy handlers. Creative add and clear operations have client/server tests.
+- Preserve creative tabs' own contents and custom names, with distinct titles for identically
+  labelled tabs. Use readable item-name fallbacks only when the original mod supplies no translation.
+- Load generated resource-pack images (CustomNPCs furniture) and custom texture fallback/deferred
+  uploads (TARDIS owner skins). Suppress ordinary cube faces for tile-rendered blocks that hide them,
+  removing TARDIS diagnostic geometry. Preserve Malisis icon types for shared vanilla textures.
+- Run tile initialization before legacy placement orientation, while keeping Forge's cancellable
+  placement event and snapshots. Carpenter's slopes retain four distinct facing values.
+- Provide MCHeli's file-based content loaders a private, hash-keyed extracted assets directory;
+  the tested zipped 0.10.6 release registers 116 items instead of 12. Original archives stay untouched.
+- Supply previous-tick player positions to world rendering for placement-preview interpolation.
+- Avoid Forge's mismatch-panel null dereference for legacy registry namespaces; show actionable
+  pack-mismatch guidance instead. This does not bypass registry compatibility checks.
+- Add the isolated CrazyCraft regression scenario and `-PcorpusDir` for testing exact pack copies.
+
 ## 0.6.1-beta (in progress)
 
 - Stabilized the Mob Battle group-item client test: it now starts with a fresh nearby pair. Reusing

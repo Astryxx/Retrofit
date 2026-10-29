@@ -296,10 +296,6 @@ public final class LegacyCapture {
     /** The 1.20.1 texture for a captured legacy texture index (render thread). */
     public static ResourceLocation texture(int index) throws Throwable {
         init();
-        ResourceLocation known = TEXTURES.get(index);
-        if (known != null) {
-            return known;
-        }
         String legacy = (String) textureName.invokeExact(index);
         if (legacy.equals(HOST_SKIN)) {
             // the local player's skin (BridgeClientPlayer.getLocationSkin): looked up each time, as it may still be loading
@@ -313,6 +309,8 @@ public final class LegacyCapture {
         if (version >= 0) {
             return uploaded(legacy, version); // made from pixels: looked up each time, as it may change
         }
+        ResourceLocation known = TEXTURES.get(index);
+        if (known != null) return known;
         ResourceLocation texture = load(legacy);
         TEXTURES.put(index, texture);
         return texture;
@@ -378,6 +376,19 @@ public final class LegacyCapture {
                 return id;
             } catch (IOException e) {
                 LOGGER.warn("Could not read legacy texture {}", legacy, e);
+            }
+        }
+        // Resource packs added by mods may synthesize an image when asked (CustomNPCs' wood
+        // furniture cache). Such a texture has no zip entry to copy into the generated pack.
+        byte[] generated = retrofit.forge.world.LegacyBridge.call("legacyResource", domain, path);
+        if (generated != null) {
+            try (InputStream in = new java.io.ByteArrayInputStream(generated)) {
+                ResourceLocation id = new ResourceLocation(RetrofitMod.MOD_ID, "legacy_resource/" + domain + "/"
+                        + path.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_./-]", "_"));
+                Minecraft.getInstance().getTextureManager().register(id, new DynamicTexture(NativeImage.read(in)));
+                return id;
+            } catch (IOException invalidImage) {
+                LOGGER.debug("Legacy resource {} was not an image", legacy, invalidImage);
             }
         }
         LOGGER.warn("Legacy texture {} not found in any mod; drawn as the missing texture", legacy);

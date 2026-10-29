@@ -11,16 +11,16 @@ import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
+import org.objectweb.asm.*;
 
 /**
  * Two versions of one mod in the mods folder (a library two packs brought along: CodeChickenCore 1.0.7 and
  * 1.4.22): FML found "a duplicate mod" and loaded none of the mods at all. Before FML looks, the jars that
- * are the same mod (the same first mcmod.info mod id, or the same coremod plugin class) are found, the newest is
+ * are the same mod (the same @Mod id, or the same coremod plugin class) are found, the newest is
  * kept and the others are moved to retrofit/duplicates (moved, not deleted), each reported as left out.
  * FML reads the folder itself, coremods first, so a jar has to be out of it to be out of the game.
  */
 final class ModDuplicates {
-    private static final Pattern MOD_ID = Pattern.compile("\"modid\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern VERSION = Pattern.compile("\"version\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern NUMBER = Pattern.compile("\\d+");
 
@@ -132,7 +132,7 @@ final class ModDuplicates {
         return a.size() - b.size();
     }
 
-    /** The mod ids (mcmod.info) and coremod plugin class of a jar; null if it can't be read. */
+    /** FML annotation ids and the coremod plugin class; metadata supplies only the version. */
     private static Candidate read(File file) {
         Candidate candidate = new Candidate(file);
         JarFile jar = null;
@@ -141,13 +141,32 @@ final class ModDuplicates {
             ZipEntry info = jar.getEntry("mcmod.info");
             if (info != null) {
                 String text = readAll(jar.getInputStream(info));
-                Matcher id = MOD_ID.matcher(text);
-                if (id.find()) { // the jar's own mod: further entries may be bundled APIs or sub-mods others carry too
-                    candidate.keys.add("mod:" + id.group(1).toLowerCase());
-                }
                 Matcher version = VERSION.matcher(text);
                 if (version.find()) {
                     candidate.version = version.group(1);
+                }
+            }
+            // FML discovers @Mod, not mcmod.info. Some released jars still ship the examplemod
+            // metadata, and others (GravityGun, TrailMix) have no metadata at all.
+            java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (!entry.getName().endsWith(".class")) continue;
+                try (InputStream in = jar.getInputStream(entry)) {
+                    new ClassReader(in).accept(new ClassVisitor(Opcodes.ASM5) {
+                        @Override public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                            if (!"Lcpw/mods/fml/common/Mod;".equals(descriptor)) return null;
+                            return new AnnotationVisitor(Opcodes.ASM5) {
+                                @Override public void visit(String name, Object value) {
+                                    if ("modid".equals(name) && value instanceof String) {
+                                        candidate.keys.add("mod:" + value);
+                                    }
+                                }
+                            };
+                        }
+                    }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+                } catch (IllegalArgumentException unsupportedClass) {
+                    // A bundled class for a newer JVM is not a legacy FML mod entry point.
                 }
             }
             String plugin = jar.getManifest() == null ? null : jar.getManifest().getMainAttributes().getValue("FMLCorePlugin");

@@ -188,6 +188,18 @@ public final class GL11 {
         return id;
     }
 
+    /** A custom texture may have uploaded pixels before TextureManager gave its GL id a name. */
+    public static void nameTexture(int id, String location) {
+        String previous = TEXTURE_NAMES.put(id, location);
+        NAMED_TEXTURES.put(location, id);
+        Pixels pixels = UPLOADED.get(previous == null ? "retrofit:gl/" + id : previous);
+        if (pixels != null) {
+            Pixels old = UPLOADED.get(location);
+            if (old != null && old != pixels) pixels.version = NEXT_UPLOAD.incrementAndGet();
+            UPLOADED.put(location, pixels);
+        }
+    }
+
     public static void glBindTexture(int target, int texture) {
         if (target != GL_TEXTURE_2D) {
             return;
@@ -223,6 +235,7 @@ public final class GL11 {
 
     /** Uploaded textures by the name their id has (see textureId; "retrofit:gl/<id>" for ids no texture names). */
     private static final Map<String, Pixels> UPLOADED = new java.util.concurrent.ConcurrentHashMap<String, Pixels>();
+    private static final java.util.concurrent.atomic.AtomicInteger NEXT_UPLOAD = new java.util.concurrent.atomic.AtomicInteger();
 
     public static void glTexImage2D(int target, int level, int internalFormat, int width, int height, int border, int format, int type,
                                     java.nio.IntBuffer pixels) {
@@ -258,6 +271,7 @@ public final class GL11 {
     private static Pixels define(int width, int height) {
         String name = nameOfBound();
         Pixels texture = new Pixels(Math.max(1, width), Math.max(1, height));
+        texture.version = NEXT_UPLOAD.incrementAndGet(); // deleting/reloading an image must not reuse its old version
         UPLOADED.put(name, texture);
         bindLegacyTexture(name);
         return texture;
@@ -297,7 +311,7 @@ public final class GL11 {
                 texture.argb[(y + row) * texture.width + x + column] = argb;
             }
         }
-        texture.version++;
+        texture.version = NEXT_UPLOAD.incrementAndGet();
     }
 
     /** How often the texture of a name has been uploaded to; -1 if it is no texture legacy code made from pixels. */

@@ -299,6 +299,14 @@ public final class LegacyPlayers {
         GIVEN.put(player, given);
     }
 
+    /** Render interpolation uses the host's previous tick, not the repeatedly refreshed mirror. */
+    public static void renderPreviousPosition(Object legacyPlayer, double x, double y, double z) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        player.field_70169_q = player.field_70142_S = x;
+        player.field_70167_r = player.field_70137_T = y + player.field_70129_M;
+        player.field_70166_s = player.field_70136_U = z;
+    }
+
     /** {int[] slots, Object[] stacks} that legacy code changed since {@link #setInventory}, or null. */
     public static Object[] inventoryChanges(Object legacyPlayer) {
         if (legacyPlayer instanceof BridgePlayerMP) {

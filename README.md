@@ -10,7 +10,7 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.6.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.6.1-beta.2.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 Mob Battle tools can target creatures across versions. A creature still follows its own mod's AI
 rules, including its follow range: place fighters near each other when starting a battle.
@@ -20,7 +20,7 @@ The automated group-item test uses a fresh nearby pair so an earlier fight canno
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.1-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.1-beta.2.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory, or in `mods/` with your
    other mods (as launchers like CurseForge do). 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -37,6 +37,19 @@ The automated group-item test uses a fresh nearby pair so an earlier fight canno
 
 Servers: the same, on a Forge 1.20.1 server. Clients and the server need the same 1.7.10 mods;
 Connecting with a different set is refused with a message. Java 17 or newer (tested with 17, 21, and 26).
+
+## CrazyCraft 3 testing fixes
+
+0.6.1-beta.2 addresses reports from the official CrazyCraft 3 pack: invisible Railcraft heat,
+creative inventory synchronization, custom tab names and contents, CustomNPCs generated furniture
+textures, Carpenter's placement orientation, MCHeli aircraft definitions in zipped installations,
+and TARDIS exterior rendering and custom skin fallbacks. It also corrects render interpolation
+used by moving placement previews. See [the verification notes](docs/CRAZYCRAFT_061_BETA2.md) for
+exact coverage and remaining issues; this is still a beta, not a guarantee that every old mod works.
+
+Install the updated jar on both computers. Do not keep two Retrofit jars. Legacy duplicates are
+moved into `retrofit/duplicates`; check the startup log if a pack loads no legacy blocks or items.
+MapWriter's blank minimap and assets absent from original WIP mods remain known limitations.
 
 ## Compatibility
 
@@ -166,7 +179,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.1-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.1-beta.2.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

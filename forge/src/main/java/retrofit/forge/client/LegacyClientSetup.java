@@ -205,6 +205,11 @@ public final class LegacyClientSetup {
             try {
                 LegacyBridge.prepareFrame(LegacyContent.legacyWorld(minecraft.level), camera.getPosition().x, camera.getPosition().y,
                         camera.getPosition().z, camera.getYRot(), camera.getXRot(), event.getPartialTick());
+                if (minecraft.player != null) {
+                    LegacyClientEvents.syncMouseOver(minecraft); // placement previews follow the frame's pick, not last tick's
+                    Object player = retrofit.forge.world.LegacyPlayers.mirror(minecraft.player, false);
+                    LegacyBridge.call("renderPreviousPosition", player, minecraft.player.xo, minecraft.player.yo, minecraft.player.zo);
+                }
                 float[] clip = new org.joml.Matrix4f(event.getProjectionMatrix()).mul(event.getPoseStack().last().pose()).get(new float[16]);
                 LegacyBridge.call("setFrustum", (Object) clip); // the view legacy code culls by (Frustrum)
             } catch (RuntimeException e) {
