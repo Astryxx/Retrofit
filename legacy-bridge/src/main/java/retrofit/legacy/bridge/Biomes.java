@@ -107,6 +107,71 @@ public final class Biomes {
     }
 
     /**
+     * getBiomeGenArray in a mod's own classes (DimensionViews passes the class): while mods load, as
+     * viewedArray; any other time (its world generators, its spawners), the class's mod sees its biomes at
+     * the ids it asked for, if any of them was moved off a taken id: Erebus' generator looks its biomes up
+     * by its config's ids, which AbyssalCraft's had, and failed every chunk on AbyssalCraft's biome. This view
+     * is the real array with the mod's biomes laid over the ids they really have (biomeID, which its code reads and
+     * looks up too, and another mod may since have overwritten) and over the ids it asked for. A mod none of whose biomes
+     * moved sees the real array, as on 1.7.10.
+     */
+    public static BiomeGenBase[] viewedArrayFor(String owner) {
+        if (currentMod() != null) {
+            return viewedArray();
+        }
+        BiomeGenBase[] real = realArray();
+        if (real == null) {
+            return new BiomeGenBase[256];
+        }
+        String mod = ModOwners.of(owner);
+        if (mod == null) {
+            return real;
+        }
+        synchronized (LOCK) {
+            if (!moved(mod)) {
+                return real;
+            }
+            BiomeGenBase[] view = PLAYING_VIEWS.get(mod);
+            if (view == null || view.length != real.length) {
+                view = real.clone();
+                for (Object[] entry : REGISTERED) {
+                    BiomeGenBase biome = (BiomeGenBase) entry[1];
+                    if (entry[0].equals(mod) && biome.field_76756_M >= 0 && biome.field_76756_M < view.length) { // biomeID
+                        // also where it really is: another mod's biome may have overwritten that slot since (GalaxySpace's did)
+                        view[biome.field_76756_M] = biome;
+                    }
+                }
+                for (Object[] entry : REGISTERED) {
+                    if (entry[0].equals(mod) && (Integer) entry[2] < view.length) {
+                        view[(Integer) entry[2]] = (BiomeGenBase) entry[1];
+                    }
+                }
+                PLAYING_VIEWS.put(mod, view);
+            }
+            return view;
+        }
+    }
+
+    /** Each mod's view outside loading (see viewedArrayFor), dropped with VIEWS whenever a mod biome registers. */
+    private static final Map<String, BiomeGenBase[]> PLAYING_VIEWS = new HashMap<String, BiomeGenBase[]>();
+
+    /** BiomeGenBase.getBiome(id) in a mod's own classes: as 1.7.10's, from the array that class sees (see viewedArrayFor). */
+    public static BiomeGenBase biomeFor(int id, String owner) {
+        BiomeGenBase[] array = viewedArrayFor(owner);
+        return id >= 0 && id < array.length ? array[id] : BiomeGenBase.field_76771_b; // ocean, as 1.7.10 answered an id out of bounds
+    }
+
+    /** Whether a mod registered a biome that sits elsewhere than the id it asked for. Hold LOCK. */
+    private static boolean moved(String mod) {
+        for (Object[] entry : REGISTERED) {
+            if (entry[0].equals(mod) && (Integer) entry[2] != ((BiomeGenBase) entry[1]).field_76756_M) { // biomeID
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Called at the end of every BiomeGenBase constructor (HeadlessTransformer): the new biome is
      * in the real array now (the constructor put it there), so its slot is found and it is
      * remembered as the registering mod's. Vanilla biomes and biomes built outside a mod's loading
@@ -158,6 +223,7 @@ public final class Biomes {
                 // every view rebuilds: one built before this (the mod's own free-id check) lacked it, and a count
                 // shared by all the views let it stand (Erebus found its own biome missing in postInit)
                 VIEWS.clear();
+                PLAYING_VIEWS.clear();
             }
         } catch (Throwable t) {
             System.out.println("[Retrofit] Could not follow a biome registration: " + t);

@@ -75,9 +75,13 @@ public final class ModernItems {
         return index;
     }
 
+    /** Carriers of armor, swords and tools (an ItemArmor per slot, an ItemSword, an ItemTool to legacy code). */
+    private static final java.util.Set<String> GEAR_NAMES = java.util.Set.of("retrofit:modern_helmet", "retrofit:modern_chestplate",
+            "retrofit:modern_leggings", "retrofit:modern_boots", "retrofit:modern_sword", "retrofit:modern_tool");
+
     /** Whether a legacy item name is one of the carriers of 1.20.1 items. */
     public static boolean isCarrier(String legacyName) {
-        return legacyName.equals(LEGACY_NAME) || legacyName.equals(LEGACY_BLOCK_NAME);
+        return legacyName.equals(LEGACY_NAME) || legacyName.equals(LEGACY_BLOCK_NAME) || GEAR_NAMES.contains(legacyName);
     }
 
     /** The legacy stack carrying a 1.20.1 item, or null (no carrier: the item has nothing legacy code could hold it as). */
@@ -88,11 +92,83 @@ public final class ModernItems {
         }
         try {
             byte[] tag = stack.getTag() == null ? null : LegacyStacks.toBytes(stack.getTag());
+            List<String> tools = toolKinds(stack);
+            int kind = gearKind(stack, tools);
             return LegacyBridge.call("makeModernStack", id.toString(), stack.getCount(), index(id.toString()), tag,
-                    stack.getHoverName().getString(), stack.getMaxStackSize(), isCube(stack.getItem()));
+                    stack.getHoverName().getString(), stack.getMaxStackSize(), isCube(stack.getItem()),
+                    kind, kind == 0 ? null : gear(stack), tools.toArray(new String[0]), armorTexture(stack));
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /** What legacy code should take an item for: 0 any item, 1 to 4 armor (head, chest, legs, feet), 5 a sword, 6 a tool. */
+    private static int gearKind(ItemStack stack, List<String> tools) {
+        if (stack.getItem() instanceof net.minecraft.world.item.ArmorItem armor) {
+            return switch (armor.getType()) {
+                case HELMET -> 1;
+                case CHESTPLATE -> 2;
+                case LEGGINGS -> 3;
+                case BOOTS -> 4;
+            };
+        }
+        if (stack.getItem() instanceof net.minecraft.world.item.SwordItem || stack.canPerformAction(net.minecraftforge.common.ToolActions.SWORD_SWEEP)) {
+            return 5;
+        }
+        return tools.isEmpty() ? 0 : 6;
+    }
+
+    /** The 1.7.10 tool classes an item works as (Forge's tool actions, so other mods' tools count too). */
+    private static List<String> toolKinds(ItemStack stack) {
+        List<String> tools = new ArrayList<>(3);
+        if (stack.canPerformAction(net.minecraftforge.common.ToolActions.PICKAXE_DIG)) {
+            tools.add("pickaxe");
+        }
+        if (stack.canPerformAction(net.minecraftforge.common.ToolActions.AXE_DIG)) {
+            tools.add("axe");
+        }
+        if (stack.canPerformAction(net.minecraftforge.common.ToolActions.SHOVEL_DIG)) {
+            tools.add("shovel");
+        }
+        return tools;
+    }
+
+    /** The texture an armor piece is drawn on a body with (the item's own, else 1.20.1's for its material), or null. */
+    private static String armorTexture(ItemStack stack) {
+        if (!(stack.getItem() instanceof net.minecraft.world.item.ArmorItem armor)) {
+            return null;
+        }
+        net.minecraft.world.entity.EquipmentSlot slot = armor.getEquipmentSlot();
+        try {
+            String own = armor.getArmorTexture(stack, null, slot, null);
+            if (own != null) {
+                return own;
+            }
+        } catch (RuntimeException e) {
+            // an item that wants the wearer to choose: the material's texture
+        }
+        ResourceLocation material = new ResourceLocation(armor.getMaterial().getName());
+        return material.getNamespace() + ":textures/models/armor/" + material.getPath()
+                + "_layer_" + (slot == net.minecraft.world.entity.EquipmentSlot.LEGS ? 2 : 1) + ".png";
+    }
+
+    /** {armor points, attack damage, harvest level, mining speed} of armor, weapons and tools. */
+    private static float[] gear(ItemStack stack) {
+        float armor = stack.getItem() instanceof net.minecraft.world.item.ArmorItem item ? item.getDefense() : 0;
+        double damage = 0;
+        for (var modifier : stack.getAttributeModifiers(net.minecraft.world.entity.EquipmentSlot.MAINHAND)
+                .get(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE)) {
+            if (modifier.getOperation() == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADDITION) {
+                damage += modifier.getAmount();
+            }
+        }
+        float level = 0;
+        float speed = 1;
+        if (stack.getItem() instanceof net.minecraft.world.item.TieredItem tiered) {
+            level = tiered.getTier().getLevel();
+            speed = tiered.getTier().getSpeed();
+        }
+        return new float[]{armor, (float) damage, level, speed};
     }
 
     private static final Map<Item, Boolean> CUBES = new java.util.concurrent.ConcurrentHashMap<>();

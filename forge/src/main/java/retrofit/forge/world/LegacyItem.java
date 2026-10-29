@@ -236,9 +236,17 @@ public class LegacyItem extends Item implements LegacyStackItem {
         return attributes.computeIfAbsent(hasSubtypes ? meta(stack) : 0, m -> LegacyItemUse.attributes(slot, stack, fallback));
     }
 
-    /** Weapons wear as they did in 1.7.10 (legacy hitEntity needs a legacy entity, which the target isn't). */
+    @Override
+    public InteractionResult interactLivingEntity(ItemStack stack, Player player, LivingEntity target, InteractionHand hand) {
+        return LegacyItemUse.useOnEntity(stack, player, target, hand);
+    }
+
+    /** A player's hit is the legacy item's hitEntity; otherwise (mobs holding it) weapons wear as they did in 1.7.10. */
     @Override
     public boolean hurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
+        if (attacker instanceof Player player && LegacyItemUse.hitEntity(stack, target, player)) {
+            return true;
+        }
         if (stack.isDamageableItem() && !Double.isNaN(LegacyItemUse.attackDamage(stack))) {
             stack.hurtAndBreak(1, attacker, entity -> entity.broadcastBreakEvent(EquipmentSlot.MAINHAND));
         }

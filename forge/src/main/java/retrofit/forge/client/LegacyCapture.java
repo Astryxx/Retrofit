@@ -94,6 +94,31 @@ public final class LegacyCapture {
         return (float[]) data.invokeExact();
     }
 
+    /** Tests: what the first {@code vertices} captured vertices are (extent, alpha, textures, blending). */
+    public static String describe(int vertices) throws Throwable {
+        init();
+        float[] d = (float[]) data.invokeExact();
+        int[] state = (int[]) states.invokeExact();
+        float[] min = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
+        float[] max = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+        float minAlpha = Float.MAX_VALUE, maxAlpha = -Float.MAX_VALUE;
+        java.util.Set<String> textures = new java.util.TreeSet<>();
+        int blended = 0;
+        for (int v = 0; v < vertices; v++) {
+            int o = v * FLOATS_PER_VERTEX;
+            for (int axis = 0; axis < 3; axis++) {
+                min[axis] = Math.min(min[axis], d[o + axis]);
+                max[axis] = Math.max(max[axis], d[o + axis]);
+            }
+            minAlpha = Math.min(minAlpha, d[o + 11]);
+            maxAlpha = Math.max(maxAlpha, d[o + 11]);
+            blended += (state[v] & BLEND) != 0 ? 1 : 0;
+            textures.add((state[v] & UNTEXTURED) != 0 ? "untextured" : (String) textureName.invokeExact(state[v] & TEXTURE_MASK));
+        }
+        return vertices + " vertices from " + java.util.Arrays.toString(min) + " to " + java.util.Arrays.toString(max) + ", alpha "
+                + minAlpha + ".." + maxAlpha + ", " + blended + " blended, textures " + textures;
+    }
+
     /**
      * Draws the first {@code vertices} captured vertices (quads) with the pose, grouping runs of
      * the same texture and blend state into one render type each.

@@ -142,8 +142,12 @@ public interface HostWorld {
         return false;
     }
 
-    /** Legacy code acted on a host entity: 0 remove, 1 add motion, 2 set motion, 3 set on fire (a seconds), 4 teleport, 5 potion effect (a legacy id, b duration, c amplifier), 6 set health. */
+    /** Legacy code acted on a host entity: 0 remove, 1 add motion, 2 set motion, 3 set on fire (a seconds), 4 teleport, 5 potion effect (a legacy id, b duration, c amplifier), 6 set health, 7 clear potion effects. */
     default void hostEntityAction(Object handle, int action, double a, double b, double c) {
+    }
+
+    /** Legacy code set a host creature's attack target (setAttackTarget on its stand-in): a legacy entity, a player's mirror, a stand-in, or null. */
+    default void setHostEntityTarget(Object handle, Object legacyTarget) {
     }
 
     /** Legacy code changed a host item entity's stack (took part of it). */

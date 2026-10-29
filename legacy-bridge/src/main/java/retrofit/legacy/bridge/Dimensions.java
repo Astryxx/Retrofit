@@ -214,6 +214,12 @@ public final class Dimensions {
             generator = world.field_73011_w.func_76555_c(); // provider.createChunkGenerator
             GENERATORS.put(dimension, generator);
         }
+        if (world instanceof net.minecraft.world.WorldServer && ((net.minecraft.world.WorldServer) world).field_73059_b != null) {
+            // theChunkProviderServer.currentChunkProvider: 1.7.10 kept the dimension's generator there, and mods
+            // read it (the Betweenlands' decorators cast it to their own, every chunk); the facade's own methods
+            // don't use it
+            ((net.minecraft.world.WorldServer) world).field_73059_b.field_73246_d = generator;
+        }
         return generator;
     }
 
@@ -275,6 +281,10 @@ public final class Dimensions {
     /**
      * Creatures the dimension's generator lists for a spot (IChunkProvider.getPossibleCreatures),
      * category 0 monster, 1 creature, 2 ambient, 3 water: {legacy name, weight, min, max} each.
+     * Generators list the spawns of the biome there, so the generation world gets the play world's
+     * host for the call: without one its biome lookups can't ask the dimension's own biome provider
+     * and answer plains, whose creatures aren't the dimension's (none of Erebus', Atum's or the
+     * Betweenlands' own spawned).
      */
     @SuppressWarnings("rawtypes")
     public static Object[][] dimensionSpawns(int dimension, int category, int x, int y, int z) {
@@ -282,7 +292,13 @@ public final class Dimensions {
         List spawns;
         synchronized (WorldGen.LOCK) {
             BridgeWorldServer world = (BridgeWorldServer) WorldGen.genWorld(dimension);
-            spawns = generator(world, dimension).func_73155_a(type, x, y, z); // getPossibleCreatures
+            net.minecraft.world.World play = DimensionManager.getWorld(dimension);
+            world.setHost(play == null ? null : WorldGlue.hostOf(play));
+            try {
+                spawns = generator(world, dimension).func_73155_a(type, x, y, z); // getPossibleCreatures
+            } finally {
+                world.setHost(null);
+            }
         }
         List<Object[]> result = new ArrayList<Object[]>();
         if (spawns != null) {
@@ -378,6 +394,7 @@ public final class Dimensions {
             constructor.setAccessible(true);
             teleporter = constructor.newInstance(destination);
         }
+        player.field_71088_bW = player.func_82147_ab(); // timeUntilPortal = getPortalCooldown, as a portal sets it: arriving in the mod's portal doesn't send the player back
         server.func_71203_ab().transferPlayerToDimension(player, dimension, (Teleporter) teleporter); // getConfigurationManager
     }
 

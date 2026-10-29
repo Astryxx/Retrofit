@@ -273,10 +273,19 @@ public class BridgeWorldServer extends WorldServer {
         return host == null ? 64 : host.getHeight(x, z);
     }
 
-    /** getTopSolidOrLiquidBlock */
+    /**
+     * getTopSolidOrLiquidBlock. While a chunk generates, -1 for a column outside its region, as 1.7.10 answered
+     * for one with nothing in it: ExtraPlanets walks down from the answer while it finds air (its own stop never
+     * ends the loop), which -1 never starts and a height over such an all-air column never ended (worldgen hung
+     * holding the generation lock, and the server with it). Playing, 1.7.10 loaded the chunk and answered: so
+     * does the host (Galacticraft builds its space stations in chunks nothing loaded yet).
+     */
     @Override
     public int func_72825_h(int x, int z) {
-        return host == null ? 64 : host.getHeight(x, z);
+        if (host == null) {
+            return 64;
+        }
+        return WorldGen.isGenWorld(this) && !host.blockLoaded(x, 64, z) ? -1 : host.getHeight(x, z);
     }
 
     /** playSoundEffect */

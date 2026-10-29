@@ -24,7 +24,8 @@ subprojects {
 }
 
 // Real 1.7.10 mods under test (corpus/, not in git) for dev runs. -Pcorpus=name1,name2 picks the jars
-// whose file names contain one of the (case-insensitive) parts; -Pcorpus=none runs only the test mod.
+// whose file names contain one of the (case-insensitive) parts; -Pcorpus=none runs only the test mod;
+// -PcorpusExclude=name1,name2 leaves out the jars whose names contain one of those parts.
 // The mods folder is replaced each run, so mods from an earlier selection don't linger.
 ext.syncCorpus = { File modsDir ->
     modsDir.mkdirs()
@@ -33,8 +34,9 @@ ext.syncCorpus = { File modsDir ->
         dir.listFiles()?.each { if (it.isFile() && (it.name.endsWith('.jar') || it.name.endsWith('.zip')) && it.name != 'hello1710.jar') it.delete() }
     }
     def parts = rootProject.findProperty('corpus')?.toString()?.toLowerCase()?.split(',')?.collect { it.trim() }?.findAll { it }
+    def excluded = rootProject.findProperty('corpusExclude')?.toString()?.toLowerCase()?.split(',')?.collect { it.trim() }?.findAll { it } ?: []
     rootProject.file('corpus').listFiles().findAll { it.isFile() && (it.name.endsWith('.jar') || it.name.endsWith('.zip')) }.each { mod ->
-        if (parts == null || parts.any { mod.name.toLowerCase().contains(it) }) {
+        if ((parts == null || parts.any { mod.name.toLowerCase().contains(it) }) && !excluded.any { mod.name.toLowerCase().contains(it) }) {
             java.nio.file.Files.copy(mod.toPath(), new File(modsDir, mod.name).toPath())
         }
     }

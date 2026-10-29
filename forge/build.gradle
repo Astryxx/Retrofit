@@ -5,7 +5,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
 }
 
-version = '0.6.0-beta'
+version = '0.6.1-beta'
 group = 'retrofit'
 base {
     archivesName = 'retrofit-forge'
@@ -30,6 +30,7 @@ minecraft {
             if (project.hasProperty('retrofitDisabled')) {
                 property 'retrofit.disabled', 'true' // compare against Forge without the legacy layer
             }
+            jvmArg '-XX:-OmitStackTraceInFastThrow' // legacy mods' NullPointerExceptions keep their stack traces
             if (project.hasProperty('extraJvmArg')) {
                 jvmArg project.property('extraJvmArg') // e.g. a flag a legacy mod reads from the JVM arguments
             }
@@ -74,6 +75,9 @@ minecraft {
             if (project.hasProperty('playTest')) {
                 args '--width', '1600', '--height', '900'
                 property 'retrofit.playTest', 'true' // retrofit.forge.test.PlayTest: the corpus mods played through the client
+                if (project.hasProperty('mobBattleRepeats')) {
+                    property 'retrofit.mobBattleRepeats', project.property('mobBattleRepeats').toString()
+                }
                 property 'retrofit.debugInteractions', 'true'
                 property 'retrofit.debugEntities', 'true'
                 if (project.hasProperty('debugItem')) {
@@ -81,6 +85,12 @@ minecraft {
                 }
                 if (project.hasProperty('debugBlock')) {
                     property 'retrofit.debugBlock', project.property('debugBlock').toString() // LegacyBakedModel's dumps
+                }
+                if (project.hasProperty('creatureGallery')) {
+                    property 'retrofit.creatureGallery', 'true' // PlayTest.creatureGallery only: every 1.7.10 creature drawn
+                    if (project.hasProperty('creatureGalleryFrom')) {
+                        property 'retrofit.creatureGalleryFrom', project.property('creatureGalleryFrom').toString()
+                    }
                 }
                 if (project.hasProperty('compare')) {
                     property 'retrofit.compare', project.property('compare').toString() // PlayTest.compare: the reference scenes
@@ -114,12 +124,14 @@ minecraft {
 }
 
 // 1.20.1 mods for interop tests in development runs only (-PmodernMods=jei,mekanism,mekanism-generators),
-// from Modrinth's Maven, remapped for the development environment.
+// from Modrinth's Maven, or a jar in corpus/modern/ whose file name contains the name (not in git),
+// remapped for the development environment.
 repositories {
     maven {
         url = 'https://api.modrinth.com/maven'
         content { includeGroup 'maven.modrinth' }
     }
+    flatDir { dirs rootProject.file('corpus/modern') }
 }
 def modernMods = [
         'jei'                : 'maven.modrinth:jei:IrfJO7PN',                 // 15.59.0.212
@@ -133,10 +145,16 @@ dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.4.26'
     if (project.hasProperty('modernMods')) {
         project.property('modernMods').toString().split(',').each { name ->
-            if (!modernMods.containsKey(name)) {
-                throw new GradleException("Unknown 1.20.1 test mod ${name}; known: ${modernMods.keySet()}")
+            def local = rootProject.file('corpus/modern').listFiles()?.find { it.name.endsWith('.jar') && it.name.toLowerCase().contains(name) }
+            if (modernMods.containsKey(name)) {
+                runtimeOnly fg.deobf(modernMods[name])
+            } else if (local != null) {
+                def base = local.name - '.jar'
+                def dash = base.lastIndexOf('-') // flatDir finds <name>-<version>.jar
+                runtimeOnly fg.deobf(dash > 0 ? "local:${base.substring(0, dash)}:${base.substring(dash + 1)}" : "local:${base}:")
+            } else {
+                throw new GradleException("Unknown 1.20.1 test mod ${name}; known: ${modernMods.keySet()} and corpus/modern/")
             }
-            runtimeOnly fg.deobf(modernMods[name])
         }
     }
 }

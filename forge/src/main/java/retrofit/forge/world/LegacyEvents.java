@@ -185,11 +185,14 @@ public final class LegacyEvents {
             boolean start = event.phase == TickEvent.Phase.START;
             Object world = LegacyContent.legacyWorld(event.level);
             int difficulty = event.level.getDifficulty().getId();
+            MinecraftServer server = event.level.getServer();
+            boolean hostiles = difficulty != 0 && (server == null || server.isSpawningMonsters());
+            boolean animals = server == null || server.isSpawningAnimals();
             if (start) {
                 fire("teleported players", () -> LegacyPlayers.placeTeleported((net.minecraft.server.level.ServerLevel) event.level));
                 fire("deferred blocks", () -> LegacyDeferredBlocks.drain((net.minecraft.server.level.ServerLevel) event.level));
             }
-            fire("world tick", () -> LegacyBridge.call("worldTick", world, start, difficulty));
+            fire("world tick", () -> LegacyBridge.call("worldTick", world, start, difficulty, hostiles, animals));
         }
     }
 
@@ -258,6 +261,7 @@ public final class LegacyEvents {
     @SubscribeEvent
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (active() && event.getEntity() instanceof ServerPlayer player && player.server.isDedicatedServer()) {
+            LegacyModCheck.sendServerMods(player);
             try {
                 LegacyNetwork.sendTo(player, IDS_CHANNEL, LegacyBridge.call("idData"));
             } catch (RuntimeException e) {
@@ -326,6 +330,56 @@ public final class LegacyEvents {
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
         if (active() && event.getAction() == PlayerInteractEvent.LeftClickBlock.Action.START) {
             interact(event, 2, event.getPos().getX(), event.getPos().getY(), event.getPos().getZ(), event.getFace() == null ? -1 : event.getFace().get3DDataValue());
+        }
+    }
+
+    /**
+     * A player's attack: 1.7.10's AttackEntityEvent and the held item's onLeftClickEntity, either of
+     * which ends it (Mob Battle's sticks pick mobs instead of hitting them).
+     */
+    @SubscribeEvent
+    public static void onAttackEntity(net.minecraftforge.event.entity.player.AttackEntityEvent event) {
+        Player player = event.getEntity();
+        if (!active() || !LegacyContent.hasLegacyWorld(player.level())) {
+            return;
+        }
+        try {
+            Object target = LegacyEntityCore.legacyOf(player.level(), event.getTarget());
+            if (target == null) {
+                return;
+            }
+            Object mirror = LegacyPlayers.mirror(player, true);
+            boolean stop = LegacyBridge.call("attackEntity", mirror, target);
+            LegacyPlayers.writeBack(player, mirror);
+            if (stop) {
+                event.setCanceled(true);
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report("event handler", "AttackEntityEvent", e);
+        }
+    }
+
+    /** 1.7.10's EntityInteractEvent for 1.20.1 creatures; legacy creatures fire it themselves, with the rest of the right click. */
+    @SubscribeEvent
+    public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+        if (!active() || event.getHand() != InteractionHand.MAIN_HAND || event.getTarget() instanceof LegacyEntityCarrier
+                || !LegacyContent.hasLegacyWorld(event.getLevel())) {
+            return;
+        }
+        try {
+            Object target = LegacyEntityCore.legacyOf(event.getLevel(), event.getTarget());
+            if (target == null) {
+                return;
+            }
+            Object mirror = LegacyPlayers.mirror(event.getEntity(), true);
+            boolean cancelled = LegacyBridge.call("interactEntity", mirror, target);
+            LegacyPlayers.writeBack(event.getEntity(), mirror);
+            if (cancelled) {
+                event.setCanceled(true);
+                event.setCancellationResult(net.minecraft.world.InteractionResult.FAIL);
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report("event handler", "EntityInteractEvent", e);
         }
     }
 
@@ -407,8 +461,9 @@ public final class LegacyEvents {
 
     @SubscribeEvent
     public static void onChunkDataSave(net.minecraftforge.event.level.ChunkDataEvent.Save event) {
+        // chunks still generating (proto chunks) were never loaded for legacy code: nothing of theirs to save
         if (active() && event.getLevel() instanceof net.minecraft.server.level.ServerLevel level && chunkEvents()
-                && LegacyContent.hasLegacyWorld(level)) {
+                && event.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk && LegacyContent.hasLegacyWorld(level)) {
             net.minecraft.world.level.ChunkPos pos = event.getChunk().getPos();
             Object world = LegacyContent.legacyWorld(level);
             fire("chunk save", () -> {
@@ -427,6 +482,37 @@ public final class LegacyEvents {
             net.minecraft.world.level.ChunkPos pos = event.getChunk().getPos();
             Object world = LegacyContent.legacyWorld(level);
             fire("chunk unload", () -> LegacyBridge.call("chunkUnloaded", world, pos.x, pos.z));
+        }
+    }
+
+    private static Boolean chunkWatchWanted;
+
+    private static boolean chunkWatch() {
+        if (chunkWatchWanted == null) {
+            try {
+                chunkWatchWanted = LegacyBridge.<Boolean>call("chunkWatchWanted");
+            } catch (RuntimeException e) {
+                chunkWatchWanted = false;
+            }
+        }
+        return chunkWatchWanted;
+    }
+
+    @SubscribeEvent
+    public static void onChunkWatch(net.minecraftforge.event.level.ChunkWatchEvent.Watch event) {
+        chunkWatched(event.getPlayer(), event.getLevel(), event.getPos(), true);
+    }
+
+    @SubscribeEvent
+    public static void onChunkUnWatch(net.minecraftforge.event.level.ChunkWatchEvent.UnWatch event) {
+        chunkWatched(event.getPlayer(), event.getLevel(), event.getPos(), false);
+    }
+
+    private static void chunkWatched(net.minecraft.server.level.ServerPlayer player, net.minecraft.server.level.ServerLevel level,
+                                     net.minecraft.world.level.ChunkPos pos, boolean watched) {
+        if (active() && chunkWatch() && player.level() == level && LegacyContent.hasLegacyWorld(level)) {
+            fire(watched ? "chunk watch" : "chunk unwatch",
+                    () -> LegacyBridge.call("chunkWatched", LegacyPlayers.mirror(player, false), pos.x, pos.z, watched));
         }
     }
 

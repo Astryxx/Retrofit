@@ -77,34 +77,78 @@ public final class HostCreatures {
         if (rows.length == 0) {
             return result;
         }
+        for (Object[] row : rows) {
+            Entity proxy = standIn(world, host, row, false);
+            if (proxy == null) {
+                continue;
+            }
+            result.add(proxy);
+        }
+        return result;
+    }
+
+    /**
+     * The stand-in for one row ({handle, type, category, state, stack}), made or reused and set to
+     * where its 1.20.1 entity now is; null if the type has no stand-in class. Quiet rows (a hurt
+     * naming its attacker) skip the log: projectiles and fireballs have none, and that is normal.
+     */
+    private static Entity standIn(World world, HostWorld host, Object[] row, boolean quiet) {
+        if (row == null || row.length < 4) {
+            return null;
+        }
         Map<Object, Entity> byHandle = BY_HANDLE.get(world);
         if (byHandle == null) {
             byHandle = new IdentityHashMap<Object, Entity>();
             BY_HANDLE.put(world, byHandle);
             BY_ID.put(world, new HashMap<Integer, Entity>());
         }
-        for (Object[] row : rows) {
-            Object handle = row[0];
-            String type = (String) row[1];
-            Entity proxy = byHandle.get(handle);
-            if (proxy == null || !type.equals(core(proxy).type)) {
-                try {
-                    proxy = HostCreatureProxies.create(type, (Integer) row[2], world);
-                } catch (Throwable t) {
+        Object handle = row[0];
+        String type = (String) row[1];
+        Entity proxy = byHandle.get(handle);
+        if (proxy == null || !type.equals(core(proxy).type)) {
+            try {
+                proxy = HostCreatureProxies.create(type, (Integer) row[2], world);
+            } catch (Throwable t) {
+                if (!quiet) {
                     System.out.println("[Retrofit] No legacy stand-in for " + type + ": " + t);
-                    continue;
                 }
-                HostCreatureProxies.Core core = core(proxy);
-                core.host = host;
-                core.handle = handle;
-                core.type = type;
-                byHandle.put(handle, proxy);
-                BY_ID.get(world).put(proxy.func_145782_y(), proxy); // getEntityId
+                return null;
             }
-            core(proxy).sync((double[]) row[3], row[4]);
-            result.add(proxy);
+            HostCreatureProxies.Core core = core(proxy);
+            core.host = host;
+            core.handle = handle;
+            core.type = type;
+            byHandle.put(handle, proxy);
+            BY_ID.get(world).put(proxy.func_145782_y(), proxy); // getEntityId
         }
-        return result;
+        core(proxy).sync((double[]) row[3], row[4]);
+        return proxy;
+    }
+
+    /**
+     * The stand-in of one 1.20.1 creature (a row of hostEntities' shape), made if legacy code hasn't seen
+     * it yet, in a legacy world: a creature that hurts a legacy one is its attacker (1.7.10 damage named
+     * its attacker, and mods act on the name: The Titans' titans refuse attacker-less damage outright,
+     * take multiplied damage from bosses - a 1.20.1 wither must arrive as a 1.7.10 EntityWither for the
+     * x100 rule - and remember it as their revenge target), one that 1.20.1 code sets as a legacy mob's
+     * target is that mob's target, and clicks on it reach legacy events and items. It follows its entity
+     * every tick until the entity is gone, like the stand-ins box queries make (the same entry in the
+     * same maps). Null if the type has no stand-in (projectiles, fireballs, TNT) or there is no host.
+     */
+    public static synchronized Object standIn(Object world, Object[] row) {
+        World legacyWorld = (World) world;
+        HostWorld host = legacyWorld == null || legacyWorld.field_72995_K ? null : WorldGlue.hostOf(legacyWorld); // isRemote
+        return host == null ? null : standIn(legacyWorld, host, row, true);
+    }
+
+    /** PlayTest: the direct motion writes legacy blasts make, flushed through the ordinary tick-end path. */
+    public static void testBlastMotion(Object world, Object[] row, double x, double y, double z) {
+        Entity proxy = (Entity) standIn(world, row);
+        proxy.field_70159_w += x;
+        proxy.field_70181_x += y;
+        proxy.field_70179_y += z;
+        tickEnd();
+        tickEnd(); // a second sync must not apply the same push twice
     }
 
     /** getEntityByID for stand-ins (mods' packets and GUIs name entities by id). */
@@ -119,6 +163,14 @@ public final class HostCreatures {
             Map<Integer, Entity> byId = BY_ID.get(entry.getKey());
             for (Entity proxy : new ArrayList<Entity>(entry.getValue().values())) {
                 HostCreatureProxies.Core core = core(proxy);
+                try {
+                    // a motion write by legacy code (a blast's knockback) goes host-ward first: the state
+                    // read below would overwrite it with the host's own motion, and the blast would fling
+                    // nothing but the stand-in's shadow
+                    core.flushForeignMotion();
+                } catch (RuntimeException e) {
+                    // a push the host can't take: sync will overwrite it, as before
+                }
                 double[] state = core.removed || core.host == null ? null : core.host.hostEntityState(core.handle);
                 if (state == null) {
                     core.removed = true;

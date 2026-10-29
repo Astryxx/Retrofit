@@ -52,8 +52,8 @@ public final class LegacyIds {
             return skipTakenEntityIds(widen(bytes, transformedName, "<init>", 255, Short.MAX_VALUE));
         }
         if (transformedName.equals("net.minecraft.entity.EntityList")) {
-            // addMapping: "Attempted to register a entity with invalid ID" above 255
-            return widen(bytes, transformedName, "func_75618_a", 255, Short.MAX_VALUE);
+            // addMapping: "Attempted to register a entity with invalid ID" above 255; a taken id moves (see claimEntityIds)
+            return claimEntityIds(widen(bytes, transformedName, "func_75618_a", 255, Short.MAX_VALUE));
         }
         if (transformedName.equals("cpw.mods.fml.common.registry.GameData")
                 || transformedName.equals("cpw.mods.fml.common.registry.FMLControlledNamespacedRegistry")) {
@@ -150,6 +150,58 @@ public final class LegacyIds {
             }
         }
         return unchanged(bytes, "cpw.mods.fml.common.registry.EntityRegistry");
+    }
+
+    /**
+     * Both addMapping methods (the one with spawn egg colours too) pass the id they were given through
+     * {@link #entityId} first: mods pick global entity ids by hand, and on 1.7.10 the second mod asking
+     * for a taken one failed ("ID is already registered": MLP Mythical Creatures' 226).
+     */
+    private static byte[] claimEntityIds(byte[] bytes) {
+        ClassNode node = new ClassNode();
+        new ClassReader(bytes).accept(node, 0);
+        int changed = 0;
+        for (Object element : node.methods) {
+            MethodNode method = (MethodNode) element;
+            if ((method.name.equals("func_75618_a") && method.desc.equals("(Ljava/lang/Class;Ljava/lang/String;I)V"))
+                    || (method.name.equals("func_75614_a") && method.desc.equals("(Ljava/lang/Class;Ljava/lang/String;III)V"))) {
+                InsnList call = new InsnList();
+                call.add(new LdcInsnNode(Type.getObjectType(node.name)));
+                call.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                call.add(new VarInsnNode(Opcodes.ILOAD, 2));
+                call.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SELF, "entityId", "(Ljava/lang/Class;Ljava/lang/Class;I)I", false));
+                call.add(new VarInsnNode(Opcodes.ISTORE, 2));
+                method.instructions.insert(call);
+                changed++;
+            }
+        }
+        return changed == 2 ? write(node) : unchanged(bytes, "net.minecraft.entity.EntityList");
+    }
+
+    /**
+     * The global id an entity class asked for, or, when another class has it, the first free one past
+     * 255 (past the ids mods ask for by hand, so it takes no later mod's). Spawn eggs follow it.
+     */
+    public static int entityId(Class<?> entityList, Class<?> entity, int id) {
+        try {
+            Field byIdField = entityList.getDeclaredField("field_75623_d"); // IDtoClassMapping
+            byIdField.setAccessible(true);
+            java.util.Map<?, ?> byId = (java.util.Map<?, ?>) byIdField.get(null);
+            Object holder = byId.get(id);
+            if (holder == null || holder == entity) {
+                return id;
+            }
+            for (int free = 256; free <= Short.MAX_VALUE; free++) {
+                if (!byId.containsKey(free)) {
+                    System.out.println("[Retrofit] The 1.7.10 entity " + entity.getName() + " asked for global id " + id + ", which "
+                            + ((Class<?>) holder).getName() + " has; it gets " + free);
+                    return free;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[Retrofit] Could not check global entity id " + id + ": " + e);
+        }
+        return id;
     }
 
     /** The first id from {@code id} on that EntityList doesn't hold yet; taken ones leave EntityRegistry's free set. */

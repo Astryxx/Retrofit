@@ -82,6 +82,20 @@ final class HostCreatures {
         return rows.toArray(new Object[0][]);
     }
 
+    /**
+     * A row (hostEntities' shape) for one 1.20.1 creature, so the bridge can stand it in for
+     * legacy code to name (damage attribution: LegacyEntityCore.hurt). Only living creatures:
+     * the things that hurt legacy mobs (players and the hosted legacy mobs have their own paths).
+     * Null when there is nothing to stand in (the entity is gone, or nothing of it to name).
+     */
+    static Object[] row(Entity entity) {
+        if (!(entity instanceof LivingEntity) || entity instanceof Player || entity instanceof LegacyEntityCarrier
+                || !entity.isAlive() || entity.isRemoved()) {
+            return null;
+        }
+        return new Object[]{entity, BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString(), category(entity), state(entity), null};
+    }
+
     static double[] state(Object handle) {
         if (!(handle instanceof Entity entity) || !entity.isAlive() || entity.isRemoved()) {
             return null;
@@ -173,8 +187,19 @@ final class HostCreatures {
                     living.setHealth((float) a);
                 }
             }
+            case 7 -> {
+                if (entity instanceof LivingEntity living) {
+                    living.removeAllEffects();
+                }
+            }
             default -> {
             }
+        }
+    }
+
+    static void setTarget(Object handle, Object legacyTarget) {
+        if (handle instanceof net.minecraft.world.entity.Mob mob && mob.isAlive() && !mob.level().isClientSide) {
+            mob.setTarget(LegacyEntityCore.hostOf(legacyTarget) instanceof LivingEntity target && target != mob ? target : null);
         }
     }
 

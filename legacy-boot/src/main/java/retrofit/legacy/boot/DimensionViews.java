@@ -48,9 +48,18 @@ final class DimensionViews {
     private static final Map<String, String> CONSTRUCTED = new HashMap<String, String>();
 
     private static final String DIMENSIONS = "net/minecraftforge/common/DimensionManager";
+    /**
+     * The biome array lookups ("name desc" on BiomeGenBase) -> the bridge's Biomes method taking the same arguments
+     * and the class's name: each mod's own view of biome ids, in its classes, also outside its loading (its world
+     * generators look its biomes up by the ids its config names).
+     */
+    private static final Map<String, String> BIOME_LOOKUPS = new HashMap<String, String>();
+    private static final String BIOME = "net/minecraft/world/biome/BiomeGenBase";
     private static final String CONFIGURATION = "net/minecraft/server/management/ServerConfigurationManager";
 
     static {
+        BIOME_LOOKUPS.put("func_150565_n ()[L" + BIOME + ";", "viewedArrayFor"); // getBiomeGenArray
+        BIOME_LOOKUPS.put("func_150568_d (I)L" + BIOME + ";", "biomeFor"); // getBiome
         FIELDS.put("field_71093_bK I", true); // Entity.dimension
         FIELDS.put("field_76574_g I", true); // WorldProvider.dimensionId
         FIELDS.put("dimension I", false); // NetworkRegistry.TargetPoint.dimension (final)
@@ -101,6 +110,7 @@ final class DimensionViews {
 
     private static final byte[][] MARKERS = {
             bytes("field_71093_bK"), bytes("field_76574_g"), bytes("TargetPoint"), bytes("PlayerChangedDimensionEvent"),
+            bytes("func_150565_n"), bytes("func_150568_d"), // BiomeGenBase.getBiomeGenArray, getBiome (see BIOME_LOOKUPS)
             bytes("DimensionManager"), bytes("func_71218_a"), bytes("func_71027_c"), bytes("ServerConfigurationManager"),
             bytes("sendToDimension"), bytes("getBedLocation"), bytes("isSpawnForced"), bytes("setSpawnChunk"),
             bytes("S07PacketRespawn"), bytes("getRespawnDimension"), bytes("func_76570_a"),
@@ -168,6 +178,17 @@ final class DimensionViews {
                 MethodInsnNode call = (MethodInsnNode) insn;
                 String key = call.owner + "." + call.name + " " + call.desc;
                 String anyKey = "*." + call.name + " " + call.desc;
+                String biomeLookup = call.owner.equals(BIOME) && opcode == Opcodes.INVOKESTATIC ? BIOME_LOOKUPS.get(call.name + " " + call.desc) : null;
+                if (biomeLookup != null) {
+                    int close = call.desc.indexOf(')');
+                    MethodInsnNode replacement = new MethodInsnNode(Opcodes.INVOKESTATIC, "retrofit/legacy/bridge/Biomes", biomeLookup,
+                            call.desc.substring(0, close) + OWNER_ARG + call.desc.substring(close), false);
+                    method.instructions.insertBefore(call, new LdcInsnNode(owner));
+                    method.instructions.set(call, replacement);
+                    insn = replacement;
+                    changed++;
+                    continue;
+                }
                 String wrapper = WRAPPED.get(key);
                 if (wrapper != null) {
                     String desc = call.desc;

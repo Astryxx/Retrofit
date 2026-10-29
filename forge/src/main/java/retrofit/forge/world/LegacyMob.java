@@ -47,6 +47,24 @@ public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, Legacy
             if (tickCount % 5 == 0) {
                 syncLeash();
             }
+            tickModTargetGoals();
+        }
+    }
+
+    /**
+     * Target goals 1.20.1 mods give a legacy mob (Mob Battle's teams pick their enemies with them),
+     * at Mob.serverAiStep's pace; the targets they pick go to the legacy AI (setTarget), which moves
+     * and fights. The mob's other goals don't run: the legacy AI is the one that moves it.
+     */
+    private void tickModTargetGoals() {
+        if (targetSelector.getAvailableGoals().isEmpty() || isNoAi()) {
+            return;
+        }
+        if (tickCount % 2 == 0) {
+            getSensing().tick();
+            targetSelector.tick();
+        } else {
+            targetSelector.tickRunningGoals(false);
         }
     }
 
@@ -109,6 +127,19 @@ public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, Legacy
     @Override
     public boolean hurt(DamageSource source, float amount) {
         return !level().isClientSide && !isInvulnerableTo(source) && core.hurt(source, amount);
+    }
+
+    /** Targets 1.20.1 code sets (enragers, mob battle items) go to the legacy AI; no 1.20.1 AI runs to use them. */
+    @Override
+    public void setTarget(@javax.annotation.Nullable net.minecraft.world.entity.LivingEntity target) {
+        super.setTarget(target);
+        core.setTarget(target);
+    }
+
+    @Override
+    public void heal(float amount) {
+        super.heal(amount);
+        core.heal(amount);
     }
 
     @Override

@@ -357,10 +357,21 @@ public final class PlayerState {
         fireLivingUpdate(player);
     }
 
-    /** LivingUpdateEvent for the local client player (1.7.10 fired it on both sides). */
+    /**
+     * LivingUpdateEvent for the local client player (1.7.10 fired it on both sides), plus the entity
+     * counters 1.7.10's Entity.onEntityUpdate ran for thePlayer each client tick: the mirror is never
+     * ticked as an entity, and mods read the counters off it - The Titans' boss bar GUI scans for
+     * nearby bosses only while {@code thePlayer.ticksExisted % 20} is 0 (a frozen counter fired that
+     * scan on every overlay element instead of once a second), and portals wait on timeUntilPortal.
+     */
     public static void tickClientPlayer(Object legacyPlayer) {
-        ClientPlayers.tickArm((EntityPlayer) legacyPlayer);
-        fireLivingUpdate((EntityPlayer) legacyPlayer);
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        player.field_70173_aa++; // ticksExisted
+        if (player.field_71088_bW > 0) { // timeUntilPortal
+            player.field_71088_bW--;
+        }
+        ClientPlayers.tickArm(player);
+        fireLivingUpdate(player);
     }
 
     private static void fireLivingUpdate(EntityPlayer player) {
@@ -378,7 +389,7 @@ public final class PlayerState {
         List<Object[]> result = new ArrayList<Object[]>();
         java.util.Set<Object> held = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object, Boolean>());
         for (Potion potion : Potion.field_76425_a) {
-            if (potion != null && potion.field_76415_H > LAST_VANILLA_POTION) { // id
+            if (potion != null && potion.field_76415_H > LAST_VANILLA_POTION && !Bridge.leftOut(potion.getClass())) { // id
                 held.add(potion);
                 result.add(new Object[]{potion.field_76415_H, potion.func_76393_a(), potion.func_76401_j(), harmful(potion) ? 1 : 0,
                         potion.getClass().getName()});
@@ -388,7 +399,7 @@ public final class PlayerState {
         // which differs between client and server, so both register them all (see LegacyIds.potionsMade)
         for (Object made : retrofit.legacy.boot.LegacyIds.potionsMade()) {
             Potion potion = (Potion) made;
-            if (potion.field_76415_H > LAST_VANILLA_POTION && !held.contains(potion)) {
+            if (potion.field_76415_H > LAST_VANILLA_POTION && !held.contains(potion) && !Bridge.leftOut(potion.getClass())) {
                 held.add(potion);
                 result.add(new Object[]{-1, potion.func_76393_a(), potion.func_76401_j(), harmful(potion) ? 1 : 0, potion.getClass().getName()});
             }

@@ -102,7 +102,7 @@ LIVING = '''
         @Override
         public void func_70653_a(Entity attacker, float strength, double x, double z) { // knockBack
             super.func_70653_a(attacker, strength, x, z);
-            core().act(2, field_70159_w, field_70181_x, field_70179_y); // the motion the knockback gave
+            core().forwardMotion(); // the motion the knockback gave
         }
 
         @Override
@@ -122,6 +122,18 @@ LIVING = '''
         @Override
         public void func_70634_a(double x, double y, double z) { // setPositionAndUpdate
             core().act(4, x, y, z);
+        }
+
+        @Override
+        public void func_70624_b(EntityLivingBase target) { // setAttackTarget: the 1.20.1 creature takes it (Mob Battle's sticks)
+            super.func_70624_b(target);
+            core().target(target);
+        }
+
+        @Override
+        public void func_70674_bp() { // clearActivePotions
+            super.func_70674_bp();
+            core().act(7, 0, 0, 0);
         }
 
         @Override
@@ -252,6 +264,7 @@ public final class HostCreatureProxies {
         boolean removed;
         private ItemStack given;
         private ItemStack snapshot;
+        private double[] syncedMotion; // the motion sync last put on the stand-in
 
         Core(Entity entity) {
             this.entity = entity;
@@ -261,12 +274,78 @@ public final class HostCreatureProxies {
             if (removed || host == null || source == null) {
                 return false;
             }
-            return host.hurtHostEntity(handle, source.field_76373_n, source.func_76346_g(), amount); // damageType, getEntity
+            boolean hurt = host.hurtHostEntity(handle, source.field_76373_n, source.func_76346_g(), amount); // damageType, getEntity
+            if (hurt) {
+                // motion legacy code gave the stand-in before the hit (some blast code pushes first and
+                // hurts second) travels with it: the state read next would otherwise overwrite the write
+                flushForeignMotion();
+                // the hit shows at once, as it did on 1.7.10, not at the end of the tick: mods read the health
+                // right after (Pistronics' petrify arrow makes a statue of what it killed)
+                double[] state = host.hostEntityState(handle);
+                try {
+                    if (state != null) {
+                        sync(state, null);
+                    } else if (entity instanceof EntityLivingBase) {
+                        syncing = true;
+                        ((EntityLivingBase) entity).func_70606_j(0); // setHealth: the host entity is gone
+                    }
+                } catch (RuntimeException e) {
+                    // the stand-in follows at the end of the tick instead
+                } finally {
+                    syncing = false;
+                }
+            }
+            return hurt;
         }
 
         void act(int action, double a, double b, double c) {
             if (!removed && host != null && !syncing) {
                 host.hostEntityAction(handle, action, a, b, c);
+            }
+        }
+
+        void target(EntityLivingBase target) {
+            if (!removed && host != null && !syncing) {
+                host.setHostEntityTarget(handle, target);
+            }
+        }
+
+        /**
+         * The motion vanilla knockback (knockBack) left on the stand-in's own fields: sent as the
+         * motion the host entity now has, and recorded as given, so the next foreign-motion check
+         * ({@link #flushForeignMotion}) reads no change in it.
+         */
+        void forwardMotion() {
+            act(2, entity.field_70159_w, entity.field_70181_x, entity.field_70179_y);
+            syncedMotion = new double[]{entity.field_70159_w, entity.field_70181_x, entity.field_70179_y};
+        }
+
+        /**
+         * Motion legacy code wrote on the stand-in's motion fields since the last sync, sent to the
+         * host entity as the push it was. 1.7.10 code moves creatures it doesn't own by writing
+         * motionX/Y/Z directly (Rival Rebels' plasma explosion knocks entities back that way, and so
+         * do its own explosions - the nukes, the tsar - as well as magnets, grinders and blast
+         * knockback generally), which no overridden method sees: the write used to sit on the
+         * stand-in's own fields until the next sync copied the host's motion back over it, so a
+         * blast left nothing on the 1.20.1 creature but the damage. Spotted against the motion the
+         * last sync put here (the health writes' rule, mirrored), and pushed as the difference - the
+         * components legacy code left alone keep the host's own motion (its gravity, drag and other
+         * knockbacks ride through), and a component legacy code zeroed arrives as the reverse push
+         * that zeroes it. A non-finite write is left for sync to erase (1.7.10 tolerated it; 1.20.1
+         * discards entities it cannot move). Runs at the end of every server tick, when the stand-in
+         * is about to follow its entity again - the same place in the tick 1.7.10's own knockback
+         * took effect from.
+         */
+        void flushForeignMotion() {
+            if (syncing || syncedMotion == null || removed || host == null) {
+                return;
+            }
+            double x = entity.field_70159_w - syncedMotion[0];
+            double y = entity.field_70181_x - syncedMotion[1];
+            double z = entity.field_70179_y - syncedMotion[2];
+            if ((x != 0.0 || y != 0.0 || z != 0.0) && Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z)) {
+                act(1, x, y, z); // addVelocity: the change legacy code gave, host-ward
+                syncedMotion = new double[]{entity.field_70159_w, entity.field_70181_x, entity.field_70179_y};
             }
         }
 
@@ -304,7 +383,13 @@ public final class HostCreatureProxies {
             try {
                 Entity e = entity;
                 if ((float) state[9] != e.field_70130_N || (float) state[10] != e.field_70131_O) { // width, height
-                    ((Proxy) e).resize((float) state[9], (float) state[10]);
+                    // The Titans' titans refuse damage from anything as wide as themselves (EntityTitan
+                    // and EntityWitherzilla: attacker width >= 6 - that rule is for titanic LEGACY
+                    // creatures), and a stand-in mirrors its 1.20.1 entity's bounding box (OmniMobs'
+                    // MetapotentFlashfur is registered 12.5 wide). Cap the mirror under that line, so
+                    // modern mega bosses can still fight in legacy worlds; the damage they deal still
+                    // comes from their real attacks.
+                    ((Proxy) e).resize(Math.min((float) state[9], 5.0F), (float) state[10]);
                 }
                 e.field_70169_q = e.field_70142_S = state[0]; // prevPosX, lastTickPosX
                 e.field_70167_r = e.field_70137_T = state[1];
@@ -315,6 +400,7 @@ public final class HostCreatureProxies {
                 e.field_70159_w = state[6]; // motionX
                 e.field_70181_x = state[7];
                 e.field_70179_y = state[8];
+                syncedMotion = new double[]{state[6], state[7], state[8]};
                 int flags = (int) state[13];
                 e.field_70122_E = (flags & 1) != 0; // onGround
                 if (e instanceof EntityLivingBase) {

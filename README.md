@@ -10,13 +10,17 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.6.0-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.6.1-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
+
+Mob Battle tools can target creatures across versions. A creature still follows its own mod's AI
+rules, including its follow range: place fighters near each other when starting a battle.
+The automated group-item test uses a fresh nearby pair so an earlier fight cannot move them out of range.
 
 ![A 1.20.1 world with BiblioCraft and the test mod](branding/screenshots/world-showcase.png)
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.0-beta.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.1-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory, or in `mods/` with your
    other mods (as launchers like CurseForge do). 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -65,11 +69,15 @@ together, in singleplayer and on a dedicated server with a client connected.
 | Rival Rebels 1.7.10Z1 | Loads; both creative tabs |
 | Fisk's Superheroes 2.4.0 | Loads and runs (its JavaScript heroes through the Nashorn engine Retrofit provides); suits draw with their own models |
 | CodeChickenCore 1.4.22 + NotEnoughItems 2.8.160 (GTNH) | Loads and runs (coremods). NEI's item panel only appears on 1.7.10 screens; use JEI on 1.20.1 screens |
+| Forge Multipart 1.2.0.345 + CodeChickenCore 1.0.7.48 + CodeChickenLib 1.1.3.140 | Works: microblocks placed and seen by players. CodeChickenLib is downloaded with the player's OK (CodeChickenCore's address for 1.1.3.141 still works), or put its jar in `retrofit/mods`; a library that can't be had sets its mod aside in `retrofit/waiting-for-libraries` and the other mods load |
 
 1.7.10 mods' own config files are in `retrofit/config`. Enchantment, potion and biome ID clashes
 between mods don't need fixing there: a mod asking for an ID another mod already has gets a free one
 (the log says which). Mods that check their biome IDs are free before taking them (Erebus and Advent
 of Ascension both default to 100) see the vanilla biomes and their own while they load, so both load.
+
+1.7.10 swords and tools attack at 1.20.1's speed for their kind, and armor stronger than iron gets
+armor toughness. Both can be set per item, or turned off, in `retrofit/item-attributes.properties`.
 A dimension ID another mod registered first is skipped with a log line instead of leaving the mod out.
 Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
 
@@ -109,10 +117,10 @@ Block, item and entity IDs don't run out as they did in large 1.7.10 packs.
   Thaumcraft and NEI would): dependencies they name are listed in Retrofit's download question
   instead, and any other such download is refused with a message naming the file.
 - FML logs "missing any signature data", and some mods log signature warnings. Cosmetic.
-- "Mismatched mod list" when joining means the client and server ended up with different 1.7.10 mods
-  (or versions), for example when a mod failed to load on one side only (Thaumcraft and ManaMetal don't
-  load together). Each side's log has a line "Network version ... from the 1.7.10 mods [...]": the two
-  lists show what differs.
+- A player whose 1.7.10 mods don't match the server's is told which mods differ, with both versions.
+  A mod that failed to load on the server only (Thaumcraft and ManaMetal don't load together; the
+  server's log names it) has to be removed from the clients too. Client-only mods (Mouse Tweaks,
+  minimaps) may stay on clients.
 - A player joining a dedicated server whose 1.7.10 configs (`retrofit/config`) differ from theirs is asked
   whether to use the server's, and then restarts once: 1.7.10 mods read their configs only at startup. Config
   files named `*client*` are each player's own and are never sent.
@@ -158,7 +166,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.0-beta.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.1-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...
@@ -188,7 +196,8 @@ found; draws every legacy item in an inventory gallery (`sweep-gallery-N.png`, i
 each mod dimension (looking down and at the sky). It logs `[ModSweep]` results by mod and saves
 `sweep-*.png` screenshots. `-Pperf` adds a phase that measures server ticks with everything placed
 and writes a Java Flight Recorder profile (`forge/run/perf.jfr`); `-PmodernMods=jei,mekanism,...`
-adds 1.20.1 mods from Modrinth (jei, mekanism, mekanism-generators, moonlight, every-compat).
+adds 1.20.1 mods from Modrinth (jei, mekanism, mekanism-generators, moonlight, every-compat) or from
+`corpus/modern/` (by file name: `-PmodernMods=mobbattle`).
 
 Legacy-side code compiles against `run/legacy-srg/*.jar`, which `:harness:dumpSrgJar` (and
 `dumpServerSrgJar`) build from your own install. Those hold the classes as the running game has them,

@@ -117,6 +117,9 @@ public final class LegacyItemRenderer extends BlockEntityWithoutLevelRenderer {
                     } else if (type.equals("ENTITY") || !custom) {
                         pose.translate(0.5, 0.5, 0.5);
                     }
+                    if (custom) {
+                        LegacyBridge.call("itemLight", type.equals("INVENTORY") ? net.minecraft.client.renderer.LightTexture.FULL_BRIGHT : light);
+                    }
                     Object legacy = custom && stack.hasTag() ? legacyStack(stack, item, meta) : null;
                     int vertices = legacy != null ? LegacyBridge.call("renderItemStack", legacy, type)
                             : custom ? LegacyBridge.renderItem(item.legacyItem(), meta, type)

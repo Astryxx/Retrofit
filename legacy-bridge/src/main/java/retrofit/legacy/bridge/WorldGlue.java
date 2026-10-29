@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * The bridged World behaviour shared by {@link BridgeWorld}, {@link BridgeWorldServer} and
@@ -174,6 +175,64 @@ final class WorldGlue {
         tile.field_145849_e = z;
         tile.func_145829_t(); // validate
         host.setLegacyTileEntity(x, y, z, tile);
+        joinTileList(world, tile);
+    }
+
+    /**
+     * The tile entities this bridge put on a world's loadedTileEntityList (field_147482_g), by
+     * position. Legacy tile entities live host-side here, so 1.7.10's own chunk loading and
+     * setTileEntity never fill that list; these tables keep it as 1.7.10 kept it, so mods that
+     * scan it directly work (Rival Rebels' tokamak powers the machines it finds there, its
+     * teslas included; BlockReactor detaches them on break; Rhodes targets tokamaks on it).
+     */
+    private static final Map<World, Map<Long, TileEntity>> LISTED_TILES = new WeakHashMap<World, Map<Long, TileEntity>>();
+
+    private static long tileKey(int x, int y, int z) {
+        return ((long) x & 0x3FFFFFFL) << 38 | ((long) z & 0x3FFFFFFL) << 12 | (y & 0xFFFL);
+    }
+
+    /** Joins a tile entity to its world's loadedTileEntityList, once, as 1.7.10 did when one was set or its chunk loaded. */
+    static void joinTileList(World world, TileEntity tile) {
+        if (world == null || tile == null || tile.func_145831_w() != world || tile.func_145837_r() // worldObj, isInvalid
+                || WorldGen.isGenWorld(world)) { // generation tile entities are copied into the world's, never loaded
+            return;
+        }
+        listTile(world, tile);
+    }
+
+    private static synchronized void listTile(World world, TileEntity tile) {
+        Map<Long, TileEntity> listed = LISTED_TILES.get(world);
+        long key = tileKey(tile.field_145851_c, tile.field_145848_d, tile.field_145849_e);
+        if (listed != null && listed.get(key) == tile) {
+            return; // already on the list
+        }
+        if (listed == null) {
+            listed = new HashMap<Long, TileEntity>();
+            LISTED_TILES.put(world, listed);
+        }
+        TileEntity previous = listed.get(key);
+        if (previous != null) {
+            world.field_147482_g.remove(previous); // loadedTileEntityList: replaced at this position
+        }
+        if (!world.field_147482_g.contains(tile)) {
+            world.field_147482_g.add(tile); // loadedTileEntityList
+        }
+        listed.put(key, tile);
+    }
+
+    /** A removed or unloaded tile entity leaves its world's loadedTileEntityList (before invalidate, as 1.7.10 removed first). */
+    static synchronized void leaveTileList(TileEntity tile) {
+        if (tile == null || tile.func_145831_w() == null) {
+            return;
+        }
+        Map<Long, TileEntity> listed = LISTED_TILES.get(tile.func_145831_w());
+        if (listed == null) {
+            return;
+        }
+        long key = tileKey(tile.field_145851_c, tile.field_145848_d, tile.field_145849_e);
+        if (listed.remove(key, tile)) {
+            tile.func_145831_w().field_147482_g.remove(tile); // loadedTileEntityList
+        }
     }
 
     static boolean spawnEntity(HostWorld host, Entity entity) {
@@ -263,8 +322,8 @@ final class WorldGlue {
         if (biomesByName == null) {
             Map<String, BiomeGenBase> byName = new HashMap<String, BiomeGenBase>();
             for (BiomeGenBase biome : BiomeGenBase.func_150565_n()) { // getBiomeGenArray
-                if (biome != null) {
-                    byName.put(normalize(biome.field_76791_y), biome); // biomeName
+                if (biome != null && biome.field_76791_y != null) { // biomeName (mods' unnamed biomes can't match a 1.20.1 one)
+                    byName.put(normalize(biome.field_76791_y), biome);
                 }
             }
             biomesByName = byName;

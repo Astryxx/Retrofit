@@ -17,6 +17,8 @@ import net.minecraft.world.Difficulty;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -46,6 +48,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
@@ -153,6 +156,7 @@ public final class PlayTest {
             player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(false, player.server);
         }));
         do_("names", 0, PlayTest::untranslatedNames);
+        do_("gear attributes", 0, PlayTest::gearAttributes);
         do_("asset pack", 0, () -> {
             // every legacy mod's models and textures are in one pack: one block failing it (a half-loaded mod's) broke them all
             String build = retrofit.forge.client.LegacyAssetPacks.lastBuild();
@@ -165,12 +169,22 @@ public final class PlayTest {
             compare(Path.of(compare));
             return;
         }
+        if (System.getProperty("retrofit.creatureGallery") != null) {
+            creatureGallery();
+            return;
+        }
         String dump = System.getProperty("retrofit.galleryDump");
         if (dump != null) {
             do_("gallery dump", 0, () -> ItemGallery.dump(dump));
         }
         if (item("carpentersblocks:blockcarpentersblock") != null) {
             carpentersBlocks();
+        }
+        if (entityType("hello1710", path -> path.equals("rubygolem")) != null) {
+            creatureShot("Ruby Golem visual check", entityType("hello1710", path -> path.equals("rubygolem")), "play-ruby-golem");
+        }
+        if (item("forgemicroblock:microblock") instanceof retrofit.forge.world.LegacyStackItem microblock) {
+            microblocks(microblock);
         }
         if (item("pistronics2:block_of_camou") != null) {
             pistronics();
@@ -182,6 +196,31 @@ public final class PlayTest {
         if (findItem("orespawn", path -> path.contains("ruby"), ArmorItem.class) != null) {
             wornArmor("orespawn", "ruby");
             oreSpawnBossBar();
+            hostAttacker();
+            antOre();
+        }
+        if (entityType("arcticmobs", path -> path.equals("wendigo")) != null) {
+            creatureShot("Lycanites wendigo (OBJ model)", entityType("arcticmobs", path -> path.equals("wendigo")), "play-lycanites-wendigo");
+        }
+        net.minecraft.world.entity.EntityType<?> windigo = entityType("mlpmod", path -> path.contains("windigo") && !path.contains("power") && !path.contains("magic"));
+        if (windigo != null) {
+            creatureShot("MLP Mythical Creatures windigo", windigo, "play-mlp-windigo"); // (players reported it)
+        }
+        net.minecraft.world.entity.EntityType<?> tigrex = entityType("mhfc", path -> path.equals("tigrex") || path.endsWith("_tigrex") || path.endsWith(".tigrex"));
+        if (tigrex != null) {
+            creatureShot("Monster Hunter tigrex (Minecraft Animated model)", tigrex, "play-mhfc-tigrex");
+        }
+        Block gadget = legacyBlockOfClass("com.hbm.blocks.bomb.NukeGadget");
+        if (gadget != null) {
+            // NTM draws its models from vertex buffer objects (players saw them as shredded geometry, in the world and in inventories)
+            newSite("NTM gadget");
+            do_("NTM gadget: place", 20, () -> server(player -> player.serverLevel().setBlock(ground(3, 0).above(), gadget.defaultBlockState(), 3)));
+            shot("play-ntm-gadget", () -> ground(3, 0).above());
+            inventoryShot("ntm-gadget", List.of(new ItemStack(gadget)));
+        }
+        Block reactor = legacyBlockOfClass("rivalrebels.common.block.machine.BlockReactor");
+        if (reactor != null) {
+            tileList(reactor);
         }
         if (item("ic2:itemarmorjetpackelectric") != null) {
             jetpack();
@@ -199,6 +238,12 @@ public final class PlayTest {
         if (item("gregtech:gt.blockmachines") != null) {
             machineGui("GregTech steam macerator", "gregtech:gt.blockmachines", 101);
         }
+        gearOnLegacyMobs();
+        contributorEntityFixes();
+        portalBlocks();
+        for (int repeat = 0; repeat < Integer.getInteger("retrofit.mobBattleRepeats", 1); repeat++) {
+            mobBattle();
+        }
         deepCreature();
         deepOres();
         runtimeDimensions();
@@ -211,10 +256,21 @@ public final class PlayTest {
         if (findBlock("atum", path -> path.contains("portal")) != null) {
             atumPortal();
         }
+        if (legacyModLoaded("thebetweenlands")) {
+            modDimension("The Betweenlands", "thebetweenlands", "thebetweenlands.utils.confighandler.ConfigHandler", "DIMENSION_ID",
+                    "thebetweenlands.world.teleporter.TeleporterBetweenlands");
+        }
+        if (legacyModLoaded("abyssalcraft")) {
+            // (players saw none of its creatures spawn in its dimensions)
+            modDimension("AbyssalCraft's Abyssal Wasteland", "abyssalcraft", "com.shinoow.abyssalcraft.AbyssalCraft", "configDimId1",
+                    "com.shinoow.abyssalcraft.common.world.TeleporterAbyss");
+            modDimension("AbyssalCraft's Dreadlands", "abyssalcraft", "com.shinoow.abyssalcraft.AbyssalCraft", "configDimId2",
+                    "com.shinoow.abyssalcraft.common.world.TeleporterDreadlands");
+        }
         if (item("galacticraftcore:item.spaceship") != null) {
             spaceStation();
         }
-        if (item("thaumcraft:itemthaumometer") != null) {
+        if (item("thaumcraft:itemthaumometer") != null && legacyModLoaded("Thaumcraft")) { // (its items stay when it fails to load)
             thaumcraft();
         }
         if (findItem("fiskheroes", path -> path.startsWith("superhero_"), ArmorItem.class) != null) {
@@ -324,6 +380,38 @@ public final class PlayTest {
             result("ManaMetal's food decay bars are drawn before the hotbar", before > 0, before + " vertices before the hotbar");
             grab("play-manametal-hotbar");
         });
+        // its stats tick in Muya's LivingUpdateEvent on the server and reach the client (players saw mana never come back)
+        String root = "project.studio.manametalmod.MMM";
+        Object[] mana = new Object[5];
+        do_("manametal: drain mana", 10, () -> server(player -> {
+            Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
+            Object owner = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.entity", null);
+            mana[3] = (owner == mirror ? "data on the mirror " : "data on another entity " + owner + ", mirror " + mirror)
+                    + ", counter " + retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.time", null);
+            mana[0] = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.Water", null);
+            retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.magic", 100);
+        }));
+        do_("manametal: mana back?", 240, () -> {
+            server(player -> {
+                Object mirror = retrofit.forge.world.LegacyPlayers.mirror(player, false);
+                mana[1] = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.magic", null);
+                mana[2] = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.Water", null);
+                mana[4] = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", mirror, "mana.time", null);
+            });
+            Object client = retrofit.forge.world.LegacyBridge.call("testEntityData", root, "getEntityNBT", null, "mana.magic", null);
+            result("ManaMetal's mana comes back over time, on the server and the client", mana[1] instanceof Integer server && server > 100
+                    && server.equals(client), "server " + mana[1] + ", client " + client + " (set to 100 12 s before); water "
+                    + mana[0] + " -> " + mana[2] + "; " + mana[3] + " -> " + mana[4]);
+            grab("play-manametal-stats");
+        });
+        // (players saw some of its particles missing): one of each, in front of the player
+        do_("manametal: particles", 5, () -> {
+            BlockPos at = ground(3, -3).above();
+            String added = retrofit.forge.world.LegacyBridge.call("testModParticles", "manametalmod", "project/studio/manametalmod/fx/",
+                    (double) at.getX(), at.getY() + 0.5, (double) at.getZ());
+            LOGGER.info("[PlayTest] ManaMetal particles: {}", added);
+        });
+        shot("play-manametal-particles", () -> ground(6, -3).above(2));
         do_("manametal: scythe", 5, () -> {
             select(1);
             Minecraft.getInstance().player.setXRot(0);
@@ -603,8 +691,12 @@ public final class PlayTest {
             spawnBoss("titans boss bar", type, count, titans, boss -> { });
             faceNearestBoss("titans boss bar", type, "play-titans-bossbar-" + count);
             int near = count;
-            do_("titans boss bar: " + count + " shown?", 0, () -> result("the boss bar shows with " + near + " titan(s) in view",
-                    retrofit.forge.client.LegacyBossBar.shown() != null, "bar: " + retrofit.forge.client.LegacyBossBar.shown()));
+            do_("titans boss bar: " + count + " shown?", 0, () -> {
+                // ManaMetal cancels the boss bar's HUD element (it shows its own panel for the creature pointed at), as on 1.7.10
+                boolean hidden = legacyModLoaded("manametalmod");
+                result("the boss bar " + (hidden ? "is hidden by ManaMetal" : "shows") + " with " + near + " titan(s) in view",
+                        (retrofit.forge.client.LegacyBossBar.shown() != null) != hidden, "bar: " + retrofit.forge.client.LegacyBossBar.shown());
+            });
         }
         removeBosses("titans boss bar", titans);
     }
@@ -630,6 +722,507 @@ public final class PlayTest {
             });
         }
         removeBosses("orespawn boss bar", bosses);
+    }
+
+    /**
+     * 1.20.1 creatures against legacy ones (players' reports): a zombie's hit on Mobzilla reaches it as
+     * the zombie's (its armor and 120 damage cap apply, as for players and 1.7.10 mobs; it was attacker-less
+     * damage that bypassed both) and makes the zombie its revenge target; a target 1.20.1 code sets (Mob
+     * Battle's enrager) becomes the legacy AI's.
+     */
+    private static void hostAttacker() {
+        net.minecraft.world.entity.EntityType<?> type = entityType("orespawn", path -> path.equals("mobzilla"));
+        if (type == null) {
+            return;
+        }
+        List<java.util.UUID> bosses = bossArena("1.20.1 attackers");
+        spawnBoss("1.20.1 attackers", type, 1, bosses, boss -> { });
+        float[] health = new float[2];
+        Entity[] others = new Entity[2];
+        do_("1.20.1 attackers: settle", 60, () -> { }); // Mobzilla ignores hits while its hurt_timer runs
+        do_("1.20.1 attackers: the zombie hits", 5, () -> server(player -> {
+            // (spawned just now: Mobzilla kills what stands around it)
+            ServerLevel level = player.serverLevel();
+            LivingEntity boss = (LivingEntity) level.getEntity(bosses.get(0));
+            LivingEntity zombie = net.minecraft.world.entity.EntityType.ZOMBIE.spawn(level, BlockPos.containing(boss.position()).offset(-8, 0, 0), MobSpawnType.COMMAND);
+            others[0] = zombie;
+            Object legacy = ((retrofit.forge.world.LegacyEntityCarrier) boss).core().legacy();
+            health[0] = retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacy); // (above 1.20.1's 1024 cap)
+            boss.hurt(zombie.damageSources().mobAttack(zombie), 500);
+            health[1] = retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacy);
+            Object[] targets = retrofit.forge.world.LegacyBridge.call("testTargets", legacy);
+            result("a 1.20.1 zombie hurting Mobzilla is its revenge target", targets[0] == zombie, "revenge target's host " + targets[0]);
+        }));
+        do_("1.20.1 attackers: damage taken", 0, () -> {
+            // 1.7.10 armor: 500 * (25 - 21) / 25 = 80; attacker-less damage bypassed armor (500)
+            float lost = health[0] - health[1];
+            result("Mobzilla's armor and damage cap hold against a 1.20.1 zombie's 500 damage", lost > 0 && lost <= 120,
+                    "legacy health " + health[0] + " -> " + health[1]);
+        });
+        do_("1.20.1 attackers: enrage at the cow", 0, () -> server(player -> {
+            net.minecraft.world.entity.Mob boss = (net.minecraft.world.entity.Mob) player.serverLevel().getEntity(bosses.get(0));
+            others[1] = net.minecraft.world.entity.EntityType.COW.spawn(player.serverLevel(), BlockPos.containing(boss.position()).offset(-8, 0, 6), MobSpawnType.COMMAND);
+            boss.setTarget((LivingEntity) others[1]);
+            Object[] targets = retrofit.forge.world.LegacyBridge.call("testTargets", ((retrofit.forge.world.LegacyEntityCarrier) boss).core().legacy());
+            result("a target 1.20.1 code sets on Mobzilla is its legacy AI's", targets[1] == others[1], "attack target's host " + targets[1]);
+        }));
+        do_("1.20.1 attackers: remove", 0, () -> server(player -> {
+            for (Entity other : others) {
+                if (other != null) {
+                    other.discard();
+                }
+            }
+        }));
+        removeBosses("1.20.1 attackers", bosses);
+    }
+
+    /** OreSpawn's Red Ant ore (looks like a diamond block): broken by the player, it lets its ants out (onBlockDestroyedByPlayer). */
+    private static void antOre() {
+        Block ore = findBlock("orespawn", path -> path.equals("orespawn_oreredanttrollblock"));
+        net.minecraft.world.entity.EntityType<?> ant = entityType("orespawn", path -> path.replace("_", "").equals("redant"));
+        if (ore == null || ant == null) {
+            do_("ant ore", 0, () -> result("breaking OreSpawn's Red Ant ore lets its ants out", false, "ore " + ore + ", red ant type " + ant));
+            return;
+        }
+        newSite("OreSpawn ant ore");
+        do_("ant ore: place", 5, () -> server(player -> player.serverLevel().setBlock(ground(2, 0).above(), ore.defaultBlockState(), 3)));
+        do_("ant ore: break", 10, () -> server(player -> player.gameMode.destroyBlock(ground(2, 0).above())));
+        do_("ant ore: ants?", 0, () -> server(player -> {
+            var ants = player.serverLevel().getEntities(ant, new net.minecraft.world.phys.AABB(ground(2, 0)).inflate(8), Entity::isAlive);
+            result("breaking OreSpawn's Red Ant ore lets its ants out", !ants.isEmpty(), ants.size() + " red ants");
+            ants.forEach(Entity::discard);
+        }));
+    }
+
+    /**
+     * 1.20.1 armor, swords and tools as legacy code sees them (players saw 1.7.10 NPCs refuse netherite
+     * and other mods' armor): a netherite chestplate on a legacy creature is an ItemArmor worth its 8
+     * points, a netherite pickaxe an ItemTool of pickaxe level 4, a netherite sword an ItemSword.
+     */
+    private static void contributorEntityFixes() {
+        var type = entityType("hello1710", path -> path.equals("rubygolem"));
+        if (type == null) return;
+        newSite("Usagi entity fixes");
+        java.util.UUID[] id = new java.util.UUID[1];
+        do_("blast motion reaches modern creature once", 10, () -> server(player -> {
+            var cow = net.minecraft.world.entity.EntityType.COW.spawn(player.serverLevel(), ground(3, 0).above(), MobSpawnType.COMMAND);
+            cow.setNoAi(true);
+            cow.setDeltaMovement(0.2, 0.1, -0.1);
+            try {
+                var row = Class.forName("retrofit.forge.world.HostCreatures").getDeclaredMethod("row", Entity.class);
+                row.setAccessible(true);
+                retrofit.forge.world.LegacyBridge.call("testBlastMotion", retrofit.forge.world.LegacyContent.legacyWorld(player.serverLevel()),
+                        row.invoke(null, cow), 0.6, 0.4, -0.2);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+            Vec3 motion = cow.getDeltaMovement();
+            result("legacy blast motion reaches a modern creature exactly once", motion.distanceTo(new Vec3(0.8, 0.5, -0.3)) < 1.0e-6,
+                    motion.toString());
+            cow.discard();
+            LivingEntity golem = (LivingEntity) type.spawn(player.serverLevel(), ground(3, 0).above(), MobSpawnType.COMMAND);
+            ((net.minecraft.world.entity.Mob) golem).setNoAi(true);
+            Object legacy = legacyOf(golem);
+            double before = retrofit.forge.world.LegacyBridge.call("testFollowRange", legacy);
+            ((net.minecraft.world.entity.Mob) golem).setTarget(player);
+            double once = retrofit.forge.world.LegacyBridge.call("testFollowRange", legacy);
+            ((net.minecraft.world.entity.Mob) golem).setTarget(player);
+            double after = retrofit.forge.world.LegacyBridge.call("testFollowRange", legacy);
+            result("battle follow range is boosted once", once > before && Math.abs(after - once) < 0.001,
+                    before + " -> " + once + " -> " + after); // vanilla spawn modifiers can multiply the +64 addition
+            ((net.minecraft.world.entity.Mob) golem).setTarget(null);
+            id[0] = golem.getUUID();
+        }));
+        do_("direct health write: damage", 10, () -> server(player -> {
+            LivingEntity golem = (LivingEntity) player.serverLevel().getEntity(id[0]);
+            golem.setHealth(10);
+        }));
+        do_("direct health write: heal", 10, () -> server(player -> {
+            LivingEntity golem = (LivingEntity) player.serverLevel().getEntity(id[0]);
+            golem.setHealth(20);
+        }));
+        do_("direct health write: retained", 10, () -> server(player -> {
+            LivingEntity golem = (LivingEntity) player.serverLevel().getEntity(id[0]);
+            float health = retrofit.forge.world.LegacyBridge.call("testHealth", legacyOf(golem));
+            result("direct host health writes heal the legacy creature", Math.abs(health - 20) < 0.01, "health " + health);
+            golem.heal(2);
+        }));
+        do_("normal heal: not counted twice", 10, () -> server(player -> {
+            LivingEntity golem = (LivingEntity) player.serverLevel().getEntity(id[0]);
+            float health = retrofit.forge.world.LegacyBridge.call("testHealth", legacyOf(golem));
+            result("normal heals reach the legacy creature once", Math.abs(health - 22) < 0.01, "health " + health);
+        }));
+        do_("client health follows server", 10, () -> {
+            var client = Minecraft.getInstance().level.getEntities((Entity) null,
+                    Minecraft.getInstance().player.getBoundingBox().inflate(32), entity -> entity.getUUID().equals(id[0])).stream().findFirst().orElse(null);
+            Object legacy = client instanceof retrofit.forge.world.LegacyEntityCarrier carrier ? carrier.clientLegacy() : null;
+            float health = legacy == null ? -1 : retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacy);
+            result("client legacy health follows the server", Math.abs(health - 22) < 0.01, "health " + health);
+            server(player -> player.serverLevel().getEntity(id[0]).discard());
+        });
+    }
+
+    private static void gearOnLegacyMobs() {
+        net.minecraft.world.entity.EntityType<?> type = entityType("hello1710", path -> path.equals("rubygolem"));
+        if (type == null) {
+            return;
+        }
+        newSite("1.20.1 gear on legacy creatures");
+        do_("gear: check", 10, () -> server(player -> {
+            Entity creature = type.spawn(player.serverLevel(), ground(3, 0).above(), MobSpawnType.COMMAND);
+            Object legacy = ((retrofit.forge.world.LegacyEntityCarrier) creature).core().legacy();
+            String armor = retrofit.forge.world.LegacyBridge.call("testGear", legacy,
+                    retrofit.forge.world.LegacyStacks.toLegacy(new ItemStack(net.minecraft.world.item.Items.NETHERITE_CHESTPLATE)), 3);
+            result("a 1.20.1 netherite chestplate is armor a legacy creature wears", armor.startsWith("ItemArmor, armor 8,"), armor);
+            String pickaxe = retrofit.forge.world.LegacyBridge.call("testGear", legacy,
+                    retrofit.forge.world.LegacyStacks.toLegacy(new ItemStack(net.minecraft.world.item.Items.NETHERITE_PICKAXE)), 0);
+            result("a 1.20.1 netherite pickaxe is a legacy pickaxe", pickaxe.startsWith("ItemTool,") && pickaxe.endsWith("[pickaxe], pickaxe level 4"), pickaxe);
+            String sword = retrofit.forge.world.LegacyBridge.call("testGear", legacy,
+                    retrofit.forge.world.LegacyStacks.toLegacy(new ItemStack(net.minecraft.world.item.Items.NETHERITE_SWORD)), 0);
+            result("a 1.20.1 netherite sword is a legacy sword with its damage", sword.startsWith("ItemSword,") && !sword.contains("damage 0.0"), sword);
+            creature.discard();
+        }));
+    }
+
+    /**
+     * Mob Battle, either version (1.20.1's or 1.7.10's; they share the mod id), used by left and right
+     * clicks as players do: its stick sets a 1.7.10 Ruby Golem and a 1.20.1 husk on each other (and
+     * the husk then hurts the golem), then two golems; its group item does the same by a right click
+     * on the husk; its heal, effect and kill items act on the mobs; 1.20.1's army items put a golem
+     * and a husk in teams that turn on each other. 1.7.10's items do all of it in onLeftClickEntity
+     * and itemInteractionForEntity, on the husk's stand-in.
+     */
+    private static void mobBattle() {
+        Item stick = item("mobbattle:mob_stick");
+        net.minecraft.world.entity.EntityType<?> golem = entityType("hello1710", path -> path.equals("rubygolem"));
+        if (stick == null || golem == null) {
+            return;
+        }
+        String name = "Mob Battle " + (stick instanceof retrofit.forge.world.LegacyStackItem ? "1.7.10" : "1.20.1");
+        java.util.UUID[] mobs = new java.util.UUID[5]; // golem, husk, second golem; the army's golem and husk
+        float[] health = new float[1];
+        bossArena(name);
+        do_(name + ": mobs", 20, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            mobs[0] = golem.spawn(level, site.offset(6, 1, -3), MobSpawnType.COMMAND).getUUID();
+            mobs[1] = net.minecraft.world.entity.EntityType.HUSK.spawn(level, site.offset(6, 1, 3), MobSpawnType.COMMAND).getUUID();
+            mobs[2] = golem.spawn(level, site.offset(12, 1, 0), MobSpawnType.COMMAND).getUUID();
+        }));
+        holding(name, "mobbattle:mob_stick", null);
+        clickMob(name, mobs, 0, true);
+        clickMob(name, mobs, 2, true);
+        do_(name + ": stick, two golems", 0, () -> server(player -> {
+            Object first = legacyOf(player.serverLevel().getEntity(mobs[0]));
+            Object second = legacyOf(player.serverLevel().getEntity(mobs[2]));
+            Object[] firstTargets = retrofit.forge.world.LegacyBridge.call("testTargets", first);
+            Object[] secondTargets = retrofit.forge.world.LegacyBridge.call("testTargets", second);
+            result(name + "'s stick sets two 1.7.10 golems on each other", firstTargets[1] == second && secondTargets[1] == first,
+                    "attack targets " + firstTargets[1] + ", " + secondTargets[1]);
+        }));
+        // (before the husk joins in: a golem the husk hits turns on it, and calls the others, as 1.7.10's EntityAIHurtByTarget does)
+        clickMob(name, mobs, 0, true);
+        clickMob(name, mobs, 1, true);
+        do_(name + ": stick, golem and husk", 0, () -> server(player -> {
+            Entity first = player.serverLevel().getEntity(mobs[0]);
+            net.minecraft.world.entity.Mob husk = (net.minecraft.world.entity.Mob) player.serverLevel().getEntity(mobs[1]);
+            Object[] targets = retrofit.forge.world.LegacyBridge.call("testTargets", legacyOf(first));
+            result(name + "'s stick sets a 1.7.10 golem on a 1.20.1 husk", targets[1] == husk, "golem's attack target " + targets[1]);
+            result(name + "'s stick sets the husk on the golem", husk.getTarget() == first, "husk's target " + husk.getTarget());
+            health[0] = retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacyOf(first));
+        }));
+        float[] hurt = new float[1];
+        until(name + ": the husk fights", 200, () -> {
+            server(player -> hurt[0] = retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacyOf(player.serverLevel().getEntity(mobs[0]))));
+            return hurt[0] < health[0];
+        });
+        do_(name + ": fought", 0, () -> server(player -> {
+            result(name + ": the husk hurts the golem it was set on", hurt[0] < health[0], "golem's health " + health[0] + " -> " + hurt[0]);
+            ((net.minecraft.world.entity.Mob) player.serverLevel().getEntity(mobs[1])).setTarget(null); // the golem lives on for the heal
+        }));
+        // Use a fresh pair within follow range. The previous fight lets these mobs wander apart;
+        // EntityAITarget legitimately drops a group target beyond that range (which varies at spawn).
+        do_(name + ": group pair", 20, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            for (int index : new int[]{1, 2}) {
+                Entity previous = level.getEntity(mobs[index]);
+                if (previous != null) previous.discard();
+            }
+            mobs[2] = golem.spawn(level, site.offset(12, 1, -2), MobSpawnType.COMMAND).getUUID();
+            mobs[1] = net.minecraft.world.entity.EntityType.HUSK.spawn(level, site.offset(12, 1, 2), MobSpawnType.COMMAND).getUUID();
+        }));
+        holding(name, "mobbattle:mob_group", null);
+        clickMob(name, mobs, 2, true);
+        clickMob(name, mobs, 1, false);
+        do_(name + ": group", 0, () -> server(player -> {
+            Entity second = player.serverLevel().getEntity(mobs[2]);
+            net.minecraft.world.entity.Mob husk = (net.minecraft.world.entity.Mob) player.serverLevel().getEntity(mobs[1]);
+            Object[] targets = retrofit.forge.world.LegacyBridge.call("testTargets", legacyOf(second));
+            result(name + "'s group item (right click on the husk) sets the husk and the golem on each other",
+                    husk.getTarget() == second && targets[1] == husk, "husk's target " + husk.getTarget() + ", golem's " + targets[1]);
+        }));
+        do_(name + ": hurt the golem", 5, () -> server(player -> {
+            Entity first = player.serverLevel().getEntity(mobs[0]);
+            first.hurt(first.damageSources().generic(), 10);
+            health[0] = retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacyOf(first));
+        }));
+        holding(name, "mobbattle:mob_heal", null);
+        clickMob(name, mobs, 0, true);
+        do_(name + ": heal", 0, () -> server(player -> {
+            float now = retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacyOf(player.serverLevel().getEntity(mobs[0])));
+            result(name + "'s heal item heals a 1.7.10 golem", now > health[0] && now >= 30, "golem's health " + health[0] + " -> " + now);
+        }));
+        do_(name + ": a husk effect", 5, () -> server(player -> ((LivingEntity) player.serverLevel().getEntity(mobs[1])).addEffect(
+                new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.MOVEMENT_SPEED, 1200))));
+        holding(name, "mobbattle:mob_effect", null);
+        clickMob(name, mobs, 1, true);
+        do_(name + ": effect", 0, () -> server(player -> {
+            var effects = ((LivingEntity) player.serverLevel().getEntity(mobs[1])).getActiveEffects();
+            result(name + "'s effect item clears the husk's effects", effects.isEmpty(), String.valueOf(effects));
+        }));
+        holding(name, "mobbattle:mob_kill", null);
+        clickMob(name, mobs, 2, true);
+        do_(name + ": kill", 0, () -> server(player -> {
+            Entity second = player.serverLevel().getEntity(mobs[2]);
+            float left = second == null ? 0 : retrofit.forge.world.LegacyBridge.<Float>call("testHealth", legacyOf(second));
+            result(name + "'s kill item kills a 1.7.10 golem", left <= 0, "golem's health " + left); // (it dies as 1.7.10 mobs do: health 0, then its death)
+        }));
+        if (item("mobbattle:mob_army") != null) {
+            do_(name + ": army mobs", 20, () -> server(player -> {
+                ServerLevel level = player.serverLevel();
+                mobs[3] = golem.spawn(level, site.offset(24, 1, -3), MobSpawnType.COMMAND).getUUID();
+                mobs[4] = net.minecraft.world.entity.EntityType.HUSK.spawn(level, site.offset(24, 1, 3), MobSpawnType.COMMAND).getUUID();
+            }));
+            holding(name, "mobbattle:mob_army", "red");
+            clickMob(name, mobs, 3, true);
+            holding(name, "mobbattle:mob_army", "blue");
+            clickMob(name, mobs, 4, true);
+            do_(name + ": teams pick enemies", 60, () -> { });
+            do_(name + ": army", 0, () -> server(player -> {
+                Entity armyGolem = player.serverLevel().getEntity(mobs[3]);
+                net.minecraft.world.entity.Mob armyHusk = (net.minecraft.world.entity.Mob) player.serverLevel().getEntity(mobs[4]);
+                Object[] targets = retrofit.forge.world.LegacyBridge.call("testTargets", legacyOf(armyGolem));
+                result(name + "'s armies: a 1.7.10 golem in a team turns on the other team's husk", targets[1] == armyHusk,
+                        "golem's attack target " + targets[1] + ", team " + armyGolem.getTeam());
+                result(name + "'s armies: the husk turns on the golem", armyHusk.getTarget() == armyGolem, "husk's target " + armyHusk.getTarget());
+            }));
+        }
+        do_(name + ": remove", 0, () -> server(player -> {
+            for (java.util.UUID id : mobs) {
+                Entity mob = id == null ? null : player.serverLevel().getEntity(id);
+                if (mob != null) {
+                    mob.discard();
+                }
+            }
+        }));
+    }
+
+    /**
+     * Every mod's portal block placed by the player, one after another (players placing Nevermine's Haven portal
+     * crashed the server: its shape code sets its own metadata, which asked its shape again, without end): each
+     * is used from the hand on the ground, then its shape and its neighbours are asked as the world asks them.
+     */
+    private static void portalBlocks() {
+        List<Block> portals = new ArrayList<>();
+        for (Block block : ForgeRegistries.BLOCKS) {
+            if (block instanceof retrofit.forge.world.LegacyBlock legacy && legacy.legacyBlock().getClass().getSimpleName().toLowerCase(java.util.Locale.ROOT).contains("portal")) {
+                portals.add(block);
+            }
+        }
+        if (portals.isEmpty()) {
+            return;
+        }
+        newSite("portal blocks");
+        int[] placed = new int[1];
+        for (int i = 0; i < portals.size(); i++) {
+            Block portal = portals.get(i);
+            BlockPos spot = new BlockPos(-6 + (i % 12), 0, -6 + (i / 12) % 12);
+            do_("portal blocks: " + ForgeRegistries.BLOCKS.getKey(portal), 1, () -> server(player -> {
+                ServerLevel level = player.serverLevel();
+                BlockPos at = site.offset(spot).above();
+                level.setBlock(at, portal.defaultBlockState(), 3);
+                level.getBlockState(at).getShape(level, at);
+                level.getBlockState(at).getCollisionShape(level, at);
+                level.updateNeighborsAt(at, portal);
+                placed[0]++;
+            }));
+        }
+        do_("portal blocks: done", 20, () -> result("every mod's portal block (" + portals.size() + ") can be placed and asked its shape",
+                placed[0] == portals.size(), placed[0] + " of " + portals.size() + " placed"));
+    }
+
+    /** Puts an item (named, if a name is given) in the first hotbar slot and holds it. */
+    private static void holding(String name, String id, String itemName) {
+        do_(name + ": hold " + id, 5, () -> {
+            server(player -> {
+                ItemStack stack = new ItemStack(item(id));
+                if (itemName != null) {
+                    stack.setHoverName(net.minecraft.network.chat.Component.literal(itemName));
+                }
+                player.getInventory().setItem(0, stack);
+            });
+            select(0);
+        });
+    }
+
+    /** The player steps up to one of the mobs (2 blocks west of it) and left or right clicks it, as the client's input handling does. */
+    private static void clickMob(String name, java.util.UUID[] mobs, int index, boolean left) {
+        do_(name + ": step up to mob " + index, 5, () -> server(player -> {
+            Entity mob = player.serverLevel().getEntity(mobs[index]);
+            if (mob != null) {
+                player.teleportTo(player.serverLevel(), mob.getX() - 2, mob.getY(), mob.getZ(), -90, 20);
+            }
+        }));
+        do_(name + ": " + (left ? "left" : "right") + " click mob " + index, 5, () -> {
+            Minecraft minecraft = Minecraft.getInstance();
+            Entity mob = null;
+            for (Entity entity : minecraft.level.entitiesForRendering()) {
+                if (entity.getUUID().equals(mobs[index])) {
+                    mob = entity;
+                }
+            }
+            if (mob == null) {
+                LOGGER.info("[PlayTest] mob {} isn't on the client", index);
+            } else if (left) {
+                minecraft.gameMode.attack(minecraft.player, mob);
+            } else if (!minecraft.gameMode.interactAt(minecraft.player, mob, new net.minecraft.world.phys.EntityHitResult(mob), InteractionHand.MAIN_HAND).consumesAction()) {
+                minecraft.gameMode.interact(minecraft.player, mob, InteractionHand.MAIN_HAND);
+            }
+            minecraft.player.swing(InteractionHand.MAIN_HAND);
+        });
+    }
+
+    /** Whether a 1.7.10 mod loaded (not left out). */
+    private static boolean legacyModLoaded(String modId) {
+        String mods = retrofit.forge.world.LegacyBridge.call("modList"); // "[a@1, b@2]"
+        return mods.contains("[" + modId + "@") || mods.contains(", " + modId + "@");
+    }
+
+    private static Object legacyOf(Entity entity) {
+        return ((retrofit.forge.world.LegacyEntityCarrier) entity).core().legacy();
+    }
+
+    /** A creature on the boss floor, looked at from its side, for its model and texture (players saw untextured OBJ-model mobs). */
+    private static void creatureShot(String name, net.minecraft.world.entity.EntityType<?> type, String picture) {
+        List<java.util.UUID> creatures = bossArena(name);
+        spawnBoss(name, type, 1, creatures, creature -> { });
+        do_(name + ": there?", 0, () -> server(player -> {
+            Entity creature = player.serverLevel().getEntity(creatures.get(0));
+            result(name + " stays in the world", creature != null && creature.isAlive(), String.valueOf(creature));
+        }));
+        faceNearestBoss(name, type, picture);
+        do_(name + ": drawn", 0, () -> {
+            var player = Minecraft.getInstance().player;
+            Minecraft.getInstance().level.getEntities((Entity) null, player.getBoundingBox().inflate(64), entity -> entity.getType() == type).stream()
+                    .findFirst().ifPresent(creature -> {
+                        Object legacy = ((retrofit.forge.world.LegacyEntityCarrier) creature).clientLegacy();
+                        try {
+                            synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                                // (the screenshot can't judge every model: MLP's windigo is 190 blocks wide, the camera stands inside it)
+                                int vertices = retrofit.forge.world.LegacyBridge.call("renderEntity", legacy, creature.getYRot(), 0f);
+                                String drawn = retrofit.forge.client.LegacyCapture.describe(vertices);
+                                result(name + " draws its model with its texture", vertices > 0 && !drawn.contains("textures []")
+                                        && !drawn.contains("missing"), drawn);
+                            }
+                        } catch (Throwable e) {
+                            LOGGER.info("[PlayTest] {} can't be drawn", name, e);
+                        }
+                    });
+        });
+        removeBosses(name, creatures);
+    }
+
+    /**
+     * Every living 1.7.10 creature type, five to a picture (players saw invisible creatures and missing textures
+     * around the Mob Battle site): each must have a client copy whose renderer draws vertices, none of them with the
+     * missing texture. (-PcreatureGallery: only this.)
+     */
+    private static void creatureGallery() {
+        List<net.minecraft.world.entity.EntityType<? extends retrofit.forge.world.LegacyMob>> types = retrofit.forge.world.LegacyEntityTypes.living();
+        List<String> problems = new ArrayList<>();
+        int[] fine = new int[1];
+        int from = Integer.getInteger("retrofit.creatureGalleryFrom", 1); // a page to start at
+        for (int start = (from - 1) * 5; start < types.size(); start += 5) {
+            List<net.minecraft.world.entity.EntityType<? extends retrofit.forge.world.LegacyMob>> row = types.subList(start, Math.min(types.size(), start + 5));
+            String page = "creatures " + (start / 5 + 1);
+            List<java.util.UUID> spawned = new ArrayList<>();
+            newSite(page);
+            do_(page + ": which", 0, () -> LOGGER.info("[PlayTest] {}: {}", page, row.stream()
+                    .map(type -> String.valueOf(net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(type))).toList()));
+            do_(page + ": spawn", 10, () -> server(player -> {
+                player.teleportTo(player.serverLevel(), site.getX() - 5.5, site.getY() + 1, site.getZ() + 0.5, -90, 10);
+                for (int i = 0; i < row.size(); i++) {
+                    Entity creature = row.get(i).spawn(player.serverLevel(), ground(6, i * 3 - 6).above(), MobSpawnType.COMMAND);
+                    if (creature instanceof net.minecraft.world.entity.Mob mob) {
+                        mob.setNoAi(true);
+                    }
+                    if (creature != null) {
+                        spawned.add(creature.getUUID());
+                    }
+                }
+            }));
+            shot("play-" + page.replace(' ', '-'), () -> ground(6, 0).above());
+            do_(page + ": drawn?", 0, () -> {
+                for (var type : row) {
+                    String name = String.valueOf(net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(type));
+                    Entity creature = Minecraft.getInstance().level.getEntities((Entity) null, Minecraft.getInstance().player.getBoundingBox().inflate(48),
+                            entity -> entity.getType() == type).stream().findFirst().orElse(null);
+                    Object legacy = creature instanceof retrofit.forge.world.LegacyEntityCarrier carrier ? carrier.clientLegacy() : null;
+                    if (legacy == null) {
+                        problems.add(name + ": " + (creature == null ? "not on the client" : "no 1.7.10 client copy"));
+                        continue;
+                    }
+                    try {
+                        synchronized (retrofit.forge.world.LegacyBridge.renderLock()) {
+                            int vertices = retrofit.forge.world.LegacyBridge.call("renderEntity", legacy, creature.getYRot(), 0f);
+                            String drawn = retrofit.forge.client.LegacyCapture.describe(vertices);
+                            if (vertices == 0 || drawn.contains("missing")) {
+                                problems.add(name + ": " + drawn);
+                                LOGGER.info("[PlayTest] creature not drawn right: {}: {}", name, drawn);
+                            } else {
+                                fine[0]++;
+                            }
+                        }
+                    } catch (Throwable e) {
+                        problems.add(name + ": renderer failed: " + e);
+                    }
+                }
+            });
+            do_(page + ": remove", 0, () -> server(player -> spawned.forEach(id -> {
+                Entity creature = player.serverLevel().getEntity(id);
+                if (creature != null) {
+                    creature.discard();
+                }
+            })));
+        }
+        do_("creature gallery", 0, () -> {
+            problems.forEach(problem -> LOGGER.info("[PlayTest] creature problem: {}", problem));
+            result("every 1.7.10 creature is drawn, textured (" + types.size() + ")", problems.isEmpty(),
+                    fine[0] + " fine, " + problems.size() + " not");
+        });
+    }
+
+    /**
+     * Legacy tile entities on their world's loadedTileEntityList, where mods look for machines (Rival
+     * Rebels' tokamak powers the teslas it finds there; contributor fix): one listed when its block is
+     * placed, none once it is broken.
+     */
+    private static void tileList(Block block) {
+        newSite("tile entity list");
+        do_("tile list: place " + ForgeRegistries.BLOCKS.getKey(block), 5, () -> server(player ->
+                player.serverLevel().setBlock(ground(2, 0).above(), block.defaultBlockState(), 3)));
+        do_("tile list: listed?", 0, () -> server(player -> {
+            BlockPos pos = ground(2, 0).above();
+            int listed = retrofit.forge.world.LegacyBridge.call("testTilesListed",
+                    retrofit.forge.world.LegacyContent.legacyWorld(player.serverLevel()), pos.getX(), pos.getY(), pos.getZ());
+            result("a placed legacy machine is on loadedTileEntityList once", listed == 1, listed + " listed");
+        }));
+        do_("tile list: break", 5, () -> server(player -> player.serverLevel().setBlock(ground(2, 0).above(), Blocks.AIR.defaultBlockState(), 3)));
+        do_("tile list: gone?", 0, () -> server(player -> {
+            BlockPos pos = ground(2, 0).above();
+            int listed = retrofit.forge.world.LegacyBridge.call("testTilesListed",
+                    retrofit.forge.world.LegacyContent.legacyWorld(player.serverLevel()), pos.getX(), pos.getY(), pos.getZ());
+            result("a broken legacy machine leaves loadedTileEntityList", listed == 0, listed + " listed");
+        }));
     }
 
     private static net.minecraft.world.entity.EntityType<?> entityType(String namespace, java.util.function.Predicate<String> path) {
@@ -670,11 +1263,11 @@ public final class PlayTest {
         }));
     }
 
-    /** The player 6 blocks west of the nearest boss's side (it may walk off a few before the check), looking at its middle, then a screenshot. */
+    /** The player 6 blocks west of the nearest boss's side, at its height (flyers), looking at its middle, then a screenshot. */
     private static void faceNearestBoss(String name, net.minecraft.world.entity.EntityType<?> type, String picture) {
         do_(name + ": step up", 10, () -> server(player -> player.serverLevel().getEntities(type, player.getBoundingBox().inflate(64), Entity::isAlive)
                 .stream().min(java.util.Comparator.comparingDouble(boss -> boss.distanceToSqr(player))).ifPresent(boss ->
-                        player.teleportTo(player.serverLevel(), boss.getBoundingBox().minX - 6, site.getY() + 1, boss.getZ(), -90, 0))));
+                        player.teleportTo(player.serverLevel(), boss.getBoundingBox().minX - 6, Math.max(site.getY() + 1, boss.getY()), boss.getZ(), -90, 0))));
         do_(name + ": look", 5, () -> {
             var player = Minecraft.getInstance().player;
             Minecraft.getInstance().level.getEntities((Entity) null, player.getBoundingBox().inflate(64), entity -> entity.getType() == type).stream()
@@ -779,6 +1372,84 @@ public final class PlayTest {
             }
             shot("play-carpenters-slope", () -> ground(2, 2).above());
         }
+    }
+
+    /**
+     * Attributes 1.20.1 gives gear (players asked): 1.7.10 swords and tools attack at 1.20.1's speed for their kind, and
+     * armor with more points than iron has toughness (a diamond chestplate's 8 points: 2).
+     */
+    private static void gearAttributes() {
+        int weapons = 0;
+        List<String> speeds = new ArrayList<>();
+        List<String> tough = new ArrayList<>();
+        int armorAboveIron = 0;
+        for (Item item : ForgeRegistries.ITEMS) {
+            if (item instanceof retrofit.forge.world.LegacyArmorItem armor) {
+                double toughness = new ItemStack(armor).getAttributeModifiers(armor.getEquipmentSlot()).get(Attributes.ARMOR_TOUGHNESS)
+                        .stream().mapToDouble(net.minecraft.world.entity.ai.attributes.AttributeModifier::getAmount).sum();
+                if (armor.getType() == net.minecraft.world.item.ArmorItem.Type.CHESTPLATE && armor.getDefense() >= 8) {
+                    armorAboveIron++;
+                }
+                if (toughness > 0 && tough.size() < 5) {
+                    tough.add(ForgeRegistries.ITEMS.getKey(item) + " " + armor.getDefense() + "/" + toughness);
+                }
+            } else if (item instanceof retrofit.forge.world.LegacyStackItem legacy) {
+                var modifiers = legacy.stackOf(0).getAttributeModifiers(net.minecraft.world.entity.EquipmentSlot.MAINHAND);
+                if (modifiers.containsKey(Attributes.ATTACK_DAMAGE)) {
+                    weapons++;
+                    for (var modifier : modifiers.get(Attributes.ATTACK_SPEED)) {
+                        if (speeds.size() < 5) {
+                            speeds.add(ForgeRegistries.ITEMS.getKey(item) + " " + (4 + modifier.getAmount()));
+                        }
+                    }
+                }
+            }
+        }
+        if (weapons > 0) {
+            result("1.7.10 swords and tools attack at 1.20.1's speeds", !speeds.isEmpty(), weapons + " weapons, " + speeds);
+        }
+        if (armorAboveIron > 0) {
+            result("1.7.10 armor above iron has toughness", !tough.isEmpty(), armorAboveIron + " chestplates of 8+ points, " + tough);
+        }
+    }
+
+    /**
+     * Forge Multipart's microblocks (it needs CodeChickenLib, which players add by hand): a gold cover placed on the
+     * ground as a player would, which makes the space above a multipart block holding that cover.
+     */
+    private static void microblocks(retrofit.forge.world.LegacyStackItem microblock) {
+        newSite("Forge Multipart");
+        do_("microblock: give", 10, () -> server(player -> {
+            ItemStack cover = microblock.stackOf(1); // a face part (factory 0) of size 1: a cover
+            cover.getOrCreateTag().putString("mat", "minecraft:gold_block"); // the material's block registry name (gold: seen on stone)
+            cover.setCount(4);
+            player.getInventory().setItem(0, cover);
+        }));
+        // Forge Multipart's server places a part where the player looks (it traces again from the player's eyes)
+        do_("microblock: aim", 10, () -> lookAt(Vec3.atCenterOf(ground(2, 0)).add(0, 0.5, 0)));
+        do_("microblock: place", 10, () -> {
+            select(0);
+            useOn(ground(2, 0), Direction.UP);
+        });
+        do_("microblock: placed?", 0, () -> {
+            BlockPos at = ground(2, 0).above();
+            ResourceLocation block = ForgeRegistries.BLOCKS.getKey(serverBlock(at));
+            String tile = blockEntityTag(at);
+            int left = serverPlayer().getInventory().getItem(0).getCount();
+            result("Forge Multipart gold cover placed", block.getNamespace().equals("forgemultipart") && tile != null
+                    && tile.contains("minecraft:gold_block") && left == 3, "block " + block + ", covers left " + left + ", tile entity " + tile);
+        });
+        do_("microblock: on the client?", 20, () -> {
+            BlockPos at = ground(2, 0).above();
+            String tile = retrofit.forge.world.LegacyBridge.call("testClientTile", at.getX(), at.getY(), at.getZ());
+            result("Forge Multipart's cover reaches the client", tile.contains("TileMultipart"), "client tile entity " + tile);
+        });
+        shot("play-fmp-cover", () -> ground(2, 0).above());
+        inventoryShot("fmp-microblocks", java.util.stream.IntStream.of(1, 2, 4).mapToObj(size -> { // cover, panel, slab
+            ItemStack part = microblock.stackOf(size);
+            part.getOrCreateTag().putString("mat", "minecraft:stone");
+            return part;
+        }).toList());
     }
 
     /** A full set of a mod's armor, worn; seen from the front. */
@@ -976,6 +1647,11 @@ public final class PlayTest {
      * creatures around counted.
      */
     private static void naturalSpawns(String where) {
+        naturalSpawns(where, null);
+    }
+
+    /** As above; with a namespace, the creatures that spawn must include that mod's own (players saw only other mods'). */
+    private static void naturalSpawns(String where, String namespace) {
         do_(where + ": spawning on", 400, () -> server(player ->
                 player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(true, player.server)));
         do_(where + ": creatures spawned?", 0, () -> server(player -> {
@@ -985,7 +1661,147 @@ public final class PlayTest {
                     entity -> entity instanceof retrofit.forge.world.LegacyEntityCarrier && entity.getType().getCategory() != net.minecraft.world.entity.MobCategory.MISC)) {
                 found.merge(ForgeRegistries.ENTITY_TYPES.getKey(entity.getType()).toString(), 1, Integer::sum);
             }
-            result(where + ": creatures spawn by themselves", !found.isEmpty(), found.isEmpty() ? "none within 128 blocks" : found.toString());
+            boolean own = namespace == null ? !found.isEmpty() : found.keySet().stream().anyMatch(id -> id.startsWith(namespace + ":"));
+            result(where + (namespace == null ? ": creatures spawn by themselves" : ": its own creatures spawn by themselves"), own,
+                    found.isEmpty() ? "none within 128 blocks" : found.toString());
+        }));
+    }
+
+    /**
+     * A mod dimension visited with the mod's own teleporter (its id from the mod's config field): the player
+     * arrives there, and creatures (the mod's own among them) spawn by themselves; then home.
+     */
+    private static void modDimension(String where, String namespace, String configClass, String idField, String teleporter) {
+        int[] dimension = {Integer.MIN_VALUE};
+        do_(where + ": go", 120, () -> server(player -> {
+            Object id = retrofit.forge.world.LegacyBridge.call("testModField", configClass, idField);
+            if (id instanceof Integer own) {
+                dimension[0] = retrofit.forge.world.LegacyBridge.<Integer>call("testRealDimension", configClass, own);
+                retrofit.forge.world.LegacyBridge.call("testTeleport", retrofit.forge.world.LegacyPlayers.mirror(player, false), dimension[0], teleporter);
+            }
+        }));
+        do_(where + ": arrived?", 0, () -> server(player -> {
+            String at = player.level().dimension().location().toString();
+            result(where + ": its teleporter takes the player there", at.equals(RetrofitMod.MOD_ID + ":legacy_dim_" + dimension[0]),
+                    "dimension " + dimension[0] + ", player in " + at + " at " + player.blockPosition() + standing(player));
+        }));
+        leavePortal(where);
+        shot("play-" + where.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]+", "-"), () -> serverPlayer().blockPosition());
+        // the far distance as players see it (players saw glitched textures beyond some distance in the Betweenlands)
+        do_(where + ": look far", 40, () -> {
+            Minecraft.getInstance().player.setXRot(5);
+            Minecraft.getInstance().player.setYRot(Minecraft.getInstance().player.getYRot() + 90);
+        });
+        do_(where + ": horizon", 10, () -> grab("play-" + where.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]+", "-") + "-horizon"));
+        flora(where);
+        naturalSpawns(where, namespace);
+        spawnChecks(where, namespace);
+        do_(where + ": home", 60, () -> server(player ->
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
+    }
+
+    /**
+     * The player steps out of the portal a teleporter put them in, to the nearest spot to stand outside
+     * portal blocks, as players walk out (standing in it, the portal sends them back once the cooldown ends).
+     */
+    private static void leavePortal(String where) {
+        do_(where + ": out of the portal", 10, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            java.util.function.Predicate<BlockPos> portal = pos -> ForgeRegistries.BLOCKS.getKey(level.getBlockState(pos).getBlock()).getPath().contains("portal");
+            if (!portal.test(player.blockPosition()) && !portal.test(player.blockPosition().above())) {
+                return;
+            }
+            BlockPos.findClosestMatch(player.blockPosition(), 8, 4, pos -> !portal.test(pos) && !portal.test(pos.above())
+                    && level.getBlockState(pos).getCollisionShape(level, pos).isEmpty() && level.getBlockState(pos.above()).getCollisionShape(level, pos.above()).isEmpty()
+                    && level.getBlockState(pos.below()).isSolid() && !portal.test(pos.below()))
+                    .ifPresent(pos -> player.teleportTo(level, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, player.getYRot(), 0));
+        }));
+    }
+
+    /**
+     * The flora a dimension generated around the player (players saw none in mod dimensions): the blocks
+     * nothing collides with that aren't air or liquid (grass, flowers, mushrooms, saplings, vines), by id,
+     * within 32 blocks across and 24 up and down, and on top of every column there. Logged; the result is whether there is any at all.
+     */
+    private static void flora(String where) {
+        do_(where + ": flora", 0, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            Map<String, Integer> found = new java.util.TreeMap<>();
+            java.util.Set<BlockPos> seen = new java.util.HashSet<>();
+            java.util.function.Consumer<BlockPos> look = pos -> {
+                BlockState state = level.getBlockState(pos);
+                if (seen.add(pos.immutable()) && !state.isAir() && state.getFluidState().isEmpty() && state.getCollisionShape(level, pos).isEmpty()
+                        && !ForgeRegistries.BLOCKS.getKey(state.getBlock()).getPath().contains("portal")) {
+                    found.merge(ForgeRegistries.BLOCKS.getKey(state.getBlock()).toString(), 1, Integer::sum);
+                }
+            };
+            for (BlockPos pos : BlockPos.betweenClosed(player.blockPosition().offset(-32, -24, -32), player.blockPosition().offset(32, 24, 32))) {
+                look.accept(pos);
+            }
+            for (int dx = -32; dx <= 32; dx++) { // and each column's top block, wherever the surface is (the player may arrive below it)
+                for (int dz = -32; dz <= 32; dz++) {
+                    int x = player.getBlockX() + dx;
+                    int z = player.getBlockZ() + dz;
+                    look.accept(new BlockPos(x, level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, x, z) - 1, z));
+                }
+            }
+            result(where + ": flora generated around the player", !found.isEmpty(), found.isEmpty() ? "none" : found.toString());
+        }));
+    }
+
+    /**
+     * Why a mod's own creatures do or don't spawn around the player: for each one the dimension lists
+     * (getMobsAt), how many of 200 spots near the player pass the spawner's tests, one after another:
+     * a place for its kind (ground or water), its spawn rules (the mod's getCanSpawnHere), room for it.
+     * Logged; the result is whether any of the mod's creatures could spawn at all.
+     */
+    private static void spawnChecks(String where, String namespace) {
+        do_(where + ": spawn checks", 0, () -> server(player -> {
+            ServerLevel level = player.serverLevel();
+            var generator = level.getChunkSource().getGenerator();
+            var random = level.getRandom();
+            Map<String, int[]> passes = new java.util.TreeMap<>();
+            for (net.minecraft.world.entity.MobCategory category : net.minecraft.world.entity.MobCategory.values()) {
+                var listed = generator.getMobsAt(level.getBiome(player.blockPosition()), level.structureManager(), category, player.blockPosition());
+                for (var spawn : listed.unwrap()) {
+                    var id = ForgeRegistries.ENTITY_TYPES.getKey(spawn.type);
+                    if (!id.getNamespace().equals(namespace) || passes.containsKey(id.getPath())) {
+                        continue;
+                    }
+                    int[] counts = new int[4]; // spots tried, place ok, rules ok, room ok
+                    for (int i = 0; i < 200; i++) {
+                        BlockPos column = player.blockPosition().offset(random.nextInt(48) - 24, 0, random.nextInt(48) - 24);
+                        BlockPos pos = new BlockPos(column.getX(), level.getMinBuildHeight() + random.nextInt(level.getHeight()), column.getZ());
+                        if (!level.getBlockState(pos).isAir() || !level.getBlockState(pos.below()).isSolid()) {
+                            continue;
+                        }
+                        counts[0]++;
+                        if (!net.minecraft.world.level.NaturalSpawner.isSpawnPositionOk(net.minecraft.world.entity.SpawnPlacements.getPlacementType(spawn.type), level, pos, spawn.type)) {
+                            continue;
+                        }
+                        counts[1]++;
+                        if (!net.minecraft.world.entity.SpawnPlacements.checkSpawnRules(spawn.type, level, MobSpawnType.NATURAL, pos, random)) {
+                            continue;
+                        }
+                        counts[2]++;
+                        if (level.noCollision(spawn.type.getAABB(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5))) {
+                            counts[3]++;
+                        }
+                    }
+                    passes.put(id.getPath() + " (" + category + ")", counts);
+                }
+            }
+            StringBuilder detail = new StringBuilder();
+            boolean any = false;
+            for (var entry : passes.entrySet()) {
+                int[] c = entry.getValue();
+                detail.append(entry.getKey()).append(": ").append(c[0]).append(" open spots, ").append(c[1]).append(" placeable, ")
+                        .append(c[2]).append(" by its rules, ").append(c[3]).append(" with room; ");
+                any |= c[3] > 0;
+            }
+            // logged, not a result: mods with spawners of their own (Erebus, the Betweenlands) list nothing here
+            LOGGER.info("[PlayTest] {}: spawn checks around the player{} ({})", where, any ? "" : ", none of its own could spawn",
+                    passes.isEmpty() ? "none listed here" : detail.toString());
         }));
     }
 
@@ -1074,7 +1890,9 @@ public final class PlayTest {
                             + " blocks around not air" + (errors ? ", generation errors (see the log)" : ""));
         }));
         shot("play-erebus", () -> serverPlayer().blockPosition());
-        naturalSpawns("Erebus");
+        flora("Erebus");
+        naturalSpawns("Erebus", "erebus");
+        spawnChecks("Erebus", "erebus");
         do_("erebus: home", 60, () -> server(player ->
                 retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
     }
@@ -1108,6 +1926,10 @@ public final class PlayTest {
                             + (errors ? ", generation errors (see the log)" : ""));
         }));
         shot("play-atum", () -> serverPlayer().blockPosition());
+        leavePortal("Atum");
+        flora("Atum");
+        naturalSpawns("Atum", "atum"); // (players saw none of Atum's creatures spawn)
+        spawnChecks("Atum", "atum");
         do_("atum: home", 60, () -> server(player ->
                 retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0)));
     }
@@ -1475,7 +2297,7 @@ public final class PlayTest {
      * renderers, a few of each kind the loaded mods have.
      */
     private static void heldInHand() {
-        List<ItemStack> stacks = new ArrayList<>(List.of(new ItemStack(Items.STONE), new ItemStack(Items.DIAMOND_SWORD)));
+        List<ItemStack> stacks = new ArrayList<>(List.of(new ItemStack(Items.STONE), new ItemStack(Items.NETHERITE_SWORD)));
         int blocks = 0, rendered = 0;
         for (Item item : ForgeRegistries.ITEMS) {
             if (!(item instanceof retrofit.forge.world.LegacyStackItem legacy) || legacy.legacyItem() == null
@@ -1661,14 +2483,16 @@ public final class PlayTest {
 
     /** Looks at a block from the player's spot and takes a screenshot. */
     private static void shot(String name, java.util.function.Supplier<BlockPos> at) {
-        do_("look at " + name, 10, () -> {
-            var player = Minecraft.getInstance().player;
-            Vec3 eye = player.getEyePosition();
-            Vec3 to = Vec3.atCenterOf(at.get()).subtract(eye);
-            player.setYRot((float) (Math.toDegrees(Math.atan2(to.z, to.x)) - 90));
-            player.setXRot((float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z))));
-        });
+        do_("look at " + name, 10, () -> lookAt(Vec3.atCenterOf(at.get())));
         do_("screenshot " + name, 5, () -> grab(name));
+    }
+
+    /** Turns the player to look at a point. */
+    private static void lookAt(Vec3 point) {
+        var player = Minecraft.getInstance().player;
+        Vec3 to = point.subtract(player.getEyePosition());
+        player.setYRot((float) (Math.toDegrees(Math.atan2(to.z, to.x)) - 90));
+        player.setXRot((float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z))));
     }
 
     private static void grab(String name) {
@@ -1754,6 +2578,16 @@ public final class PlayTest {
         BlockPos feet = player.blockPosition();
         return " (in " + player.level().getBlockState(feet) + " / " + player.level().getBlockState(feet.above())
                 + ", on " + player.level().getBlockState(feet.below()) + ")";
+    }
+
+    /** The block of a 1.7.10 block class (mods that register blocks under numbers), or null. */
+    private static Block legacyBlockOfClass(String className) {
+        for (Block block : ForgeRegistries.BLOCKS) {
+            if (block instanceof retrofit.forge.world.LegacyBlock legacy && legacy.legacyBlock().getClass().getName().endsWith(className)) {
+                return block;
+            }
+        }
+        return null;
     }
 
     private static Block findBlock(String namespace, Predicate<String> path) {

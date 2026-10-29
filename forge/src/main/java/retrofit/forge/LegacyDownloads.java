@@ -75,26 +75,29 @@ public final class LegacyDownloads {
         return legacyDir.resolve("mods").resolve("1.7.10");
     }
 
-    /** Downloads everything listed, telling {@code progress} each address. */
-    public void fetch(java.util.function.Consumer<String> progress) throws IOException {
+    /**
+     * Downloads everything listed, telling {@code progress} each address. The mods' dependencies that couldn't
+     * be downloaded are returned (their addresses die: CodeChickenLib's both did); the files 1.7.10 itself needs
+     * throw.
+     */
+    public List<LegacyDependencies.Dependency> fetch(java.util.function.Consumer<String> progress) throws IOException {
         LegacyInstall.onDownload(progress);
         LegacyInstall.allowDownloads(true);
         try {
             if (!files.isEmpty()) {
                 install.fetchAll();
             }
-            List<String> failed = new ArrayList<>();
+            List<LegacyDependencies.Dependency> failed = new ArrayList<>();
             for (LegacyDependencies.Dependency dependency : dependencies) {
                 try {
                     LegacyDependencies.fetch(dependency, legacyDir.resolve("mods"));
                 } catch (IOException e) {
-                    failed.add(dependency.file() + " (wanted by " + dependency.wantedBy() + ", from " + dependency.url() + ")");
+                    System.out.println("[Retrofit] Could not download " + dependency.file() + " (wanted by " + dependency.wantedBy()
+                            + ", from " + dependency.url() + "): " + e);
+                    failed.add(dependency);
                 }
             }
-            if (!failed.isEmpty()) {
-                throw new IOException("Could not download " + String.join(", ", failed)
-                        + ". Download them from their mods' pages and put them in retrofit/mods.");
-            }
+            return failed;
         } finally {
             LegacyInstall.allowDownloads(false);
             LegacyInstall.onDownload(null);

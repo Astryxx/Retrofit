@@ -75,6 +75,8 @@ public class RetrofitTransformer implements IClassTransformer {
     private static final String STANDALONE_NASHORN = "org/openjdk/nashorn/";
     /** LWJGL 2 classes, replaced by generated stand-ins (see LwjglShims). */
     private static final String LWJGL = "org/lwjgl/";
+    /** Java 8's array coders, not exported since Java 9 (see retrofit.legacy.compat.ArrayDecoder). */
+    private static final String JDK_ARRAY_CODERS = "sun/nio/cs/Array";
 
     private static final byte[][] MARKERS = {
         "java/util/jar/Pack200".getBytes(StandardCharsets.UTF_8),
@@ -97,6 +99,9 @@ public class RetrofitTransformer implements IClassTransformer {
         "toArray".getBytes(StandardCharsets.UTF_8),
         "jdk/nashorn".getBytes(StandardCharsets.UTF_8),
         "jdk.nashorn".getBytes(StandardCharsets.UTF_8),
+        JDK_ARRAY_CODERS.getBytes(StandardCharsets.UTF_8),
+        "java/util/UUID".getBytes(StandardCharsets.UTF_8),
+        "getReturnType".getBytes(StandardCharsets.UTF_8),
     };
 
     /**
@@ -130,6 +135,9 @@ public class RetrofitTransformer implements IClassTransformer {
             }
             if (typeName.startsWith(JDK_NASHORN)) {
                 return STANDALONE_NASHORN + typeName.substring(JDK_NASHORN.length());
+            }
+            if (typeName.equals("sun/nio/cs/ArrayDecoder") || typeName.equals("sun/nio/cs/ArrayEncoder")) {
+                return "retrofit/legacy/compat/" + typeName.substring("sun/nio/cs/".length());
             }
             return typeName;
         }
@@ -176,6 +184,9 @@ public class RetrofitTransformer implements IClassTransformer {
         }
         if (transformedName.equals("net.minecraft.pathfinding.PathFinder")) {
             basicClass = deepPathfinding(basicClass);
+        }
+        if (transformedName.endsWith("DepLoader$DepLoadInst")) {
+            basicClass = olderDependencies(basicClass);
         }
         if (transformedName.startsWith("cpw.mods.fml.common.")) {
             basicClass = FmlFixes.apply(transformedName, basicClass);
@@ -236,6 +247,40 @@ public class RetrofitTransformer implements IClassTransformer {
         return fixed[0] ? writer.toByteArray() : bytes;
     }
 
+    /**
+     * CodeChicken's DepLoader (CodeChickenCore's, and the copies in Thaumcraft and others) deletes a library older
+     * than the version its mods ask for and downloads that version, which legacy code may not do (LegacyNet) and
+     * whose addresses are gone: every 1.7.10 mod stopped, and the player's library was deleted. The version
+     * comparison in its checkExisting goes to LegacyNet.compareDependency, which keeps the older library.
+     */
+    private static byte[] olderDependencies(byte[] bytes) {
+        ClassReader reader = new ClassReader(bytes);
+        ClassWriter writer = new ClassWriter(0);
+        final boolean[] patched = {false};
+        reader.accept(new ClassVisitor(Opcodes.ASM5, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String methodName, String desc, String signature, String[] exceptions) {
+                MethodVisitor visitor = super.visitMethod(access, methodName, desc, signature, exceptions);
+                if (!methodName.equals("checkExisting")) {
+                    return visitor;
+                }
+                return new MethodVisitor(Opcodes.ASM5, visitor) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String insnName, String insnDesc, boolean itf) {
+                        if (opcode == Opcodes.INVOKEVIRTUAL && owner.endsWith("/ComparableVersion") && insnName.equals("compareTo")) {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "retrofit/legacy/compat/LegacyNet", "compareDependency",
+                                    "(Ljava/lang/Comparable;Ljava/lang/Object;)I", false);
+                            patched[0] = true;
+                        } else {
+                            super.visitMethodInsn(opcode, owner, insnName, insnDesc, itf);
+                        }
+                    }
+                };
+            }
+        }, 0);
+        return patched[0] ? writer.toByteArray() : bytes;
+    }
+
     /** How far below y 0 the world goes (1.20.1's overworld: -64); legacy pathfinding may reach it. */
     private static final int WORLD_BOTTOM = 64;
 
@@ -276,16 +321,26 @@ public class RetrofitTransformer implements IClassTransformer {
     /**
      * Pack200 -> retrofit.legacy.compat.Pack200; System.setSecurityManager/setOut/setErr -> LegacySystem;
      * setAccessible and getDeclaredField -> Reflection (Java 8 behaviour for JDK members); URL connections -> LegacyNet
-     * (timeouts); Thread.start -> LegacyThreads (daemon threads); List.toArray() -> LegacyCollections (Java 8 array types).
+     * (timeouts); Thread.start -> LegacyThreads (daemon threads); List.toArray() -> LegacyCollections (Java 8 array types);
+     * UUID.fromString -> LegacyUUID (Java 8's leniency); ASM's Type.getReturnType(String) as ASM 5.0.3 had it.
      */
     private static byte[] redirectRemovedApis(byte[] bytes) {
         ClassReader reader = new ClassReader(bytes);
         ClassWriter writer = new ClassWriter(0);
         final boolean retrofitClass = reader.getClassName().startsWith("retrofit/");
+        final boolean asmClass = reader.getClassName().startsWith("org/objectweb/asm/");
         ClassVisitor redirects = new ClassVisitor(Opcodes.ASM5, writer) {
             @Override
             public MethodVisitor visitMethod(int access, String methodName, String desc, String signature, String[] exceptions) {
                 return new MethodVisitor(Opcodes.ASM5, super.visitMethod(access, methodName, desc, signature, exceptions)) {
+                    /** Stack the inlined code below needs beyond the method's own. */
+                    private int extraStack;
+
+                    @Override
+                    public void visitMaxs(int maxStack, int maxLocals) {
+                        super.visitMaxs(maxStack + extraStack, maxLocals);
+                    }
+
                     @Override
                     public void visitLdcInsn(Object constant) {
                         // Class.forName("jdk.nashorn.api.scripting.NashornScriptEngineFactory") and the like
@@ -326,6 +381,22 @@ public class RetrofitTransformer implements IClassTransformer {
                             insnDesc = "(Ljava/util/Collection;)[Ljava/lang/Object;";
                             owner = "retrofit/legacy/compat/LegacyCollections";
                             itf = false;
+                        } else if (!retrofitClass && opcode == Opcodes.INVOKESTATIC && owner.equals("java/util/UUID")
+                                && insnName.equals("fromString")) {
+                            owner = "retrofit/legacy/compat/LegacyUUID"; // Java 8's leniency (see LegacyUUID)
+                        } else if (!retrofitClass && !asmClass && opcode == Opcodes.INVOKESTATIC && owner.equals("org/objectweb/asm/Type")
+                                && insnName.equals("getReturnType") && insnDesc.equals("(Ljava/lang/String;)Lorg/objectweb/asm/Type;")) {
+                            // ASM 5.0.3's Type.getReturnType took what follows the descriptor's ')', so a field's descriptor came back as
+                            // its type; ASM 5.2 (LegacyInstall) throws on it (Forge Multipart's traits). Inlined, since legacy code's ASM
+                            // is the class loader's own copy: Type.getType(desc.substring(desc.indexOf(')') + 1))
+                            super.visitInsn(Opcodes.DUP);
+                            super.visitIntInsn(Opcodes.BIPUSH, ')');
+                            super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "indexOf", "(I)I", false);
+                            super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IADD);
+                            super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(I)Ljava/lang/String;", false);
+                            insnName = "getType";
+                            extraStack = 2;
                         } else if (!retrofitClass && opcode == Opcodes.INVOKEVIRTUAL && owner.equals("java/lang/Thread")
                                 && insnName.equals("start") && insnDesc.equals("()V")) {
                             // Thread.start -> LegacyThreads.start: legacy threads are daemons (1.7.10 ended with System.exit)

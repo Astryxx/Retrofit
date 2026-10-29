@@ -26,6 +26,59 @@ final class BridgeChunk extends Chunk {
         this.baseX = chunkX << 4;
         this.baseZ = chunkZ << 4;
         this.field_76636_d = true; // isChunkLoaded
+        this.field_150816_i = new TileEntities(); // chunkTileEntityMap
+    }
+
+    /**
+     * chunkTileEntityMap, by position in the chunk: the world's tile entities in this chunk (its loadedTileEntityList,
+     * see WorldGlue). Mods go through it to find a chunk's machines (Forge Multipart sends a chunk's parts to a
+     * player who starts watching it); what they put in or take out goes to the world.
+     */
+    private final class TileEntities extends java.util.AbstractMap<Object, Object> {
+        @Override
+        public java.util.Set<Entry<Object, Object>> entrySet() {
+            java.util.Map<Object, Object> tiles = new java.util.LinkedHashMap<Object, Object>();
+            for (Object element : new java.util.ArrayList<Object>(field_76637_e.field_147482_g)) { // loadedTileEntityList
+                TileEntity tile = (TileEntity) element;
+                int x = tile.field_145851_c, z = tile.field_145849_e; // xCoord, zCoord
+                if (x >> 4 == field_76635_g && z >> 4 == field_76647_h && !tile.func_145837_r()) { // xPosition, zPosition, isInvalid
+                    tiles.put(new net.minecraft.world.ChunkPosition(x & 15, tile.field_145848_d, z & 15), tile);
+                }
+            }
+            return tiles.entrySet();
+        }
+
+        @Override
+        public Object get(Object key) {
+            if (!(key instanceof net.minecraft.world.ChunkPosition)) {
+                return null;
+            }
+            net.minecraft.world.ChunkPosition at = (net.minecraft.world.ChunkPosition) key;
+            return func_150806_e(at.field_151329_a, at.field_151327_b, at.field_151328_c); // chunkPosX, chunkPosY, chunkPosZ
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            return get(key) != null;
+        }
+
+        @Override
+        public Object put(Object key, Object value) {
+            Object before = get(key);
+            net.minecraft.world.ChunkPosition at = (net.minecraft.world.ChunkPosition) key;
+            func_150812_a(at.field_151329_a, at.field_151327_b, at.field_151328_c, (TileEntity) value);
+            return before;
+        }
+
+        @Override
+        public Object remove(Object key) {
+            Object before = get(key);
+            if (before != null) {
+                net.minecraft.world.ChunkPosition at = (net.minecraft.world.ChunkPosition) key;
+                func_150805_f(at.field_151329_a, at.field_151327_b, at.field_151328_c);
+            }
+            return before;
+        }
     }
 
     /** getBlock */
@@ -187,6 +240,23 @@ final class BridgeChunk extends Chunk {
     @Override
     public boolean func_76621_g() {
         return false;
+    }
+
+    /**
+     * getTopFilledSegment: the base y of the highest section holding a block. 1.7.10's reads the storage array
+     * field, which this chunk leaves empty (its sections are views, see getBlockStorageArray), so it answered 0:
+     * the Betweenlands' spawner picks heights below it plus 15 and only ever tried under the ground. Sampled from
+     * the world's height at 16 columns.
+     */
+    @Override
+    public int func_76625_h() {
+        int top = 0;
+        for (int x = 0; x < 16; x += 5) {
+            for (int z = 0; z < 16; z += 5) {
+                top = Math.max(top, field_76637_e.func_72976_f(field_76635_g * 16 + x, field_76647_h * 16 + z)); // worldObj.getHeightValue, xPosition, zPosition
+            }
+        }
+        return Math.max(0, top - 1) & ~15;
     }
 
     /** getBlockStorageArray: all 16 sections, each a view of the world as this chunk is. */

@@ -71,6 +71,14 @@ public class LegacyBlock extends Block {
         }
     });
     private boolean placedFailed;
+    /**
+     * Set while a legacy block works out its shape where it is, on this thread: some write to the world from
+     * setBlockBoundsBasedOnState (Nevermine's Haven portal sets its metadata there), and the host's setBlock asks the
+     * new state's shape (for its light), which would ask the legacy block again, without end (a stack overflow that
+     * took the server down). 1.7.10 never asked for shapes on a metadata change; asked again meanwhile, the
+     * metadata's shape answers.
+     */
+    private static final ThreadLocal<Boolean> SHAPING = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     /**
      * @param renderInfo see {@link LegacyBridge#blockRenderInfo}
@@ -190,7 +198,8 @@ public class LegacyBlock extends Block {
      * metadata's shape, as before).
      */
     private VoxelShape[] shapesAt(BlockGetter level, BlockPos pos) {
-        if (!placedShape || placedFailed || !(level instanceof net.minecraft.world.level.Level world) || retrofit.forge.RetrofitMod.runtime() == null) {
+        if (!placedShape || placedFailed || !(level instanceof net.minecraft.world.level.Level world) || retrofit.forge.RetrofitMod.runtime() == null
+                || SHAPING.get()) {
             return null;
         }
         long key = pos.asLong();
@@ -199,6 +208,7 @@ public class LegacyBlock extends Block {
         if (known != null && known[0] == world && (Long) known[1] == time) {
             return new VoxelShape[]{(VoxelShape) known[2], (VoxelShape) known[3]};
         }
+        SHAPING.set(Boolean.TRUE);
         try {
             double[] shape = LegacyBridge.call("blockShapeAt", LegacyContent.legacyWorld(world), pos.getX(), pos.getY(), pos.getZ());
             VoxelShape outline = box(shape, 0);
@@ -213,6 +223,8 @@ public class LegacyBlock extends Block {
             placedFailed = true; // the metadata's shape from now on, as before
             LegacyErrors.report(translationKey, "working out its shape where it is", e);
             return null;
+        } finally {
+            SHAPING.set(Boolean.FALSE);
         }
     }
 
@@ -483,6 +495,19 @@ public class LegacyBlock extends Block {
             LegacyErrors.report(translationKey, "being broken", e);
         }
         super.playerWillDestroy(level, pos, state, player);
+    }
+
+    /** onBlockDestroyedByPlayer once a player's break removed it (OreSpawn's ant and termite ores let their creatures out here). */
+    @Override
+    public void destroy(net.minecraft.world.level.LevelAccessor level, BlockPos pos, BlockState state) {
+        super.destroy(level, pos, state);
+        if (level instanceof Level world) {
+            try {
+                LegacyBridge.call("destroyedByPlayer", legacyBlock, LegacyContent.legacyWorld(world), pos.getX(), pos.getY(), pos.getZ(), meta(state));
+            } catch (RuntimeException e) {
+                LegacyErrors.report(translationKey, "being broken", e);
+            }
+        }
     }
 
     /** breakBlock while the tile entity is still there (mods drop their contents here), then the usual removal. */

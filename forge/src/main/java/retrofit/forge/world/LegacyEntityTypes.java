@@ -61,6 +61,11 @@ public final class LegacyEntityTypes {
         return TYPES.get(legacyName);
     }
 
+    /** The living legacy entity types (LegacyMob). */
+    public static List<EntityType<? extends LegacyMob>> living() {
+        return java.util.Collections.unmodifiableList(LIVING);
+    }
+
     public static Map<String, EntityType<?>> all() {
         return java.util.Collections.unmodifiableMap(TYPES);
     }
@@ -187,6 +192,11 @@ public final class LegacyEntityTypes {
             int category = (Integer) entity[2];
             float width = (Float) entity[3];
             float height = (Float) entity[4];
+            // The range the mod registered the entity with (in blocks; The Titans: 128 for everything,
+            // bosses of other mods often more). 1.20.1's clientTrackingRange is in chunks; the mod's
+            // range decides, so mobs stay on clients (boss bars above all) as far as their mod meant.
+            int tracking = entity.length > 9 && entity[9] instanceof Integer && (Integer) entity[9] > 0
+                    ? Math.max(5, ((Integer) entity[9] + 15) / 16) : 10;
             ResourceLocation id = makeId(name, (String) entity[7]);
             if (id.getNamespace().equals("minecraft")) {
                 // Registered under a vanilla name (a mod replacing a vanilla entity); legacy code spawning it gets the vanilla one.
@@ -213,12 +223,12 @@ public final class LegacyEntityTypes {
                 boolean monster = category == 0;
                 EntityType<LegacyMob> mob = EntityType.Builder.<LegacyMob>of((t, level) -> monster
                                 ? new LegacyMonster(t, level, name, width, height) : new LegacyMob(t, level, name, width, height), mobCategory)
-                        .sized(Math.max(0.1f, width), Math.max(0.1f, height)).clientTrackingRange(10).build(id.toString());
+                        .sized(Math.max(0.1f, width), Math.max(0.1f, height)).clientTrackingRange(tracking).build(id.toString());
                 LIVING.add(mob);
                 type = mob;
             } else {
                 type = EntityType.Builder.<LegacyThing>of((t, level) -> new LegacyThing(t, level, name, width, height), MobCategory.MISC)
-                        .sized(Math.max(0.1f, width), Math.max(0.1f, height)).clientTrackingRange(8).updateInterval(1).build(id.toString());
+                        .sized(Math.max(0.1f, width), Math.max(0.1f, height)).clientTrackingRange(tracking).updateInterval(1).build(id.toString());
             }
             TYPES.put(name, type);
             NAMES.put(type, name);

@@ -5,12 +5,28 @@ import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
 import cpw.mods.fml.common.ModMetadata;
 import cpw.mods.fml.common.registry.GameRegistry;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
+import net.minecraft.block.Block;
+import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.SharedMonsterAttributes;
+import net.minecraft.entity.ai.attributes.AttributeModifier;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.ItemSword;
+import net.minecraft.item.ItemTool;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.DamageSource;
+import net.minecraftforge.common.ISpecialArmor;
 import net.minecraftforge.oredict.OreDictionary;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 1.20.1 content in the legacy world. A 1.20.1 item with no 1.7.10 form (copper, other mods'
@@ -20,7 +36,10 @@ import java.lang.reflect.Field;
  * machines and recipes keep and move them; they turn back into themselves on the 1.20.1 side.
  * Full-cube blocks travel as "retrofit:modern_block" instead, an ItemBlock of the solid stand-in
  * block, whose icons for that damage are the 1.20.1 block's textures: mods that take blocks as
- * covers or facades (Carpenter's Blocks) accept and draw them.
+ * covers or facades (Carpenter's Blocks) accept and draw them. Armor, swords and tools travel as
+ * an ItemArmor for their slot, an ItemSword or an ItemTool, with their armor points, attack
+ * damage and tool kinds in the data: mobs that put on armor or take up weapons (Better Dungeons'
+ * NPCs) and code that asks what a tool is take them for what they are.
  *
  * In the world, blocks 1.7.10 never had are the stand-in blocks, whose tile entity
  * ({@link ModernTile}) carries the real block: mods that move blocks with their tile entities
@@ -31,6 +50,9 @@ public final class ModernContent {
     static final String BLOCK_ITEM_NAME = "retrofit:modern_block";
     static final String TAG = "RetrofitModern";
     private static ModernItem item;
+    /** Carriers of armor (helmet, chestplate, leggings, boots), swords and tools; see makeModernStack's kind. */
+    private static final Item[] GEAR = new Item[6];
+    private static final String[] GEAR_NAMES = {"modern_helmet", "modern_chestplate", "modern_leggings", "modern_boots", "modern_sword", "modern_tool"};
     private static ModernBlock solidBlock;
     private static ModernBlock openBlock;
     private static Item blockItem;
@@ -59,6 +81,14 @@ public final class ModernContent {
             active.set(controller, retrofit); // names registered now are "retrofit:..."
             try {
                 GameRegistry.registerItem(item, "modern_item");
+                for (int slot = 0; slot < 4; slot++) {
+                    GEAR[slot] = new ModernArmor(slot);
+                }
+                GEAR[4] = new ModernSword();
+                GEAR[5] = new ModernTool();
+                for (int i = 0; i < GEAR.length; i++) {
+                    GameRegistry.registerItem(GEAR[i], GEAR_NAMES[i]);
+                }
                 solidBlock = new ModernBlock(true);
                 openBlock = new ModernBlock(false);
                 // the solid one's item carries 1.20.1 blocks (Block.getBlockFromItem goes by the shared id)
@@ -88,17 +118,32 @@ public final class ModernContent {
 
     /**
      * The legacy stack carrying a 1.20.1 item: {@code tag} is its 1.20.1 NBT (as legacy NBT bytes),
-     * or null; {@code cube} for a full-cube block, carried as a block.
+     * or null; {@code cube} for a full-cube block, carried as a block. {@code kind}: 0 any item,
+     * 1 to 4 armor for the head, chest, legs or feet, 5 a sword, 6 a tool, with {@code gear} its
+     * {armor points, attack damage, harvest level, mining speed}, {@code tools} its tool kinds and
+     * {@code armorTexture} the texture armor is drawn on a body with.
      */
-    public static Object makeModernStack(String id, int count, int index, byte[] tag, String name, int maxStack, boolean cube) throws java.io.IOException {
+    public static Object makeModernStack(String id, int count, int index, byte[] tag, String name, int maxStack, boolean cube,
+                                         int kind, float[] gear, String[] tools, String armorTexture) throws java.io.IOException {
         if (item == null) {
             return null;
         }
-        ItemStack stack = new ItemStack(cube && blockItem != null ? blockItem : item, count, index);
+        Item carrier = kind >= 1 && kind <= GEAR.length ? GEAR[kind - 1] : cube && blockItem != null ? blockItem : item;
+        ItemStack stack = new ItemStack(carrier, count, index);
         NBTTagCompound data = new NBTTagCompound();
         data.func_74778_a("id", id); // setString
         data.func_74778_a("Name", name == null ? id : name);
         data.func_74768_a("Max", maxStack); // setInteger
+        if (kind != 0 && gear != null) {
+            data.func_74776_a("Armor", gear[0]); // setFloat
+            data.func_74776_a("Damage", gear[1]);
+            data.func_74776_a("Level", gear[2]);
+            data.func_74776_a("Speed", gear[3]);
+            data.func_74778_a("Tools", tools == null ? "" : String.join(",", tools));
+            if (armorTexture != null) {
+                data.func_74778_a("Texture", armorTexture);
+            }
+        }
         if (tag != null) {
             data.func_74782_a("tag", Bridge.fromBytes(tag)); // setTag
         }
@@ -293,15 +338,12 @@ public final class ModernContent {
 
         @Override
         public String func_77653_i(ItemStack stack) { // getItemStackDisplayName
-            NBTTagCompound data = ModernItem.data(stack);
-            return data == null || data.func_74779_i("Name").isEmpty() ? "1.20.1 block" : data.func_74779_i("Name");
+            return displayName(stack, "1.20.1 block");
         }
 
         @Override
         public int getItemStackLimit(ItemStack stack) {
-            NBTTagCompound data = ModernItem.data(stack);
-            int max = data == null ? 0 : data.func_74762_e("Max");
-            return max > 0 ? max : 64;
+            return stackLimit(stack);
         }
     }
 
@@ -320,15 +362,200 @@ public final class ModernContent {
         /** getItemStackDisplayName: the 1.20.1 item's name. */
         @Override
         public String func_77653_i(ItemStack stack) {
-            NBTTagCompound data = data(stack);
-            return data == null || data.func_74779_i("Name").isEmpty() ? "1.20.1 item" : data.func_74779_i("Name"); // getString
+            return displayName(stack, "1.20.1 item");
         }
 
         @Override
         public int getItemStackLimit(ItemStack stack) {
-            NBTTagCompound data = data(stack);
-            int max = data == null ? 0 : data.func_74762_e("Max"); // getInteger
-            return max > 0 ? max : 64;
+            return stackLimit(stack);
+        }
+    }
+
+    static String displayName(ItemStack stack, String fallback) {
+        NBTTagCompound data = ModernItem.data(stack);
+        return data == null || data.func_74779_i("Name").isEmpty() ? fallback : data.func_74779_i("Name"); // getString
+    }
+
+    static int stackLimit(ItemStack stack) {
+        NBTTagCompound data = ModernItem.data(stack);
+        int max = data == null ? 0 : data.func_74762_e("Max"); // getInteger
+        return max > 0 ? max : 64;
+    }
+
+    private static float gear(ItemStack stack, String key) {
+        NBTTagCompound data = ModernItem.data(stack);
+        return data == null ? 0 : data.func_74760_g(key); // getFloat
+    }
+
+    /** The carried item's attack damage, as 1.7.10 weapons give it (mobs holding one hit with it). */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static Multimap attackModifiers(ItemStack stack) {
+        Multimap modifiers = HashMultimap.create();
+        float damage = gear(stack, "Damage");
+        if (damage != 0) {
+            modifiers.put(SharedMonsterAttributes.field_111264_e.func_111108_a(), // attackDamage
+                    new AttributeModifier(ModernSword.MODIFIER, "Weapon modifier", damage, 0));
+        }
+        return modifiers;
+    }
+
+    /**
+     * Replaces EntityLivingBase.getTotalArmorValue (HeadlessTransformer) with 1.7.10's count, except
+     * that a carried 1.20.1 piece counts its own armor points (ItemArmor has one number per item).
+     * Mobs' armor protects them through this; creatures that count armor their own way still do.
+     */
+    public static int totalArmorValue(EntityLivingBase entity) {
+        int total = 0;
+        for (ItemStack stack : entity.func_70035_c()) { // getLastActiveItems
+            if (stack == null) {
+                continue;
+            }
+            Item item = stack.func_77973_b(); // getItem
+            if (item instanceof ModernArmor) {
+                total += Math.round(gear(stack, "Armor"));
+            } else if (item instanceof ItemArmor) {
+                total += ((ItemArmor) item).field_77879_b; // damageReduceAmount
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Self-test (PlayTest): a carried 1.20.1 stack as legacy code sees it, worn by a legacy creature
+     * in an equipment slot (1 feet to 4 head; 0 held): its item's class, the creature's armor and
+     * attack damage, and its tool kinds and pickaxe level.
+     */
+    public static String testGear(Object entity, Object legacyStack, int slot) {
+        ItemStack stack = (ItemStack) legacyStack;
+        net.minecraft.entity.EntityLiving living = (net.minecraft.entity.EntityLiving) entity;
+        living.func_70062_b(slot, stack); // setCurrentItemOrArmor
+        Item item = stack.func_77973_b();
+        double damage = 0;
+        for (Object modifier : stack.func_111283_C().get(SharedMonsterAttributes.field_111264_e.func_111108_a())) { // getAttributeModifiers
+            damage += ((AttributeModifier) modifier).func_111164_d(); // getAmount
+        }
+        return item.getClass().getSuperclass().getSimpleName() + ", armor " + living.func_70658_aO() + ", damage " + damage // getTotalArmorValue
+                + ", tools " + item.getToolClasses(stack) + ", pickaxe level " + item.getHarvestLevel(stack, "pickaxe");
+    }
+
+    /** A 1.20.1 helmet, chestplate, leggings or boots: an ItemArmor for its slot, protecting by the item's own armor points. */
+    static final class ModernArmor extends ItemArmor implements ISpecialArmor {
+        ModernArmor(int slot) {
+            super(ItemArmor.ArmorMaterial.IRON, 0, slot);
+            func_77627_a(true); // setHasSubtypes: the damage value is the carried item's number
+            func_77656_e(0); // setMaxDamage: never worn down here (the 1.20.1 item keeps its own durability)
+            func_77655_b("retrofit.modern"); // setUnlocalizedName
+        }
+
+        @Override
+        public String func_77653_i(ItemStack stack) { // getItemStackDisplayName
+            return displayName(stack, "1.20.1 armor");
+        }
+
+        /** Drawn on a body as the 1.20.1 piece is (renderers ask this before the material's texture). */
+        @Override
+        public String getArmorTexture(ItemStack stack, net.minecraft.entity.Entity entity, int slot, String type) {
+            NBTTagCompound data = ModernItem.data(stack);
+            return data == null || type != null || data.func_74779_i("Texture").isEmpty() ? null : data.func_74779_i("Texture");
+        }
+
+        @Override
+        public int getItemStackLimit(ItemStack stack) {
+            return stackLimit(stack);
+        }
+
+        /** Players' armor (ForgeHooks): the item's armor points. */
+        @Override
+        public ArmorProperties getProperties(EntityLivingBase entity, ItemStack stack, DamageSource source, double damage, int slot) {
+            return new ArmorProperties(0, source.func_76363_c() ? 0 : gear(stack, "Armor") / 25.0, Integer.MAX_VALUE); // isUnblockable
+        }
+
+        @Override
+        public int getArmorDisplay(EntityPlayer player, ItemStack stack, int slot) {
+            return Math.round(gear(stack, "Armor"));
+        }
+
+        @Override
+        public void damageArmor(EntityLivingBase entity, ItemStack stack, DamageSource source, int damage, int slot) {
+        }
+    }
+
+    /** A 1.20.1 sword: an ItemSword hitting with the item's own attack damage. */
+    static final class ModernSword extends ItemSword {
+        static final java.util.UUID MODIFIER = field_111210_e; // the weapon modifier's id (Item.itemModifierUUID)
+
+        ModernSword() {
+            super(Item.ToolMaterial.IRON);
+            func_77627_a(true);
+            func_77656_e(0);
+            func_77655_b("retrofit.modern");
+        }
+
+        @Override
+        public String func_77653_i(ItemStack stack) {
+            return displayName(stack, "1.20.1 sword");
+        }
+
+        @Override
+        public int getItemStackLimit(ItemStack stack) {
+            return stackLimit(stack);
+        }
+
+        @Override
+        public Multimap getAttributeModifiers(ItemStack stack) {
+            return attackModifiers(stack);
+        }
+    }
+
+    /** A 1.20.1 pickaxe, axe or shovel: an ItemTool of its kinds, harvest level and speed. */
+    static final class ModernTool extends ItemTool {
+        ModernTool() {
+            super(0, Item.ToolMaterial.IRON, Collections.emptySet());
+            func_77627_a(true);
+            func_77656_e(0);
+            func_77655_b("retrofit.modern");
+        }
+
+        @Override
+        public String func_77653_i(ItemStack stack) {
+            return displayName(stack, "1.20.1 tool");
+        }
+
+        @Override
+        public int getItemStackLimit(ItemStack stack) {
+            return stackLimit(stack);
+        }
+
+        @Override
+        public Set<String> getToolClasses(ItemStack stack) {
+            NBTTagCompound data = ModernItem.data(stack);
+            String tools = data == null ? "" : data.func_74779_i("Tools");
+            return tools.isEmpty() ? Collections.<String>emptySet() : new HashSet<String>(Arrays.asList(tools.split(",")));
+        }
+
+        @Override
+        public int getHarvestLevel(ItemStack stack, String toolClass) {
+            return getToolClasses(stack).contains(toolClass) ? Math.round(gear(stack, "Level")) : -1;
+        }
+
+        @Override
+        public float getDigSpeed(ItemStack stack, Block block, int meta) {
+            for (String tool : getToolClasses(stack)) {
+                if (block.isToolEffective(tool, meta)) {
+                    return gear(stack, "Speed");
+                }
+            }
+            return 1;
+        }
+
+        @Override
+        public float func_150893_a(ItemStack stack, Block block) { // getDigSpeed, without metadata
+            return getDigSpeed(stack, block, 0);
+        }
+
+        @Override
+        public Multimap getAttributeModifiers(ItemStack stack) {
+            return attackModifiers(stack);
         }
     }
 }

@@ -339,6 +339,16 @@ public final class LegacyRendering {
      * captured vertices. 1.7.10 drew entities at posY, yOffset above their feet (Galacticraft's rockets: 1.5),
      * so they are drawn that much higher, as there.
      */
+    /**
+     * RenderGlobal's tests before drawing an entity, from a camera position: bit 1 if it is in range
+     * (isInRangeToRender3d, with the mod's renderDistanceWeight or its own rule), bit 2 if it skips
+     * the frustum test (ignoreFrustumCheck: models far bigger than their hitbox).
+     */
+    public static int entityRenderChecks(Object entity, double x, double y, double z) {
+        net.minecraft.entity.Entity legacy = (net.minecraft.entity.Entity) entity;
+        return (legacy.func_145770_h(x, y, z) ? 1 : 0) | (legacy.field_70158_ak ? 2 : 0); // isInRangeToRender3d, ignoreFrustumCheck
+    }
+
     public static int renderEntity(Object entity, float yaw, float partialTicks) {
         environment();
         Capture.begin();
@@ -404,6 +414,15 @@ public final class LegacyRendering {
             // any world): the item has a renderer of its own, which is asked again each time it is drawn
             return true;
         }
+    }
+
+    /**
+     * The light an item is drawn in, set as 1.7.10's ItemRenderer and RenderItem set it before drawing one
+     * (setLightmapTextureCoords): renderers read it back for their vertices (CodeChickenLib's pullLightmap; with
+     * none set, Forge Multipart's parts were black in the hand).
+     */
+    public static void itemLight(int packedLight) {
+        net.minecraft.client.renderer.OpenGlHelper.func_77475_a(net.minecraft.client.renderer.OpenGlHelper.field_77476_b, packedLight & 0xFFFF, packedLight >>> 16); // setLightmapTextureCoords(lightmapTexUnit, ...)
     }
 
     /** Runs an item's Forge item renderer; returns the number of captured vertices. */

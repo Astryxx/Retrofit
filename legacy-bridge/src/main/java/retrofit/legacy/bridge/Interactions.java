@@ -82,6 +82,11 @@ public final class Interactions {
         ((Block) legacyBlock).func_149681_a((World) world, x, y, z, meta, (EntityPlayer) legacyPlayer);
     }
 
+    /** onBlockDestroyedByPlayer: a player broke the block (it is gone). */
+    public static void destroyedByPlayer(Object legacyBlock, Object world, int x, int y, int z, int meta) {
+        ((Block) legacyBlock).func_149664_b((World) world, x, y, z, meta);
+    }
+
     /** breakBlock: the block was replaced (its tile entity is still there). */
     public static void breakBlock(Object legacyBlock, Object world, int x, int y, int z, int meta) {
         ((Block) legacyBlock).func_149749_a((World) world, x, y, z, (Block) legacyBlock, meta);
@@ -213,6 +218,38 @@ public final class Interactions {
         }
     }
 
+    /**
+     * The held item used on a 1.20.1 creature's stand-in (itemInteractionForEntity: shears, saddles,
+     * Mob Battle's group), as interactWith did when the creature's own interaction took nothing.
+     */
+    public static boolean useOnEntity(Object legacyPlayer, Object target) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        ItemStack stack = player.func_71045_bC();
+        if (stack == null || !(target instanceof net.minecraft.entity.EntityLivingBase)) {
+            return false;
+        }
+        boolean creative = player.field_71075_bZ.field_75098_d; // capabilities.isCreativeMode
+        if (!(creative ? stack.func_77946_l() : stack).func_111282_a(player, (net.minecraft.entity.EntityLivingBase) target)) { // copy, interactWithEntity
+            return false;
+        }
+        if (stack.field_77994_a <= 0 && !creative) {
+            player.func_71028_bD(); // destroyCurrentEquippedItem
+        }
+        return true;
+    }
+
+    /** A hit landed with the held item: hitEntity (weapons' effects and their wear), as attackTargetEntityWithCurrentItem did. */
+    public static void hitEntity(Object legacyPlayer, Object target) {
+        EntityPlayer player = (EntityPlayer) legacyPlayer;
+        ItemStack stack = player.func_71045_bC();
+        if (stack != null && target instanceof net.minecraft.entity.EntityLivingBase) {
+            stack.func_77961_a((net.minecraft.entity.EntityLivingBase) target, player); // hitEntity
+            if (stack.field_77994_a <= 0) {
+                player.func_71028_bD();
+            }
+        }
+    }
+
     /** {max use duration, use action: 0 none, 1 eat, 2 drink, 3 block, 4 bow} of the current item. */
     public static int[] useInfo(Object legacyStack) {
         ItemStack stack = (ItemStack) legacyStack;
@@ -330,13 +367,25 @@ public final class Interactions {
 
     private static final java.util.Map<Class<?>, Integer> TICK_FLAGS = new java.util.HashMap<Class<?>, Integer>();
 
-    /** {armor type (0 head, 1 chest, 2 legs, 3 feet) or -1 if not armor, armor points, enchantability, render index}. */
+    /**
+     * {armor type (0 head, 1 chest, 2 legs, 3 feet) or -1 if not armor, armor points, enchantability, render index,
+     * the armor points of the piece's whole set (its material's four), or 0 if unknown}.
+     */
     public static int[] armorInfo(Object legacyItem) {
         if (!(legacyItem instanceof net.minecraft.item.ItemArmor)) {
-            return new int[]{-1, 0, 0, 0};
+            return new int[]{-1, 0, 0, 0, 0};
         }
         net.minecraft.item.ItemArmor armor = (net.minecraft.item.ItemArmor) legacyItem;
-        return new int[]{armor.field_77881_a, armor.field_77879_b, armor.func_77619_b(), armor.field_77880_c}; // armorType, damageReduceAmount, renderIndex
+        int set = 0;
+        try {
+            net.minecraft.item.ItemArmor.ArmorMaterial material = armor.func_82812_d(); // getArmorMaterial
+            for (int slot = 0; slot < 4 && material != null; slot++) {
+                set += material.func_78044_b(slot); // getDamageReductionAmount
+            }
+        } catch (RuntimeException e) {
+            set = 0; // a material that can't say: judged by the piece
+        }
+        return new int[]{armor.field_77881_a, armor.field_77879_b, armor.func_77619_b(), armor.field_77880_c, set}; // armorType, damageReduceAmount, renderIndex
     }
 
     /** Whether a legacy armor piece takes a colour, as 1.7.10 drew it tinted: leather's material, or its own getColor. */
@@ -413,6 +462,22 @@ public final class Interactions {
             }
         }
         return total;
+    }
+
+    /** What a weapon is, for its attack speed: "sword" (an ItemSword), a tool class ("axe", "pickaxe", "shovel") or "". */
+    public static String weaponKind(Object legacyStack) {
+        ItemStack stack = (ItemStack) legacyStack;
+        Item item = stack.func_77973_b(); // getItem
+        if (item instanceof net.minecraft.item.ItemSword) {
+            return "sword";
+        }
+        java.util.Set<String> tools = item.getToolClasses(stack);
+        for (String kind : new String[]{"axe", "pickaxe", "shovel"}) {
+            if (tools.contains(kind)) {
+                return kind;
+            }
+        }
+        return "";
     }
 
     /**

@@ -36,7 +36,36 @@ final class FmlFixes {
         if (transformedName.equals("cpw.mods.fml.common.eventhandler.EventBus")) {
             return change(bytes, "post", "(Lcpw/mods/fml/common/eventhandler/Event;)Z", Change.ISOLATE_LISTENERS);
         }
+        if (transformedName.equals("cpw.mods.fml.common.ProxyInjector")) {
+            return proxyClassLookup(bytes);
+        }
         return bytes;
+    }
+
+    /** ProxyInjector's Class.forName(name, initialize, loader) calls go to ModFailures.proxyClass (same descriptor: no new branches). */
+    private static byte[] proxyClassLookup(byte[] bytes) {
+        ClassNode node = new ClassNode();
+        new ClassReader(bytes).accept(node, 0);
+        int changed = 0;
+        for (Object element : node.methods) {
+            MethodNode method = (MethodNode) element;
+            for (org.objectweb.asm.tree.AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() == Opcodes.INVOKESTATIC && ((MethodInsnNode) insn).owner.equals("java/lang/Class")
+                        && ((MethodInsnNode) insn).name.equals("forName")
+                        && ((MethodInsnNode) insn).desc.equals("(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;")) {
+                    ((MethodInsnNode) insn).owner = MOD_FAILURES;
+                    ((MethodInsnNode) insn).name = "proxyClass";
+                    changed++;
+                }
+            }
+        }
+        if (changed == 0) {
+            System.out.println("[Retrofit] " + node.name + " has no Class.forName to change");
+            return bytes;
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        return writer.toByteArray();
     }
 
     private enum Change {

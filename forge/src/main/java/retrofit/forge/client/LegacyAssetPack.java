@@ -159,7 +159,7 @@ final class LegacyAssetPack implements PackResources {
         atlas.add("sources", atlasSources);
         putJson("minecraft", "atlases/blocks.json", atlas);
 
-        int translations = addTranslations(modJars);
+        int translations = addTranslations(modJars, textureSources.get(textureSources.size() - 1));
         for (net.minecraft.world.item.Item egg : retrofit.forge.world.LegacyEntityTypes.eggs()) {
             ResourceLocation key = ForgeRegistries.ITEMS.getKey(egg);
             JsonObject model = new JsonObject();
@@ -925,7 +925,7 @@ final class LegacyAssetPack implements PackResources {
      * "key=value" .lang files; 1.20.1 uses "en_us" and JSON. Legacy keys are kept as they are,
      * since legacy blocks and items report them as their description ids.
      */
-    private int addTranslations(List<ZipFile> modJars) throws IOException {
+    private int addTranslations(List<ZipFile> modJars, ZipFile gameJar) throws IOException {
         Map<String, Map<String, String>> languages = new TreeMap<>();
         for (ZipFile jar : modJars) {
             for (Enumeration<? extends ZipEntry> entries = jar.entries(); entries.hasMoreElements(); ) {
@@ -949,6 +949,7 @@ final class LegacyAssetPack implements PackResources {
             languages.computeIfAbsent(translation[0].toLowerCase(Locale.ROOT), code -> new TreeMap<>())
                     .putIfAbsent(translation[1], translation[2]);
         }
+        addVanillaTranslations(gameJar, languages.computeIfAbsent("en_us", code -> new TreeMap<>()));
         // Legacy entities: 1.20.1 names entity types "entity.<ns>.<path>" and spawn eggs by item id.
         for (String legacyName : retrofit.forge.world.LegacyEntityTypes.all().keySet()) {
             ResourceLocation key = ForgeRegistries.ENTITY_TYPES.getKey(retrofit.forge.world.LegacyEntityTypes.all().get(legacyName));
@@ -979,6 +980,34 @@ final class LegacyAssetPack implements PackResources {
      * are lowercased as 1.20.1 requires; sounds.json is rewritten to match, with names that had no
      * namespace resolved against the mod's own (1.7.10 did that; 1.20.1 would use minecraft:).
      */
+    /**
+     * 1.7.10's own English, for its keys 1.20.1 hasn't: mods and legacy code pass vanilla messages on by key
+     * (chat.type.achievement when a player earns an achievement, its achievement names, 1.7.10's stats and
+     * containers), which showed as the bare key. Mods' own translations of a key, from files or code, come first.
+     */
+    private static void addVanillaTranslations(ZipFile gameJar, Map<String, String> english) throws IOException {
+        ZipEntry entry = gameJar.getEntry("assets/minecraft/lang/en_US.lang");
+        if (entry == null) {
+            return;
+        }
+        java.util.Set<String> modern = new java.util.HashSet<>();
+        var resource = net.minecraft.client.Minecraft.getInstance().getVanillaPackResources()
+                .getResource(net.minecraft.server.packs.PackType.CLIENT_RESOURCES, new ResourceLocation("lang/en_us.json"));
+        if (resource != null) {
+            try (Reader reader = new InputStreamReader(resource.get(), StandardCharsets.UTF_8)) {
+                modern.addAll(com.google.gson.JsonParser.parseReader(reader).getAsJsonObject().keySet());
+            }
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(gameJar.getInputStream(entry), StandardCharsets.UTF_8))) {
+            for (String line; (line = reader.readLine()) != null; ) {
+                int equals = line.indexOf('=');
+                if (equals > 0 && !line.startsWith("#") && !modern.contains(line.substring(0, equals).trim())) {
+                    english.putIfAbsent(line.substring(0, equals).trim(), line.substring(equals + 1));
+                }
+            }
+        }
+    }
+
     private int addModFiles(List<ZipFile> modJars) throws IOException {
         int count = 0;
         for (ZipFile jar : modJars) {

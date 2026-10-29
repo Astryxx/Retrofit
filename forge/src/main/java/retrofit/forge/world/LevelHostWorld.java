@@ -250,6 +250,11 @@ final class LevelHostWorld implements HostWorld {
     }
 
     @Override
+    public void setHostEntityTarget(Object handle, Object legacyTarget) {
+        HostCreatures.setTarget(handle, legacyTarget);
+    }
+
+    @Override
     public void setHostItemStack(Object handle, Object legacyStack) {
         HostCreatures.setItemStack(handle, legacyStack);
     }

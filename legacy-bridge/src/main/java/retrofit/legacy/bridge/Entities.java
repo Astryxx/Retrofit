@@ -85,7 +85,7 @@ public final class Entities {
     /**
      * Mod entity types: {name (as registered: "modid.Name" or a global name), living 1/0, category
      * (0 monster, 1 creature, 2 water, 3 ambient, 4 misc), width, height, egg background, egg
-     * foreground (-1: none), mod id, class name}.
+     * foreground (-1: none), mod id, class name, tracking range in blocks (-1: none registered)}.
      */
     @SuppressWarnings("unchecked")
     public static Object[][] modEntities() {
@@ -93,8 +93,8 @@ public final class Entities {
         // classToStringMapping: one name per class (mods often register a class under two names).
         for (Map.Entry<Class<?>, String> entry : ((Map<Class<?>, String>) EntityList.field_75626_c).entrySet()) {
             Class<?> type = entry.getKey();
-            if (vanillaEntityClass(type)) {
-                continue;
+            if (vanillaEntityClass(type) || Bridge.leftOut(modId(type) + ":") || Bridge.leftOut(type)) {
+                continue; // (a left-out mod's: see Bridge.leftOut)
             }
             float width = 0.6f;
             float height = 1.8f;
@@ -107,17 +107,32 @@ public final class Entities {
             }
             int[] egg = eggColors(type);
             types.add(new Object[]{entry.getValue(), EntityLivingBase.class.isAssignableFrom(type) ? 1 : 0, category(type), width, height,
-                    egg[0], egg[1], modId(type), type.getName()});
+                    egg[0], egg[1], modId(type), type.getName(), trackingRange(type)});
         }
         return types.toArray(new Object[0][]);
     }
 
-    /** The mod that registered an entity class (EntityRegistry), "legacy" if none says so. */
+    /** The mod that registered an entity class (EntityRegistry), or null. */
     @SuppressWarnings("unchecked")
+    private static cpw.mods.fml.common.registry.EntityRegistry.EntityRegistration registration(Class<?> type) {
+        return cpw.mods.fml.common.registry.EntityRegistry.instance().lookupModSpawn((Class<? extends Entity>) type, true);
+    }
+
+    /** The mod that registered an entity class (EntityRegistry), "legacy" if none says so. */
     private static String modId(Class<?> type) {
-        cpw.mods.fml.common.registry.EntityRegistry.EntityRegistration registration =
-                cpw.mods.fml.common.registry.EntityRegistry.instance().lookupModSpawn((Class<? extends Entity>) type, true);
-        return registration != null ? registration.getContainer().getModId() : "legacy";
+        cpw.mods.fml.common.registry.EntityRegistry.EntityRegistration reg = registration(type);
+        return reg != null ? reg.getContainer().getModId() : "legacy";
+    }
+
+    /**
+     * The tracking range a mod registered an entity with (EntityRegistry.registerModEntity's range,
+     * in blocks: 1.7.10's tracker kept the entity on clients within it). Bosses are registered with
+     * big ranges on purpose - The Titans uses 128 for every one of its mobs, other mods more - and
+     * their client-side bookkeeping (boss bars above all) counts on the entity staying that long.
+     */
+    private static int trackingRange(Class<?> type) {
+        cpw.mods.fml.common.registry.EntityRegistry.EntityRegistration reg = registration(type);
+        return reg != null ? reg.getTrackingRange() : -1;
     }
 
     @SuppressWarnings("unchecked")
@@ -134,6 +149,13 @@ public final class Entities {
             Object egg = EntityList.field_75627_a.get(id); // entityEggs
             if (egg instanceof EntityList.EntityEggInfo) {
                 return new int[]{((EntityList.EntityEggInfo) egg).field_75611_b, ((EntityList.EntityEggInfo) egg).field_75612_c};
+            }
+        }
+        // Mods that put their eggs in by hand: an id to class (IDtoClassMapping) with an egg, but no class to id
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) EntityList.field_75627_a).entrySet()) {
+            if (entry.getValue() instanceof EntityList.EntityEggInfo && EntityList.field_75623_d.get(entry.getKey()) == type) {
+                EntityList.EntityEggInfo egg = (EntityList.EntityEggInfo) entry.getValue();
+                return new int[]{egg.field_75611_b, egg.field_75612_c};
             }
         }
         return new int[]{-1, -1};
@@ -205,12 +227,37 @@ public final class Entities {
     /**
      * The entity joins a legacy world, as World.spawnEntityInWorld did: EntityJoinWorldEvent first (mods
      * set entities up there); false if a mod cancelled it, and then the entity isn't spawned.
+     *
+     * Membership is checked by identity, not contains(): 1.7.10's Entity.equals is the network id, and a
+     * client copy re-created after an out-of-range round trip carries its server's id (entitySetId), so a
+     * dead leftover of the same entity still in the list would read as "already here" and the fresh copy
+     * would never join - it keeps rendering off its host, but mods that scan the list for the entity (The
+     * Titans' boss bars) never see it again. Dead leftovers of the same id are taken out first (a leave
+     * whose setDead threw mid-teardown - a titan explodes and talks there - stopped before removing it).
      */
     public static boolean entityJoin(Object entity, Object world) {
         Entity legacy = (Entity) entity;
         World target = (World) world;
         legacy.func_70029_a(target); // setWorld
-        if (!target.field_72996_f.contains(legacy)) {
+        List entities = target.field_72996_f; // loadedEntityList
+        for (int i = entities.size() - 1; i >= 0; i--) {
+            Object other = entities.get(i);
+            if (!(other instanceof Entity) || other instanceof EntityPlayer) {
+                continue; // players are mirrors, never copies
+            }
+            Entity otherEntity = (Entity) other;
+            if (otherEntity != legacy && otherEntity.field_70128_L && otherEntity.func_145782_y() == legacy.func_145782_y()) {
+                entities.remove(i); // loadedEntityList: a dead leftover of the same server entity
+            }
+        }
+        boolean joined = false;
+        for (Object other : entities) {
+            if (other == legacy) {
+                joined = true;
+                break;
+            }
+        }
+        if (!joined) {
             try {
                 if (net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.EntityJoinWorldEvent(legacy, target))) {
                     return false;
@@ -218,16 +265,53 @@ public final class Entities {
             } catch (Throwable t) {
                 System.out.println("[Retrofit] An EntityJoinWorldEvent handler failed for " + legacy + ": " + t);
             }
-            target.field_72996_f.add(legacy); // loadedEntityList
+            entities.add(legacy); // loadedEntityList
         }
         return true;
     }
 
+    /**
+     * The entity dies and leaves its world's entity list, as 1.7.10's WorldClient did for an entity it
+     * was told to forget: mods watching entities themselves (boss bars, spawn caches) let go of a dead
+     * one. A mod's setDead can do real work (a titan's explodes, drops and speaks) on a world that is
+     * going away, so it runs guarded and the copy leaves the list either way; there it is taken out by
+     * identity - remove(Object) is equals-based, and 1.7.10's Entity.equals is the network id, which a
+     * later re-created copy of the same server entity shares.
+     */
     public static void entityLeave(Object entity) {
         Entity legacy = (Entity) entity;
-        legacy.func_70106_y(); // setDead: mods watching entities themselves (boss bars, spawn caches) let go of a dead one
+        try {
+            legacy.func_70106_y(); // setDead
+        } catch (RuntimeException t) {
+            System.out.println("[Retrofit] " + legacy + " failed being marked dead while leaving its world: " + t);
+        }
         if (legacy.field_70170_p != null) {
-            legacy.field_70170_p.field_72996_f.remove(legacy); // loadedEntityList
+            List entities = legacy.field_70170_p.field_72996_f; // loadedEntityList
+            for (int i = entities.size() - 1; i >= 0; i--) {
+                if (entities.get(i) == legacy) {
+                    entities.remove(i); // loadedEntityList
+                }
+            }
+        }
+    }
+
+    /**
+     * Takes a dead copy out of its world's entity list without dying again (a mod's setDead has side
+     * effects: a titan's explodes and speaks): 1.7.10's World tick dropped dead entities from the list
+     * as it ran, and this world's copies tick through their hosts, so a copy a client-side rule of the
+     * mod's own killed (The Titans despawn its duds past 64 blocks on the client too) would otherwise
+     * sit in the list dead forever. No-op for a live copy or one without a world: the caller only has
+     * the copy as an Object (the host side sees no 1.7.10 classes), so the guards live here.
+     */
+    public static void entityTakeOut(Object entity) {
+        Entity legacy = (Entity) entity;
+        if (legacy.field_70128_L && legacy.field_70170_p != null) { // isDead, worldObj
+            List entities = legacy.field_70170_p.field_72996_f; // loadedEntityList
+            for (int i = entities.size() - 1; i >= 0; i--) {
+                if (entities.get(i) == legacy) {
+                    entities.remove(i); // loadedEntityList
+                }
+            }
         }
     }
 
@@ -315,8 +399,17 @@ public final class Entities {
         jumping.setBoolean(entity, jump);
     }
 
-    /** Client: where the server's copy is now; the copy interpolates there and runs its client update (animations). */
-    public static void entityClientTick(Object entity, double x, double y, double z, float yaw, float pitch, float headYaw) {
+    /**
+     * Client: where the server's copy is now; the copy interpolates there and runs its client update (animations).
+     *
+     * Health and max health ride along: the copy's own client tick may write them (a boss script's
+     * regen, OreSpawn's Godzilla pool), and the watcher packets that carry the server's value only
+     * arrive when it changes, so what a mod's HUD read (The Titans' boss bar) could sit far above
+     * the real health for seconds at a time. The host entity carries the server's health every tick
+     * (it is what HostCreatures' stand-ins show, and what the host's own overlays read), so after
+     * the update the copy is put back onto it, exactly as the next 1.7.10 watcher packet would have.
+     */
+    public static void entityClientTick(Object entity, double x, double y, double z, float yaw, float pitch, float headYaw, double health, double maxHealth) {
         Entity legacy = (Entity) entity;
         legacy.field_70142_S = legacy.field_70165_t;
         legacy.field_70137_T = legacy.field_70163_u;
@@ -327,6 +420,15 @@ public final class Entities {
             legacy.func_70034_d(headYaw); // setRotationYawHead
         }
         legacy.func_70071_h_(); // onUpdate
+        if (legacy instanceof EntityLivingBase && maxHealth > 0.0) {
+            EntityLivingBase living = (EntityLivingBase) legacy;
+            if ((float) maxHealth > living.func_110138_aP()) { // getMaxHealth: only raise it (the watcher sync owns lowering it)
+                living.func_110148_a(net.minecraft.entity.SharedMonsterAttributes.field_111267_a).func_111128_a(maxHealth); // maxHealth.setBaseValue
+            }
+            if (living.func_110143_aJ() != (float) health) { // getHealth
+                living.func_70606_j((float) health); // setHealth (clamps to max health, as 1.7.10 did)
+            }
+        }
     }
 
     /** Client: put the copy exactly somewhere (spawn). */
@@ -540,7 +642,12 @@ public final class Entities {
      */
     public static boolean entityHurt(Object entity, String kind, Object attacker, float amount) {
         DamageSource source;
-        if (attacker instanceof EntityPlayer) {
+        if ("indirectMagic".equals(kind) && attacker instanceof Entity) {
+            source = DamageSource.func_76354_b((Entity) attacker, (Entity) attacker); // causeIndirectMagicDamage
+        } else if (PROJECTILES.contains(kind) && attacker instanceof Entity) {
+            // shot by a 1.20.1 creature or player: the shooter is the attacker, as with 1.7.10's arrows
+            source = new net.minecraft.util.EntityDamageSourceIndirect(kind, (Entity) attacker, (Entity) attacker).func_76349_b(); // setProjectile
+        } else if (attacker instanceof EntityPlayer) {
             source = DamageSource.func_76365_a((EntityPlayer) attacker); // causePlayerDamage
         } else if (attacker instanceof EntityLivingBase) {
             source = DamageSource.func_76358_a((EntityLivingBase) attacker); // causeMobDamage
@@ -548,6 +655,48 @@ public final class Entities {
             source = sourceOf(kind);
         }
         return ((Entity) entity).func_70097_a(source, amount); // attackEntityFrom
+    }
+
+    /** 1.20.1 damage types (message ids) of projectiles. */
+    private static final java.util.Set<String> PROJECTILES = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "arrow", "thrown", "trident", "fireball", "witherSkull"));
+
+    private static final java.util.UUID ENRAGE_FOLLOW_MODIFIER = java.util.UUID.fromString("56220932-6ac1-4f9f-9a09-8e2b5c4d8f11");
+
+    /**
+     * 1.20.1 code chose a legacy mob's target (Mob.setTarget: enragers, mob battle items): the legacy
+     * AI's targets, the newer AI's attack target and revenge target and the older AI's entityToAttack.
+     */
+    public static void entitySetTarget(Object entity, Object target) {
+        EntityLivingBase living = target instanceof EntityLivingBase ? (EntityLivingBase) target : null;
+        if (entity instanceof EntityLiving) {
+            ((EntityLiving) entity).func_70624_b(living); // setAttackTarget
+        }
+        if (entity instanceof net.minecraft.entity.EntityCreature) {
+            ((net.minecraft.entity.EntityCreature) entity).func_70784_b(living); // setTarget (entityToAttack)
+        }
+        if (living != null && entity instanceof EntityLivingBase) {
+            ((EntityLivingBase) entity).func_70604_c(living); // setRevengeTarget: EntityAIHurtByTarget keeps it
+            // Usagi: carry the battle tool's follow-range boost to the legacy AI, once per creature.
+            boostFollowRange((EntityLivingBase) entity);
+        }
+    }
+
+    private static void boostFollowRange(EntityLivingBase entity) {
+        net.minecraft.entity.ai.attributes.IAttributeInstance range = entity.func_110148_a(net.minecraft.entity.SharedMonsterAttributes.field_111265_b);
+        if (range != null && range.func_111127_a(ENRAGE_FOLLOW_MODIFIER) == null) {
+            range.func_111121_a(new net.minecraft.entity.ai.attributes.AttributeModifier(ENRAGE_FOLLOW_MODIFIER, "retrofit.enrage", 64.0D, 0));
+        }
+    }
+
+    /** PlayTest: effective follow range, including the battle tool's boost. */
+    public static double testFollowRange(Object entity) {
+        return ((EntityLivingBase) entity).func_110148_a(net.minecraft.entity.SharedMonsterAttributes.field_111265_b).func_111126_e();
+    }
+
+    /** 1.20.1 code healed a legacy creature (Mob Battle's heal item, instant health): heal, with its LivingHealEvent. */
+    public static void entityHeal(Object entity, float amount) {
+        ((EntityLivingBase) entity).func_70691_i(amount); // heal
     }
 
     static DamageSource sourceOf(String kind) {
@@ -571,8 +720,14 @@ public final class Entities {
             return DamageSource.field_76376_m;
         } else if ("wither".equals(kind)) {
             return DamageSource.field_82727_n;
+        } else if ("starve".equals(kind)) {
+            return DamageSource.field_76366_f;
+        } else if (kind == null || "generic".equals(kind)) {
+            return DamageSource.field_76377_j; // generic
         }
-        return DamageSource.field_76377_j; // generic
+        // Any other 1.20.1 damage (a hit from something legacy code can't see, sonic booms, freezing):
+        // not generic, which bypasses armor in 1.7.10 and skips mobs' own damage rules.
+        return new DamageSource(kind);
     }
 
     /** {can be leashed (allowLeashing), leashed, leashed to a player} of a legacy creature. */
@@ -585,6 +740,20 @@ public final class Entities {
     }
 
     /** Development: legacy code throwing a splash potion (as Witchery's witches do); whether the world took it. */
+    /** Self-test (PlayTest): a legacy mob's {revenge target, attack target}: the host entity behind a stand-in or mirror, else the legacy entity (or null). */
+    public static Object[] testTargets(Object entity) {
+        EntityLivingBase revenge = ((EntityLivingBase) entity).func_70643_av(); // getAITarget
+        EntityLivingBase attack = entity instanceof EntityLiving ? ((EntityLiving) entity).func_70638_az() : null; // getAttackTarget
+        Object revengeHost = HostCreatures.hostHandle(revenge);
+        Object attackHost = HostCreatures.hostHandle(attack);
+        return new Object[]{revengeHost != null ? revengeHost : revenge, attackHost != null ? attackHost : attack};
+    }
+
+    /** Self-test (PlayTest): a legacy creature's health. */
+    public static float testHealth(Object entity) {
+        return ((EntityLivingBase) entity).func_110143_aJ(); // getHealth
+    }
+
     public static boolean testThrowPotion(Object world, double x, double y, double z, int damage) {
         net.minecraft.entity.projectile.EntityPotion potion = new net.minecraft.entity.projectile.EntityPotion((net.minecraft.world.World) world, x, y, z, damage);
         return ((net.minecraft.world.World) world).func_72838_d(potion); // spawnEntityInWorld
@@ -602,9 +771,9 @@ public final class Entities {
         }
     }
 
-    /** interactFirst (right-click on the entity) */
+    /** A right click on the entity, as interactWith: EntityInteractEvent, its interactFirst, else the held item's itemInteractionForEntity. */
     public static boolean entityInteract(Object entity, Object player) {
-        return ((Entity) entity).func_130002_c((EntityPlayer) player);
+        return ((EntityPlayer) player).func_70998_m((Entity) entity); // interactWith
     }
 
     /** getCanSpawnHere, for natural spawning (a temporary entity at the spot). */

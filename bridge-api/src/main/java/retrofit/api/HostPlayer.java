@@ -11,6 +11,11 @@ public interface HostPlayer {
         return null;
     }
 
+    /** The host player's entity id (the same on the server and its clients), or -1 if not known. */
+    default int entityId() {
+        return -1;
+    }
+
     /** A mod unlocked an achievement (its stat id): the player gets its advancement. */
     default void grantAchievement(String statId) {
     }

@@ -1,6 +1,153 @@
 # Changelog
 
-## 0.6.0-beta (in progress)
+## 0.6.1-beta (in progress)
+
+- Stabilized the Mob Battle group-item client test: it now starts with a fresh nearby pair. Reusing
+  fighters from the preceding battle sometimes put them beyond the golem's follow range, where
+  1.7.10's target AI correctly clears the target. The mobs' gameplay rules remain unchanged.
+
+- Integrated UsagiTsukino-01's entity fixes: direct blast motion reaches modern creatures without double
+  knockback; entity tracking follows the mod's registered range; client copies use the server's health;
+  direct host health increases reach legacy creatures as heals. Existing Mob Battle targeting and
+  multiplayer registry fixes are retained.
+- Fixed the Ruby Golem test creature's zombie skin layout: its generic biped model sampled the wrong
+  texture regions, leaving body parts invisible during Mob Battle tests.
+
+- **1.20.1 creatures hit 1.7.10 ones as themselves**: a zombie's hit on a 1.7.10 mob reached it as damage from
+  nobody, which 1.7.10 treats like the generic kind that ignores armor, and mobs' own rules for who hits them
+  (OreSpawn's Mobzilla: its 21 armor and its damage cap) didn't apply. The attacker now arrives as the 1.7.10
+  stand-in legacy code already sees for it (shot arrows and tridents as projectiles from it), so armor and those
+  rules apply as they do for players and 1.7.10 mobs, and the mob turns on the 1.20.1 creature that hit it.
+  Damage from things legacy code can't see no longer ignores armor either. The Titans' titans, which refuse
+  attacker-less damage and take a boss's hits x100, fight 1.20.1 creatures (a 1.20.1 wither arrives as a 1.7.10
+  EntityWither), and stand-ins of 1.20.1 mega bosses stay narrower than the titan-sized attackers titans refuse.
+  (Contributed by UsagiTsukino-01, with Retrofit's own.)
+- **Damage by health write reaches 1.7.10 mobs** (OmniMobs' Flashfur): mods that "force" damage by writing the
+  target's health (never calling hurt) had it undone by the next sync. A drop on the host is now delivered to
+  the 1.7.10 entity, named after the creature that last hurt it; OmniMobs' no-damage watchdog, which erased
+  targets that took no damage, no longer erases 1.7.10 mobs that refuse it by their own rules.
+  (Contributed by UsagiTsukino-01.)
+- **Boss bars come back after a mob leaves and re-enters sight** (The Titans): a re-created client copy shares
+  its server id with the dead one, which 1.7.10's Entity.equals compares, so it never rejoined the world's
+  entity list; membership is by identity now, dead copies leave the list, a failed copy is retried instead of
+  blanking the mob for good, and one bad tick no longer removes a mob. Mod entities keep the tracking range
+  their mod registered (The Titans: 128 blocks), and the client player's ticksExisted and timeUntilPortal
+  count (The Titans' boss bar scan, portals). (Contributed by UsagiTsukino-01.)
+- **Targets 1.20.1 code sets reach 1.7.10 mobs** (Mob Battle's enrager and other items or mods that pick a mob's
+  target): the 1.7.10 AI gets it, as its attack target, revenge target and its older AI's target. Target goals
+  1.20.1 mods add to 1.7.10 mobs run (Mob Battle's armies: a 1.7.10 mob in a team turns on the other teams), and
+  targets 1.7.10 code sets on 1.20.1 creatures are theirs. Healing from 1.20.1 code (Mob Battle's heal item,
+  instant health) heals 1.7.10 mobs.
+- **Left and right clicks on creatures reach 1.7.10 code**: a player's attack fires 1.7.10's AttackEntityEvent
+  and the held item's onLeftClickEntity, either of which can stop it (Mob Battle's sticks pick mobs instead of
+  hitting them), and a hit that lands is the item's hitEntity (weapons that poison, burn or wear on hits). A
+  right click on a 1.7.10 creature does all of 1.7.10's interactWith: EntityInteractEvent, the creature's own
+  interaction, then the held item's itemInteractionForEntity; on a 1.20.1 creature the event and the item's
+  use. Both Mob Battle versions (1.7.10's and 1.20.1's) work on 1.7.10 and 1.20.1 mobs alike.
+- **Machines are on the world's tile entity list** (loadedTileEntityList), where 1.7.10 mods look for them: Rival
+  Rebels' tokamak finds and powers its teslas, and Rhodes finds tokamaks. A chunk's 1.7.10 tile entities are
+  made when it loads, as 1.7.10 did, so the ones nothing has touched yet are listed too; they leave the list when
+  broken or unloaded. (Contributed by UsagiTsukino-01.)
+- **1.20.1 armor, swords and tools are what they are to 1.7.10 code**: they travelled as one plain item, so
+  1.7.10 creatures that put on armor or take up weapons (Better Dungeons' NPCs) refused netherite and other
+  mods' armor, and code asking what a tool is saw none. Armor is now an ItemArmor for its slot, protecting
+  by the piece's own armor points and drawn with its own texture; swords hit with their own damage; pickaxes,
+  axes and shovels (any mod's, by what they can do) are tools of their kinds, harvest level and speed. They
+  turn back into the same 1.20.1 items.
+- **Mods' models drawn from vertex buffers show** (NTM: Space's bombs, machines and most of its items, which
+  were shredded geometry in the world and spilled out of inventory slots): buffer objects (GL15) are kept, and
+  the arrays pointed into them are read when drawn.
+- **Breaking a block as a player lets it do what it did after being broken** (onBlockDestroyedByPlayer):
+  OreSpawn's Red Ant and Termite ores let their creatures out instead of only dropping.
+- **Spawn eggs for mobs whose mod adds its egg by hand** (an egg under an id that leads to the class, without
+  the class leading back to it).
+- **Two mods may ask for the same global entity id**: the second one's creature gets a free id past 255 (with its
+  spawn egg) instead of failing the mod (MLP Mythical Creatures' 226 to 241, which The Titans has).
+- **A mod's world generator that throws no longer stops the others**: FML ran them one after another, so every
+  generator after a failing one did nothing in that chunk. They now run one at a time (with FML's seeds), and a
+  failing one is logged once with its stack trace. One such failure was Retrofit's own: a mod biome without a name
+  broke the biome lookups legacy generators make (Ars Magica, OreSpawn, Thaumcraft, GregTech, CoFH's ores and
+  others generated nothing near it) and the creature lists of mod dimensions (nothing spawned by itself in Erebus
+  or OreSpawn's Utopia).
+- **Mod dimensions spawn their own creatures** (AbyssalCraft, Atum, Erebus, the Betweenlands; players saw none):
+  the creatures a dimension lists come from its biome there, which outside chunk generation was looked up as
+  plains (so only mods that add their creatures to every biome spawned). And 1.7.10's server told every world
+  what it may spawn (hostiles unless peaceful, animals), which Forge passes to its provider: dimension mods keep
+  that there for their own spawners (Erebus'), which spawned nothing without it.
+- **Dimension mods find their own generator** (theChunkProviderServer.currentChunkProvider, where 1.7.10 kept
+  it): the Betweenlands' decorators cast it to theirs, failed in every chunk, and its plants never grew.
+- **A library a mod can't get no longer stops every mod**: mods whose DepLoader downloads a library
+  (ForgeMultipart's CodeChickenLib, whose 1.1.3.127 address is gone) failed the whole 1.7.10 start when the
+  download failed or the player said no. Such a mod now waits in retrofit/waiting-for-libraries, listed as not
+  loaded with the file it needs; the others load, and it comes back by itself once the file is in retrofit/mods.
+- **Two versions of one mod no longer stop every mod**: FML found "a duplicate mod" (two packs' CodeChickenCore,
+  1.0.7 and 1.4.22) and loaded none. The newest is kept and the others are moved to retrofit/duplicates (moved,
+  not deleted) and listed as not loaded.
+- **Each mod sees its biome ids also while worlds generate**: a mod whose biomes moved off ids another mod had
+  looked them up by its config's ids in its generator and got the other mod's (Erebus, beside AbyssalCraft and
+  ExtraPlanets: no terrain). In its own classes, a mod's biomes are at the ids it asked for, at any time.
+- **Generation no longer hangs on columns it can't see**: around a generating chunk only its neighbours are
+  there; Retrofit said the rest was too, as all air, and ExtraPlanets' tower placement searched one for ground
+  forever, holding up the server. Such columns aren't there now, and have no top (-1), as on 1.7.10.
+- **Mods' spawners pick heights in the right range** (the Betweenlands' creatures spawn): a chunk's highest
+  section (getTopFilledSegment) was always 0.
+- **Java 8's UUID.fromString** for legacy code (More Planets' potions failed on Java 17's stricter one).
+- **Placing Nevermine's Haven portal no longer crashes the server**: its shape code sets its own metadata, which
+  asked its shape again without end. A block's shape asked while it works out its shape gets its metadata's;
+  and Retrofit's error reporting can no longer itself fail (it did, first used deep in that overflowing stack,
+  and then every later error crashed the game).
+- **A mod whose proxy class name differs from its class only in case** (Arcana RPG's "commonProxy" for
+  CommonProxy, which worked on the case-insensitive disk it was made on) loads: the class is found in any case.
+- **A server and a client with different 1.7.10 mods are told which**: the player saw Forge's "mismatched mod
+  list" with no word on why. The 1.7.10 mods are now compared once the player joins, by each mod's own rule, as
+  FML 1.7.10 did: a client may have mods the server hasn't (Mouse Tweaks, minimaps), and a server's mods are
+  needed on its clients at versions they accept. A player turned away sees the mods that differ, and that a mod
+  the server couldn't load (its log names it) has to be removed from the clients too. Another Retrofit version
+  on the server is told as such.
+- **Java 8's array decoders**: mods that asked whether a charset decoder is one (sun.nio.cs.ArrayDecoder, which
+  Java 17 doesn't export) failed; Minecraft Animated's model loader stopped Monster Hunter Frontier. They now
+  take their other way of decoding.
+- **1.7.10's rules for when an entity is drawn**: its own render distance (isInRangeToRender3d, with the mod's
+  renderDistanceWeight) and ignoreFrustumCheck, which models far bigger than their hitbox set so they don't
+  vanish while their hitbox is off screen.
+- **ManaMetal's client side runs again** (its HUD, class level bar, money, particles the server asks for):
+  1.7.10's client had no network proxy set, so a class ManaMetal builds its player messages with failed to
+  load, and with it the rest of ManaMetal's client tick, every tick.
+- **Mods' player data reaches the players** (ManaMetal's mana, thirst, class and death screen; any mod sending
+  "player N" to clients): the 1.7.10 player on the server and on its client had different entity ids, counted
+  apart on each side, so data sent for the server's player found nobody on the client. Players' 1.7.10 ids
+  now come from their 1.20.1 id, the same on both sides.
+- **Mods that send what they keep in chunks to the players watching them work** (Forge Multipart's parts, which
+  no player saw; CodeChickenLib's world extensions): players starting and stopping to watch a chunk fire
+  1.7.10's ChunkWatchEvent; a chunk's tile entities are listed in its chunkTileEntityMap; the chunk object
+  chunk events carry is the one the world hands out (they were two views of one chunk), and a chunk is saved
+  as the one it unloaded as, which 1.7.10 did in that order.
+- **Mods' item renderers get the light the item is in** (1.7.10 set it before drawing a held item, and
+  CodeChickenLib's renderers read it back): Forge Multipart's parts and saws were black in the hand.
+- **1.7.10 armor that never wears doesn't break at the first hit** (ManaMetal's lasting armor): a piece with no
+  durability, which 1.7.10 never damages, was given 1.
+- **Forge Multipart loads**: mods asking for one library at different versions get only the newest, as
+  DepLoader merged them (CodeChickenLib 1.1.3.141 for CodeChickenCore, which can still be downloaded, instead of
+  also Forge Multipart's 1.1.3.127, which can't, and set Forge Multipart aside); a library older than the one a mod
+  asks for (CodeChickenLib 1.1.3.140 for CodeChickenCore's 1.1.3.141) was deleted by CodeChicken's DepLoader,
+  which then tried to download the asked one and stopped every 1.7.10 mod; the one there is used now. And ASM's
+  Type.getReturnType behaves as in the ASM 1.7.10 shipped (Forge Multipart reads field types with it).
+- **1.7.10 swords, tools and armor get 1.20.1's attributes** (asked for by players): swords attack 1.6 times a
+  second, pickaxes 1.2, axes and shovels 1.0, as 1.20.1's do; armor gets toughness from its set's armor points
+  (a diamond-like set 2 per piece, iron and below none). Players set them per item, or turn them off for some
+  or all items, in retrofit/item-attributes.properties.
+- **1.7.10's own texts are translated** (chat.type.achievement showed when a player earned an achievement):
+  1.7.10's English is used for the keys 1.20.1 hasn't, after the mods' own.
+- **A creature whose renderer fails once is still drawn**: one failed frame hid its whole kind for the rest of
+  the session; now only many failures in a row do.
+- **A mod that fails on the server only no longer keeps players out** ("Missing registry data"): what a mod
+  left out had registered (Arcana RPG's effects and enchantments, on dedicated servers, where it fails from
+  client-only code) is kept out of 1.20.1's registries, which joining players must match.
+- **Players joining a server take its 1.7.10 block and item ids** even where theirs differ: the map was applied as
+  a world save's, which makes FML back up the world first, and a client has none to back up, so the ids were
+  never taken.
+
+## 0.6.0-beta
 
 - **A page for the 1.7.10 mods** (Options, "1.7.10 Mods..."), laid out as Forge's mod list: every 1.7.10 mod
   with what its mcmod.info says and its logo, the ones that didn't load in red with the reason, and a Config

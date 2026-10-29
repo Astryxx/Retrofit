@@ -49,9 +49,22 @@ public final class Events {
         }
     }
 
-    /** difficulty: the host level's (0 peaceful ... 3 hard), kept in World.difficultySetting where mods read it. */
-    public static void worldTick(Object world, boolean start, int difficulty) {
-        ((World) world).field_73013_u = net.minecraft.world.EnumDifficulty.func_151523_a(difficulty); // difficultySetting, getDifficultyEnum
+    /** The allowed spawn types last given to each server world (see worldTick): 1 hostiles, 2 animals. */
+    private static final Map<World, Integer> SPAWN_TYPES = new java.util.WeakHashMap<World, Integer>();
+
+    /**
+     * difficulty: the host level's (0 peaceful ... 3 hard), kept in World.difficultySetting where mods read it.
+     * hostiles, animals: what the server spawns, given to the world as MinecraftServer did for every world
+     * (setAllowedSpawnTypes, at load and when the difficulty changed): Forge passes them on to the world's
+     * provider, where dimension mods keep their own (Erebus' spawner spawns nothing while its provider says no).
+     */
+    public static void worldTick(Object world, boolean start, int difficulty, boolean hostiles, boolean animals) {
+        World legacy = (World) world;
+        legacy.field_73013_u = net.minecraft.world.EnumDifficulty.func_151523_a(difficulty); // difficultySetting, getDifficultyEnum
+        int types = (hostiles ? 1 : 0) | (animals ? 2 : 0);
+        if (start && !legacy.field_72995_K && !Integer.valueOf(types).equals(SPAWN_TYPES.put(legacy, types))) { // isRemote
+            legacy.func_72891_a(hostiles, animals); // setAllowedSpawnTypes
+        }
         if (start) {
             FMLCommonHandler.instance().onPreWorldTick((World) world);
         } else {
@@ -135,6 +148,25 @@ public final class Events {
         return new int[]{event.isCanceled() ? 1 : 0, event.useBlock == Event.Result.DENY ? 1 : 0, event.useItem == Event.Result.DENY ? 1 : 0};
     }
 
+    /**
+     * A player's left click on an entity (a legacy one, a player's mirror or a 1.20.1 creature's
+     * stand-in), as attackTargetEntityWithCurrentItem began it: AttackEntityEvent, then the held
+     * item's onLeftClickEntity (Mob Battle's sticks pick mobs with it). Whether the attack ends there.
+     */
+    public static boolean attackEntity(Object player, Object target) {
+        EntityPlayer attacker = (EntityPlayer) player;
+        if (MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.player.AttackEntityEvent(attacker, (net.minecraft.entity.Entity) target))) {
+            return true;
+        }
+        net.minecraft.item.ItemStack stack = attacker.func_71045_bC(); // getCurrentEquippedItem
+        return stack != null && stack.func_77973_b().onLeftClickEntity(stack, attacker, (net.minecraft.entity.Entity) target);
+    }
+
+    /** EntityInteractEvent for a right click on a 1.20.1 creature's stand-in (legacy creatures get all of interactWith); whether it was cancelled. */
+    public static boolean interactEntity(Object player, Object target) {
+        return MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.entity.player.EntityInteractEvent((EntityPlayer) player, (net.minecraft.entity.Entity) target));
+    }
+
     // ---- Server lifecycle ----
 
     /**
@@ -203,10 +235,55 @@ public final class Events {
         return bytes.toByteArray();
     }
 
-    /** Client: use the server's id map for this connection. */
+    /**
+     * Client: use the server's id map for this connection, as FML 1.7.10's client handshake did: the map is read as
+     * FMLContainer.readData reads a save's, but injected as a remote world's. As a local world's, ids needing a remap
+     * made FML back up the world, which a client joining a server hasn't, and the server's ids were never taken.
+     */
     public static void applyIds(byte[] data) throws Exception {
         NBTTagCompound tag = CompressedStreamTools.func_74796_a(new java.io.ByteArrayInputStream(data)); // readCompressed
-        fml().readData(null, worldInfo(), new HashMap<String, NBTBase>(), tag);
+        if (!tag.func_74764_b("ItemData")) { // hasKey: an older format, read as FML reads it
+            fml().readData(null, worldInfo(), new HashMap<String, NBTBase>(), tag);
+            return;
+        }
+        Map<String, Integer> ids = new java.util.LinkedHashMap<String, Integer>();
+        for (NBTTagCompound entry : compounds(tag, "ItemData")) {
+            ids.put(entry.func_74779_i("K"), entry.func_74762_e("V")); // getString, getInteger
+        }
+        java.util.Set<Integer> blocked = new java.util.HashSet<Integer>();
+        for (int id : tag.func_74759_k("BlockedItemIds")) { // getIntArray
+            blocked.add(id);
+        }
+        Map<String, String> blockAliases = new HashMap<String, String>();
+        for (NBTTagCompound entry : compounds(tag, "BlockAliases")) {
+            blockAliases.put(entry.func_74779_i("K"), entry.func_74779_i("V"));
+        }
+        Map<String, String> itemAliases = new HashMap<String, String>();
+        for (NBTTagCompound entry : compounds(tag, "ItemAliases")) {
+            itemAliases.put(entry.func_74779_i("K"), entry.func_74779_i("V"));
+        }
+        java.util.Set<String> blockSubstitutions = new java.util.HashSet<String>();
+        for (NBTTagCompound entry : compounds(tag, "BlockSubstitutions")) {
+            blockSubstitutions.add(entry.func_74779_i("K"));
+        }
+        java.util.Set<String> itemSubstitutions = new java.util.HashSet<String>();
+        for (NBTTagCompound entry : compounds(tag, "ItemSubstitutions")) {
+            itemSubstitutions.add(entry.func_74779_i("K"));
+        }
+        List<String> missing = GameData.injectWorldIDMap(ids, blocked, blockAliases, itemAliases, blockSubstitutions, itemSubstitutions,
+                true, false); // injectFrozenData, isLocalWorld
+        if (missing != null && !missing.isEmpty()) {
+            System.out.println("[Retrofit] The server has blocks and items this client hasn't: " + missing);
+        }
+    }
+
+    private static List<NBTTagCompound> compounds(NBTTagCompound tag, String key) {
+        List<NBTTagCompound> result = new ArrayList<NBTTagCompound>();
+        net.minecraft.nbt.NBTTagList list = tag.func_150295_c(key, 10); // getTagList (compounds)
+        for (int i = 0; i < list.func_74745_c(); i++) { // tagCount
+            result.add(list.func_150305_b(i)); // getCompoundTagAt
+        }
+        return result;
     }
 
     /** Client, after leaving a server: back to the mods' own ids. */
@@ -250,6 +327,7 @@ public final class Events {
         MinecraftForge.EVENT_BUS.post(new WorldEvent.Unload((World) world));
         synchronized (CHUNKS) {
             CHUNKS.remove(world);
+            UNLOADED.remove(world);
         }
     }
 
@@ -257,28 +335,44 @@ public final class Events {
 
     /**
      * Legacy worlds keep no chunks (the host level holds the blocks), so chunk events carry a chunk
-     * view (BridgeChunk) per loaded host chunk.
+     * view (BridgeChunk) per loaded host chunk: the one the world's chunk provider hands out while the
+     * chunk is loaded.
      */
     private static final Map<Object, Map<Long, net.minecraft.world.chunk.Chunk>> CHUNKS = new java.util.IdentityHashMap<Object, Map<Long, net.minecraft.world.chunk.Chunk>>();
     private static int busId = -1;
 
     private static net.minecraft.world.chunk.Chunk chunk(Object world, int x, int z, boolean create) {
+        net.minecraft.world.chunk.Chunk chunk = loadedChunk(world, x, z);
+        if (chunk != null || !create) {
+            return chunk;
+        }
+        // the view mods already have (asked outside the lock: the provider asks loadedChunk under its own)
+        net.minecraft.world.chunk.Chunk provided = ((World) world).func_72863_F().func_73154_d(x, z); // getChunkProvider().provideChunk
         synchronized (CHUNKS) {
             Map<Long, net.minecraft.world.chunk.Chunk> chunks = CHUNKS.get(world);
             if (chunks == null) {
-                if (!create) {
-                    return null;
-                }
                 chunks = new HashMap<Long, net.minecraft.world.chunk.Chunk>();
                 CHUNKS.put(world, chunks);
             }
             long key = (long) x << 32 | (z & 0xFFFFFFFFL);
-            net.minecraft.world.chunk.Chunk chunk = chunks.get(key);
-            if (chunk == null && create) {
-                chunk = new BridgeChunk((World) world, x, z);
+            chunk = chunks.get(key);
+            if (chunk == null) {
+                chunk = provided;
                 chunks.put(key, chunk);
+                Map<Long, net.minecraft.world.chunk.Chunk> unloaded = UNLOADED.get(world);
+                if (unloaded != null) {
+                    unloaded.remove(key); // loaded again before it was saved
+                }
             }
             return chunk;
+        }
+    }
+
+    /** The chunk view chunk events carried for a loaded chunk, or null (see BridgeChunkProvider.provideChunk). */
+    static net.minecraft.world.chunk.Chunk loadedChunk(Object world, int x, int z) {
+        synchronized (CHUNKS) {
+            Map<Long, net.minecraft.world.chunk.Chunk> chunks = CHUNKS.get(world);
+            return chunks == null ? null : chunks.get((long) x << 32 | (z & 0xFFFFFFFFL));
         }
     }
 
@@ -305,22 +399,55 @@ public final class Events {
                 || listenedTo(net.minecraftforge.event.world.ChunkDataEvent.Load.class) || listenedTo(net.minecraftforge.event.world.ChunkDataEvent.Save.class);
     }
 
+    /** Whether any legacy mod listens to players starting or stopping to watch chunks. */
+    public static boolean chunkWatchWanted() {
+        return listenedTo(net.minecraftforge.event.world.ChunkWatchEvent.Watch.class)
+                || listenedTo(net.minecraftforge.event.world.ChunkWatchEvent.UnWatch.class);
+    }
+
+    /**
+     * The host sent a player a chunk (watched) or had it forget one: ChunkWatchEvent.Watch or UnWatch with the
+     * player's mirror, as 1.7.10's server fired them after sending a chunk. Mods send what they keep in chunks to
+     * the players watching them (Forge Multipart's parts, CodeChickenLib's world extensions).
+     */
+    public static void chunkWatched(Object player, int x, int z, boolean watched) {
+        net.minecraft.world.ChunkCoordIntPair chunk = new net.minecraft.world.ChunkCoordIntPair(x, z);
+        net.minecraft.entity.player.EntityPlayerMP mirror = (net.minecraft.entity.player.EntityPlayerMP) player;
+        MinecraftForge.EVENT_BUS.post(watched ? new net.minecraftforge.event.world.ChunkWatchEvent.Watch(chunk, mirror)
+                : new net.minecraftforge.event.world.ChunkWatchEvent.UnWatch(chunk, mirror));
+    }
+
     /** A host chunk was loaded: ChunkDataEvent.Load with what mods saved in it (if anything), then ChunkEvent.Load. */
     public static void chunkLoaded(Object world, int x, int z, byte[] data) throws Exception {
         net.minecraft.world.chunk.Chunk chunk = chunk(world, x, z, true);
+        chunk.field_76636_d = true; // isChunkLoaded (a view handed out before may have been unloaded since)
         if (data != null) {
             MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkDataEvent.Load(chunk, Bridge.fromBytes(data)));
         }
         MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkEvent.Load(chunk));
     }
 
-    /** A host chunk is being saved: ChunkDataEvent.Save; returns the data mods put in (null if none). */
+    /**
+     * A host chunk is being saved: ChunkDataEvent.Save; returns the data mods put in (null if none). A chunk saved
+     * as it unloads is the one its unload event carried (no longer loaded), as on 1.7.10, which unloaded and then
+     * saved it: mods drop what they keep for it there (CodeChickenLib).
+     */
     public static byte[] chunkSaved(Object world, int x, int z) throws Exception {
-        net.minecraft.world.chunk.Chunk chunk = chunk(world, x, z, true);
+        net.minecraft.world.chunk.Chunk chunk;
+        synchronized (CHUNKS) {
+            Map<Long, net.minecraft.world.chunk.Chunk> unloaded = UNLOADED.get(world);
+            chunk = unloaded == null ? null : unloaded.remove((long) x << 32 | (z & 0xFFFFFFFFL));
+        }
+        if (chunk == null) {
+            chunk = chunk(world, x, z, true);
+        }
         NBTTagCompound tag = new NBTTagCompound();
         MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkDataEvent.Save(chunk, tag));
         return tag.func_82582_d() ? null : Bridge.toBytes(tag); // hasNoTags
     }
+
+    /** Chunks unloaded and not saved yet, by world (see chunkSaved); unchanged chunks are never saved, so few are kept. */
+    private static final Map<Object, Map<Long, net.minecraft.world.chunk.Chunk>> UNLOADED = new java.util.WeakHashMap<Object, Map<Long, net.minecraft.world.chunk.Chunk>>();
 
     public static void chunkUnloaded(Object world, int x, int z) {
         net.minecraft.world.chunk.Chunk chunk = chunk(world, x, z, false);
@@ -330,10 +457,22 @@ public final class Events {
         chunk.field_76636_d = false;
         MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.world.ChunkEvent.Unload(chunk));
         synchronized (CHUNKS) {
+            long key = (long) x << 32 | (z & 0xFFFFFFFFL);
             Map<Long, net.minecraft.world.chunk.Chunk> chunks = CHUNKS.get(world);
             if (chunks != null) {
-                chunks.remove((long) x << 32 | (z & 0xFFFFFFFFL));
+                chunks.remove(key);
             }
+            Map<Long, net.minecraft.world.chunk.Chunk> unloaded = UNLOADED.get(world);
+            if (unloaded == null) {
+                unloaded = new java.util.LinkedHashMap<Long, net.minecraft.world.chunk.Chunk>() {
+                    @Override
+                    protected boolean removeEldestEntry(Map.Entry<Long, net.minecraft.world.chunk.Chunk> eldest) {
+                        return size() > 1024;
+                    }
+                };
+                UNLOADED.put(world, unloaded);
+            }
+            unloaded.put(key, chunk);
         }
     }
 

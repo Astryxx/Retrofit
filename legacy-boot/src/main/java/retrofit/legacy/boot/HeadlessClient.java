@@ -60,6 +60,13 @@ public final class HeadlessClient {
         }
         setField(minecraftClass, minecraft, "field_71449_j", Class.forName("net.minecraft.util.Session", true, lcl) // session
                 .getConstructor(String.class, String.class, String.class, String.class).newInstance(name, uuid, "-", "legacy"));
+        // proxy, from the launcher's arguments: mods build authlib services with it (ManaMetal's player messages)
+        for (Field field : minecraftClass.getDeclaredFields()) {
+            if (field.getType() == java.net.Proxy.class && !java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                field.setAccessible(true);
+                field.set(minecraft, java.net.Proxy.NO_PROXY);
+            }
+        }
 
         // OpenGlHelper.initializeTextures ran before mods loaded; mods branch on shader support (see retrofit.legacy.gl.Shaders).
         Class<?> openGlHelper = Class.forName("net.minecraft.client.renderer.OpenGlHelper", true, lcl);

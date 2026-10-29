@@ -104,6 +104,10 @@ public final class ClientHooks {
             LegacyBridge.call("applyIds", (Object) data);
             return;
         }
+        if (channel.equals(retrofit.forge.world.LegacyModCheck.SERVER_MODS)) {
+            retrofit.forge.world.LegacyModCheck.serverMods(data);
+            return;
+        }
         if (channel.equals(retrofit.forge.world.LegacyConfigSync.LIST)) {
             serverConfigs(data);
             return;

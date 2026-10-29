@@ -130,6 +130,8 @@ public class HeadlessTransformer implements IClassTransformer {
         redirect("net.minecraft.world.biome.BiomeGenBase", "func_150565_n()[Lnet/minecraft/world/biome/BiomeGenBase;", BIOMES + "viewedArray"); // getBiomeGenArray
         constructorHook("net.minecraft.world.biome.BiomeGenBase", "<init>(I)V", BIOMES + "record");
         constructorHook("net.minecraft.world.biome.BiomeGenBase", "<init>(IZ)V", BIOMES + "record"); // Forge's, which (I)V calls into
+        // Creatures wearing 1.20.1 armor (carried as one ItemArmor per slot) are protected by its own armor points.
+        redirect("net.minecraft.entity.EntityLivingBase", "func_70658_aO()I", "retrofit/legacy/bridge/ModernContent.totalArmorValue"); // getTotalArmorValue
     }
 
     /** Whether a coremod replaced GuiScreen.renderToolTip with its own tooltips (ManaMetal's): see noteFinalClass. */

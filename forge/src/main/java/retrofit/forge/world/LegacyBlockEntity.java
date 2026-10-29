@@ -276,6 +276,22 @@ public class LegacyBlockEntity extends BlockEntity {
         }
     }
 
+    /**
+     * 1.7.10 made a chunk's tile entities when it loaded, ticking or not, and listed them in
+     * loadedTileEntityList, where mods look for machines (Rival Rebels' tokamak finds its teslas there).
+     */
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        if (!broken) {
+            try {
+                legacyTile();
+            } catch (RuntimeException e) {
+                fail("loading", e);
+            }
+        }
+    }
+
     @Override
     public void clearRemoved() {
         super.clearRemoved();

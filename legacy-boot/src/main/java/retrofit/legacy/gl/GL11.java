@@ -31,6 +31,7 @@ public final class GL11 {
     private static final int GL_LINE_LOOP = 0x0002;
     private static final int GL_LINE_STRIP = 0x0003;
     private static final int GL_QUADS = 0x0007;
+    private static final int GL_BYTE = 0x1400;
     private static final int GL_VERTEX_ARRAY = 0x8074;
     private static final int GL_NORMAL_ARRAY = 0x8075;
     private static final int GL_COLOR_ARRAY = 0x8076;
@@ -92,6 +93,7 @@ public final class GL11 {
     private static int clientUnit;
     private static FloatBuffer vertexPointer, texCoordPointer;
     private static ByteBuffer colorPointer, normalPointer;
+    private static FloatBuffer normalFloats; // float normals (from a buffer object), else normalPointer's bytes
     private static int vertexBase, vertexStride, vertexSize, texCoordBase, texCoordStride;
     private static int colorBase, colorStride, normalBase, normalStride;
 
@@ -616,9 +618,54 @@ public final class GL11 {
     }
 
     public static void glNormalPointer(int stride, ByteBuffer pointer) {
+        normalFloats = null;
         normalPointer = pointer;
         normalBase = pointer.position();
         normalStride = stride == 0 ? 3 : stride;
+    }
+
+    // Pointers into the bound buffer object (GL15), by byte offset: taken when set, as GL does.
+
+    public static void glVertexPointer(int size, int type, int stride, long offset) {
+        FloatBuffer floats = GL15.arrayFloats(type, offset);
+        if (floats != null) {
+            vertexPointer = floats;
+            vertexBase = 0;
+            vertexSize = size;
+            vertexStride = stride == 0 ? size : stride / 4;
+        }
+    }
+
+    public static void glTexCoordPointer(int size, int type, int stride, long offset) {
+        FloatBuffer floats = clientUnit == 0 ? GL15.arrayFloats(type, offset) : null;
+        if (floats != null) {
+            texCoordPointer = floats;
+            texCoordBase = 0;
+            texCoordStride = stride == 0 ? size : stride / 4;
+        }
+    }
+
+    public static void glNormalPointer(int type, int stride, long offset) {
+        FloatBuffer floats = GL15.arrayFloats(type, offset);
+        if (floats != null) {
+            normalFloats = floats;
+            normalBase = 0;
+            normalStride = stride == 0 ? 3 : stride / 4;
+        } else if (type == GL_BYTE && GL15.arrayBytes(offset) != null) {
+            normalFloats = null;
+            normalPointer = GL15.arrayBytes(offset);
+            normalBase = 0;
+            normalStride = stride == 0 ? 3 : stride;
+        }
+    }
+
+    public static void glColorPointer(int size, int type, int stride, long offset) {
+        ByteBuffer bytes = type == GL_UNSIGNED_BYTE ? GL15.arrayBytes(offset) : null;
+        if (bytes != null) {
+            colorPointer = bytes;
+            colorBase = 0;
+            colorStride = stride == 0 ? size : stride;
+        }
     }
 
     public static void glDrawArrays(int mode, int first, int count) {
@@ -640,7 +687,12 @@ public final class GL11 {
                 local[o + 3] = texCoordPointer.get(t);
                 local[o + 4] = texCoordPointer.get(t + 1);
             }
-            if (normalArray && normalPointer != null) {
+            if (normalArray && normalFloats != null) {
+                int n = normalBase + v * normalStride;
+                local[o + 5] = normalFloats.get(n);
+                local[o + 6] = normalFloats.get(n + 1);
+                local[o + 7] = normalFloats.get(n + 2);
+            } else if (normalArray && normalPointer != null) {
                 int n = normalBase + v * normalStride;
                 local[o + 5] = normalPointer.get(n) / 127f;
                 local[o + 6] = normalPointer.get(n + 1) / 127f;

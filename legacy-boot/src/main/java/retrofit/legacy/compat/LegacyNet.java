@@ -50,6 +50,21 @@ public final class LegacyNet {
         return openConnection(url).getInputStream();
     }
 
+    /**
+     * DepLoader's comparison of the library version it found with the one it asks for (see RetrofitTransformer's
+     * olderDependencies): an older one counts as the same, since the asked one can't be downloaded.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static int compareDependency(Comparable found, Object wanted) {
+        int compared = found.compareTo(wanted);
+        if (compared < 0) {
+            System.out.println("[Retrofit] A mod asks for version " + wanted + " of a library, and " + found
+                    + " is there: it is used (1.7.10 would delete it and download " + wanted + ")");
+            return 0;
+        }
+        return compared;
+    }
+
     private static IOException refused(URL url) {
         String path = url.getPath();
         String file = path.substring(path.lastIndexOf('/') + 1);

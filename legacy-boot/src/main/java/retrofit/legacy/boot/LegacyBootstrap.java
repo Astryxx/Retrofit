@@ -55,6 +55,7 @@ public final class LegacyBootstrap {
         Launch.blackboard.put("TweakClasses", tweakClassNames);
         Launch.blackboard.put("ArgumentList", argumentList);
 
+        ModDuplicates.setAside(gameDir); // before FML reads the mods folder: two versions of a mod stop every mod
         runTweakers(classLoader, tweakClassNames, argumentList, gameDir, assetsDir);
         skipLibraryScanning(sources);
 

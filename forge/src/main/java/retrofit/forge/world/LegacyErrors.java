@@ -1,7 +1,7 @@
 package retrofit.forge.world;
 
-import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,10 +12,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * its stack trace, so a broken block can't flood the log.
  */
 public final class LegacyErrors {
-    private static final Logger LOGGER = LogUtils.getLogger();
+    /**
+     * By name, not LogUtils.getLogger's stack walk: this class is first used where legacy code failed, which
+     * can be deep in an overflowing stack, and a class whose initialisation fails is gone for the rest of the
+     * game (every later report then crashed it). RetrofitMod also initialises it at startup ({@link #ready}).
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(LegacyErrors.class);
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
     private LegacyErrors() {
+    }
+
+    /** Initialises this class (see LOGGER). */
+    public static void ready() {
     }
 
     static void report(Object what, String action, Throwable error) {

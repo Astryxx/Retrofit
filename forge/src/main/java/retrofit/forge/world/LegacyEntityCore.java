@@ -31,12 +31,16 @@ public final class LegacyEntityCore {
     /** Legacy entity -> its host entity, both sides (for damage attribution, events, lookups). */
     private static final Map<Object, Entity> HOSTS = Collections.synchronizedMap(new WeakHashMap<>());
     static final String LEGACY_TAG = "legacy";
+    /** A copy that failed this many consecutive attempts is given up on (10 seconds of ticks). */
+    private static final int CREATION_TRIES = 200;
 
     private final Entity host;
     private final String legacyName;
     private Object legacy;
     private CompoundTag pending;
-    private boolean broken;
+    private int failedCreations;
+    /** The health apply() last put on the host (read back: setHealth clamps); the reference for spotting health writes that bypassed hurt(). */
+    private float syncedHealth = Float.NaN;
     // client spawn data
     private int legacyId = -1;
     private byte[] spawnWatcher;
@@ -98,19 +102,32 @@ public final class LegacyEntityCore {
     void adoptNbt(CompoundTag legacyNbt) {
         legacy = null;
         pending = legacyNbt;
-        broken = false;
+        failedCreations = 0;
     }
 
-    /** The legacy entity, created on first use (fresh, from saved NBT, or on clients from the spawn data). */
+    /**
+     * The legacy entity, created on first use (fresh, from saved NBT, or on clients from the spawn
+     * data).
+     *
+     * A failed attempt is not permanent: it is reported once (LegacyErrors collapses repeats) and the
+     * next use tries again. Creation runs at fragile moments (against a world being torn down, mid
+     * switch, while the entity tracker moves the carrier), and one failure there used to blank the mob
+     * and everything watching it (boss bars, spawn caches) for as long as the entity lived: mods like
+     * The Titans keep a boss bar per entity, so a copy that stopped coming back took the mob and its
+     * bar away for good.
+     */
     public Object legacy() {
-        if (legacy != null || broken) {
+        if (legacy != null) {
             return legacy;
         }
         try {
             Object world = LegacyContent.legacyWorld(host.level());
             if (pending != null) {
-                legacy = LegacyBridge.call("entityLoad", (Object) LegacyStacks.toBytes(pending), world);
-                pending = null;
+                Object loaded = LegacyBridge.call("entityLoad", (Object) LegacyStacks.toBytes(pending), world);
+                if (loaded != null) {
+                    legacy = loaded;
+                    pending = null;
+                }
             }
             boolean fresh = false;
             if (legacy == null) {
@@ -121,7 +138,7 @@ public final class LegacyEntityCore {
                 LegacyBridge.call("entityFinalizeSpawn", legacy); // natural spawns, spawn eggs, /summon: equipment, variants
             }
             if (legacy == null) {
-                broken = true;
+                fail("being created", new IllegalStateException("no legacy entity was made"));
                 return null;
             }
             HOSTS.put(legacy, host);
@@ -138,14 +155,16 @@ public final class LegacyEntityCore {
             if (!LegacyBridge.<Boolean>call("entityJoin", legacy, world)) {
                 host.discard(); // a mod cancelled its EntityJoinWorldEvent
             }
+            failedCreations = 0;
         } catch (RuntimeException e) {
             fail("being created", e);
+            return null;
         }
         return legacy;
     }
 
     private void fail(String action, RuntimeException e) {
-        broken = true;
+        failedCreations++;
         LegacyErrors.report("entity " + legacyName, action, e);
     }
 
@@ -153,12 +172,20 @@ public final class LegacyEntityCore {
     void serverTick() {
         Object entity = legacy();
         if (entity == null) {
-            host.discard();
+            // The copy isn't there (yet): keep the host so a transient failure can heal. A copy that
+            // never comes (a name no entity class answers to, a constructor that always throws) takes
+            // the host with it after a grace period, as the immediate discard did.
+            if (failedCreations >= CREATION_TRIES) {
+                host.discard();
+            }
             return;
         }
         try {
+            deliverForeignHealthWrites(entity); // a mod's health-write damage: deliver before this tick's state sync erases it
+            disarmHealthWriteWatchdog();        // a mod's no-damage watchdog must not erase the host for its own mod's damage rules
             double[] state = LegacyBridge.call("entityTick", entity);
             apply(state, false);
+            failedCreations = 0; // a clean tick: the grace period counts consecutive failures only
             byte[] watcher = LegacyBridge.call("entityWatcherChanges", entity);
             if (watcher != null) {
                 LegacyNetwork.sendEntityData(host, watcher);
@@ -173,8 +200,13 @@ public final class LegacyEntityCore {
                 host.discard();
             }
         } catch (RuntimeException e) {
+            // A tick that failed (mid world switch, a mod's code hitting a hole): skip this tick and
+            // carry the last state; the host goes only when the failure repeats for 10 seconds, so
+            // one bad tick no longer kills the mob.
             fail("ticking", e);
-            host.discard();
+            if (failedCreations >= CREATION_TRIES) {
+                host.discard();
+            }
         }
     }
 
@@ -226,6 +258,7 @@ public final class LegacyEntityCore {
                 living.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH).setBaseValue(state[11]);
             }
             living.setHealth((float) Math.max(state[10], state[14] != 0 ? 0 : 0.01));
+            syncedHealth = living.getHealth();
         }
         if ((float) state[12] != width || (float) state[13] != height) {
             width = (float) state[12];
@@ -242,7 +275,13 @@ public final class LegacyEntityCore {
         }
         try {
             float headYaw = host instanceof LivingEntity living ? living.getYHeadRot() : host.getYRot();
-            LegacyBridge.call("entityClientTick", entity, host.getX(), host.getY(), host.getZ(), host.getYRot(), host.getXRot(), headYaw);
+            double health = 0.0;
+            double maxHealth = 0.0;
+            if (host instanceof LivingEntity living) {
+                health = living.getHealth();
+                maxHealth = living.getMaxHealth();
+            }
+            LegacyBridge.call("entityClientTick", entity, host.getX(), host.getY(), host.getZ(), host.getYRot(), host.getXRot(), headYaw, health, maxHealth);
         } catch (RuntimeException e) {
             fail("updating on the client", e);
         }
@@ -256,22 +295,161 @@ public final class LegacyEntityCore {
             return false;
         }
         Entity attacker = source.getEntity();
-        Object legacyAttacker = null;
-        Player player = attacker instanceof Player p ? p : null;
-        if (player != null) {
-            legacyAttacker = LegacyPlayers.mirror(player, true);
-        } else if (attacker instanceof LegacyMob mob) {
-            legacyAttacker = mob.core().legacy();
-        }
+        Object legacyAttacker = attackerOf(attacker);
         try {
             boolean hurt = LegacyBridge.call("entityHurt", entity, source.getMsgId(), legacyAttacker, amount);
-            if (player != null) {
+            if (attacker instanceof Player player) {
                 LegacyPlayers.writeBack(player, legacyAttacker);
             }
             return hurt;
         } catch (RuntimeException e) {
             LegacyErrors.report("entity " + legacyName, "being hurt", e);
             return false;
+        }
+    }
+
+    /**
+     * Another entity as this one's legacy world sees it: a legacy entity itself, a player's mirror,
+     * or the stand-in for a 1.20.1 creature (servers only); null if legacy code can't see it.
+     */
+    Object legacyOf(Entity entity) {
+        return legacyOf(host.level(), entity);
+    }
+
+    /** An entity as the legacy world of a level sees it (see above). */
+    static Object legacyOf(net.minecraft.world.level.Level level, Entity entity) {
+        if (entity == null) {
+            return null;
+        }
+        if (entity instanceof LegacyEntityCarrier carrier) {
+            return carrier.core().legacy();
+        }
+        if (entity instanceof Player player) {
+            return LegacyPlayers.mirror(player, false);
+        }
+        if (level.isClientSide || entity.level() != level) {
+            return null;
+        }
+        Object[] row = HostCreatures.row(entity);
+        return row == null ? null : LegacyBridge.call("standIn", LegacyContent.legacyWorld(level), row);
+    }
+
+    /**
+     * The legacy entity to name as the attacker in a hit on this one: a player's mirror with its inventory
+     * (the hit may wear its weapon; written back after), otherwise as legacy code sees the attacker (a stand-in
+     * for a 1.20.1 creature, or the owner of the projectile that hit). Anonymous damage is not the same thing:
+     * 1.7.10 damage always named its attacker, and mods check the name's class and remember it - The Titans'
+     * titans refuse attacker-less damage outright, take multiplied damage from named bosses (a 1.20.1 wither
+     * must arrive as a 1.7.10 EntityWither for the x100 rule), and set a revenge target.
+     */
+    private Object attackerOf(Entity attacker) {
+        try {
+            return attacker instanceof Player player ? LegacyPlayers.mirror(player, true) : legacyOf(attacker);
+        } catch (RuntimeException e) {
+            LegacyErrors.report("entity " + legacyName, "naming its attacker", e);
+            return null;
+        }
+    }
+
+    /** 1.20.1 code set the host mob's target: the legacy AI takes it (see Entities.entitySetTarget). */
+    void setTarget(LivingEntity target) {
+        Object entity = legacy();
+        if (entity == null || host.level().isClientSide) {
+            return;
+        }
+        try {
+            LegacyBridge.call("entitySetTarget", entity, legacyOf(target));
+        } catch (RuntimeException e) {
+            LegacyErrors.report("entity " + legacyName, "taking a target", e);
+        }
+    }
+
+    /** 1.20.1 code healed the host mob: the legacy creature heals (its health is the one the host's follows). */
+    void heal(float amount) {
+        Object entity = legacy();
+        if (entity == null || host.level().isClientSide) {
+            return;
+        }
+        try {
+            LegacyBridge.call("entityHeal", entity, amount);
+            if (host instanceof LivingEntity living) {
+                syncedHealth = living.getHealth(); // heal() already forwarded this write; don't deliver it twice
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report("entity " + legacyName, "being healed", e);
+        }
+    }
+
+    /**
+     * Damage that never reached hurt(): some mods damage by writing the target's health field directly
+     * (OmniMobs' bosses force their damage onto a health write and never call hurt), which none of the
+     * regular paths see - and the next apply() would overwrite the write with the legacy entity's
+     * unchanged health, so the attack simply evaporates. A drop on the host since the last sync is
+     * therefore taken as damage and delivered to the legacy entity, named after the last entity that
+     * hurt it (the force-damage code records that), through the same attackEntityFrom path as regular
+     * damage: boss rules, bars, revenge and all. A write with no such name arrives as anonymous
+     * generic damage - 1.7.10's rules for anonymous damage apply (a titan refuses it). Writes upward
+     * (heals) are delivered as legacy heals too (Usagi's direct health-write fix).
+     */
+    private void deliverForeignHealthWrites(Object entity) {
+        if (!(host instanceof LivingEntity living) || Float.isNaN(syncedHealth)) {
+            return;
+        }
+        float drop = syncedHealth - living.getHealth();
+        if (drop < -1.0e-3f && Float.isFinite(drop)) {
+            try {
+                LegacyBridge.call("entityHeal", entity, -drop);
+            } catch (RuntimeException e) {
+                LegacyErrors.report("entity " + legacyName, "taking a heal set on its host", e);
+            }
+            return;
+        }
+        if (!(drop > 1.0e-3f)) { // also skips a NaN health: it can't be read as a drop
+            return;
+        }
+        // The force-damage record: OmniMobs' EntityUtil.forceHurt writes the attacker onto the target
+        // right after the health write, with LivingEntity's "last hurt by a mob" API - and which of its
+        // two records that call is depends on the runtime's deobfuscation of it. Read both: getLastHurtByMob
+        // ("who last hurt me", the record a passive host only gets from that call - vanilla hurt() is
+        // intercepted and never reaches it) first, then getLastHurtMob ("who I last hurt", never set on
+        // a passive host except by that same call). Missing either made the delivery anonymous, and a
+        // titan refuses anonymous generic damage outright - its bar never moved.
+        Entity attacker = living.getLastHurtByMob();
+        if (attacker == null) {
+            attacker = living.getLastHurtMob();
+        }
+        Object legacyAttacker = attackerOf(attacker);
+        try {
+            // entityHurt names the damage after the attacker when there is one (a player's mirror
+            // causes player damage, a creature mob damage); only truly anonymous force damage
+            // falls through to the kind, generic.
+            LegacyBridge.call("entityHurt", entity, "generic", legacyAttacker, drop);
+            if (attacker instanceof Player player) {
+                LegacyPlayers.writeBack(player, legacyAttacker);
+            }
+        } catch (RuntimeException e) {
+            LegacyErrors.report("entity " + legacyName, "taking damage set on its host", e);
+        }
+    }
+
+    /**
+     * OmniMobs' Flashfur runs a no-damage watchdog on what it hits (FlashfurInvulnerabilityDetection):
+     * every 200 ticks it compares the target's health against its last checkpoint, and after ten
+     * checkpoints without a >1% drop it erases the target from the world outright (forceRemove plus a
+     * teleport a million blocks out - players get an infinite-damage hit instead). That watchdog cannot
+     * see the damage a legacy entity's own rules refused - The Titans' titans no-hand hits of 50 or
+     * less by design, and refused anonymous damage besides - so a titan fighting the way its mod fights
+     * would vanish from the world mid-battle. Its counter ("omnimobs_counter_data" on the target's
+     * persistent data, read every checkpoint) is therefore kept at zero on hosts: their damage
+     * registration is the bridge's business, not the watchdog's. Absent mod: the tag is never written,
+     * so this is a no-op.
+     */
+    private void disarmHealthWriteWatchdog() {
+        if (host instanceof LivingEntity) {
+            net.minecraft.nbt.CompoundTag data = host.getPersistentData();
+            if (data.contains("omnimobs_counter_data")) {
+                data.putFloat("omnimobs_counter_data", 0.0F);
+            }
         }
     }
 
@@ -403,8 +581,23 @@ public final class LegacyEntityCore {
         for (java.util.Map.Entry<Object, Entity> entry : entries) {
             Entity host = entry.getValue();
             // own side only: the other side's world lives on another thread (integrated server)
-            if (host instanceof LegacyEntityCarrier carrier && host.level().isClientSide == clientSide && host.isRemoved()) {
+            if (!(host instanceof LegacyEntityCarrier carrier) || host.level().isClientSide != clientSide) {
+                continue;
+            }
+            if (host.isRemoved()) {
                 carrier.core().removed();
+            } else if (clientSide) {
+                // A copy a mod's own client-side rule killed (The Titans despawn its dud mobs past 64
+                // blocks on the client too) while the carrier is still tracked: 1.7.10's World tick
+                // dropped dead entities from the list as it ran, and this world's copies tick through
+                // their hosts, so nothing else would ever take it out. The copy is a legacy entity the
+                // host side only has as an Object: entityTakeOut checks its dead flag and world (a live
+                // copy stays in the list) and is a no-op when they don't ask for a take-out.
+                try {
+                    LegacyBridge.call("entityTakeOut", entry.getKey());
+                } catch (RuntimeException ignored) {
+                    // Its world is going away; the carrier's own removal will clean it up.
+                }
             }
         }
     }

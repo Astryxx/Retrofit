@@ -327,6 +327,111 @@ public final class ClientEvents {
         return seen.toString();
     }
 
+    /** For the play test: the class of the client's 1.7.10 tile entity at a position, or "none". */
+    public static String testClientTile(int x, int y, int z) {
+        Object tile = Minecraft.func_71410_x().field_71441_e.func_147438_o(x, y, z); // theWorld.getTileEntity
+        return tile == null ? "none" : tile.getClass().getName();
+    }
+
+    /**
+     * For the play test: a mod's static method called with one entity (the given legacy one, or the client's own player
+     * for null), then a dotted path of fields read from what it returned, or written with {@code value} if not null.
+     */
+    public static Object testEntityData(String className, String method, Object entity, String path, Object value) throws Exception {
+        Object target = entity != null ? entity : Minecraft.func_71410_x().field_71439_g; // thePlayer
+        Class<?> owner = Class.forName(className, true, Minecraft.class.getClassLoader());
+        Object data = null;
+        for (java.lang.reflect.Method candidate : owner.getMethods()) {
+            if (candidate.getName().equals(method) && candidate.getParameterTypes().length == 1
+                    && candidate.getParameterTypes()[0].isInstance(target)) {
+                data = candidate.invoke(null, target);
+                break;
+            }
+        }
+        String[] fields = path.split("\\.");
+        for (int i = 0; data != null && i < fields.length; i++) {
+            Field field = null;
+            for (Class<?> type = data.getClass(); field == null && type != null; type = type.getSuperclass()) {
+                try {
+                    field = type.getDeclaredField(fields[i]);
+                } catch (NoSuchFieldException e) {
+                    // declared further up
+                }
+            }
+            if (field == null) {
+                throw new NoSuchFieldException(fields[i] + " in " + data.getClass().getName());
+            }
+            field.setAccessible(true);
+            if (i == fields.length - 1 && value != null) {
+                field.set(data, value);
+                return value;
+            }
+            data = field.get(data);
+        }
+        return data;
+    }
+
+    /**
+     * For the play test: one of each particle class (EntityFX) in a package of a mod's jar, added as the mod adds them,
+     * on a grid starting at x, y, z (motion none; defaults for other constructor arguments). Says what was added and
+     * what could not be made.
+     */
+    public static String testModParticles(String modId, String packagePrefix, double x, double y, double z) throws Exception {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        java.io.File source = cpw.mods.fml.common.Loader.instance().getIndexedModList().get(modId).getSource();
+        List<String> added = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        try (java.util.zip.ZipFile jar = new java.util.zip.ZipFile(source)) {
+            for (java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = jar.entries(); entries.hasMoreElements(); ) {
+                String name = entries.nextElement().getName();
+                if (!name.startsWith(packagePrefix) || !name.endsWith(".class") || name.contains("$")) {
+                    continue;
+                }
+                String className = name.substring(0, name.length() - 6).replace('/', '.');
+                Class<?> type = Class.forName(className, false, Minecraft.class.getClassLoader());
+                if (!net.minecraft.client.particle.EntityFX.class.isAssignableFrom(type) || java.lang.reflect.Modifier.isAbstract(type.getModifiers())) {
+                    continue;
+                }
+                int index = added.size() + failed.size();
+                try {
+                    added.add(type.getSimpleName() + " (layer " + addParticle(minecraft, type, x + (index % 8) * 0.8, y + (index / 8) * 0.8, z) + ")");
+                } catch (Exception | LinkageError e) {
+                    Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
+                    failed.add(type.getSimpleName() + ": " + cause);
+                }
+            }
+        }
+        return "added " + added.size() + " " + added + "; could not make " + failed.size() + " " + failed;
+    }
+
+    private static int addParticle(Minecraft minecraft, Class<?> type, double x, double y, double z) throws Exception {
+        for (java.lang.reflect.Constructor<?> constructor : type.getConstructors()) {
+            Class<?>[] parameters = constructor.getParameterTypes();
+            if (parameters.length < 4 || !parameters[0].isAssignableFrom(net.minecraft.world.World.class) || parameters[1] != double.class
+                    || parameters[2] != double.class || parameters[3] != double.class) {
+                continue;
+            }
+            Object[] args = new Object[parameters.length];
+            args[0] = minecraft.field_71441_e; // theWorld
+            args[1] = x;
+            args[2] = y;
+            args[3] = z;
+            for (int i = 4; i < parameters.length; i++) {
+                Class<?> parameter = parameters[i];
+                args[i] = parameter == double.class ? (Object) 0.0 : parameter == float.class ? (Object) 1.0F : parameter == int.class ? (Object) 1
+                        : parameter == boolean.class ? (Object) false : parameter == long.class ? (Object) 1L
+                        : parameter.isEnum() ? parameter.getEnumConstants()[0] : null;
+            }
+            net.minecraft.client.particle.EntityFX particle = (net.minecraft.client.particle.EntityFX) constructor.newInstance(args);
+            Field maxAge = net.minecraft.client.particle.EntityFX.class.getDeclaredField("field_70547_e"); // particleMaxAge
+            maxAge.setAccessible(true);
+            maxAge.setInt(particle, Math.max(maxAge.getInt(particle), 200)); // still there for the picture
+            minecraft.field_71452_i.func_78873_a(particle); // effectRenderer.addEffect
+            return particle.func_70537_b(); // getFXLayer
+        }
+        throw new NoSuchMethodException("no constructor (World, double, double, double, ...)");
+    }
+
     /** Whether this frame's overlay events hid 1.7.10's vanilla boss bar (Pre(ALL) or Pre(BOSSHEALTH) cancelled). */
     private static boolean bossBarSuppressed;
 

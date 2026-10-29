@@ -40,6 +40,12 @@ public final class LegacyPlayers {
     public static final int INVULNERABLE = 64;
 
     private static final int SLOTS = 40; // 36 main, then 4 armour (feet first, as both versions order them)
+    /**
+     * Mirrors' entity ids: this plus the host player's id, the same on the server and every client (1.7.10 counted
+     * them on the server and sent them, and mods send players' ids: Muya's player data reached nobody), and far
+     * past the ids legacy entities count up to.
+     */
+    private static final int PLAYER_IDS = 1 << 30;
     private static final Map<World, Map<String, EntityPlayer>> PLAYERS = new WeakHashMap<World, Map<String, EntityPlayer>>();
     private static final Map<EntityPlayer, ItemStack[]> GIVEN = new WeakHashMap<EntityPlayer, ItemStack[]>();
     private static final Map<EntityPlayer, float[]> GIVEN_STATS = new WeakHashMap<EntityPlayer, float[]>();
@@ -80,6 +86,9 @@ public final class LegacyPlayers {
                     PlayerState.restore(uuid, player);
                 }
                 PlayerState.handOver(other, player, uuid);
+            }
+            if (host.entityId() >= 0) {
+                player.func_145769_d(PLAYER_IDS + host.entityId()); // setEntityId
             }
             player.field_71093_bK = world.field_73011_w.field_76574_g; // dimension = provider.dimensionId: mods check where players are
             world.field_73010_i.add(player); // playerEntities

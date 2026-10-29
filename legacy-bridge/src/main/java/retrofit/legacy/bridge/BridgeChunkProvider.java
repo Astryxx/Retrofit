@@ -35,9 +35,17 @@ final class BridgeChunkProvider implements IChunkProvider {
         }
     };
 
-    /** provideChunk: a view of the world (see BridgeChunk) */
+    /**
+     * provideChunk: a view of the world (see BridgeChunk). A loaded chunk's is the one its chunk events carried, as
+     * long as it is loaded: mods keep data per chunk object (CodeChickenLib's world extensions, Forge Multipart's
+     * parts reaching players).
+     */
     @Override
     public synchronized Chunk func_73154_d(int x, int z) {
+        Chunk loaded = Events.loadedChunk(world, x, z);
+        if (loaded != null) {
+            return loaded;
+        }
         long key = (long) x << 32 | (z & 0xFFFFFFFFL);
         Chunk chunk = chunks.get(key);
         if (chunk == null) {

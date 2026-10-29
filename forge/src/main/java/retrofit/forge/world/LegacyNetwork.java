@@ -24,14 +24,14 @@ import java.util.function.Supplier;
  *   both directions, handed to the same legacy channel on the other side on the game thread;
  * - legacy container properties ({@link WindowProperty}: progress bars and the like).
  *
- * The protocol version includes the list of legacy mods, so a client and server with different
- * 1.7.10 mods are told so when connecting instead of failing later.
+ * Its version is Retrofit's protocol: both sides need the same. Their 1.7.10 mods are compared once
+ * the player joins (see {@link LegacyModCheck}), as FML 1.7.10 did: a client may have mods the
+ * server hasn't, and Forge's handshake can only ask for the same version on both sides.
  */
 public final class LegacyNetwork {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final String PROTOCOL = "3"; // 3: entity sync carries watchable attributes
+    private static final String PROTOCOL = "4"; // 3: entity sync carries watchable attributes; 4: mod lists compared after login
     private static SimpleChannel channel;
-    private static String version;
 
     private LegacyNetwork() {
     }
@@ -54,17 +54,30 @@ public final class LegacyNetwork {
     }
 
     private static String version() {
-        if (version == null) {
-            String mods = LegacyBridge.call("modList");
-            version = PROTOCOL + ":" + Integer.toHexString(mods.hashCode());
-            // a client and server whose versions differ are told "mismatched mod list": this is what to compare
-            LOGGER.info("Network version {} from the 1.7.10 mods {}", version, mods);
-        }
-        return version;
+        return PROTOCOL;
     }
 
+    /** When the other side's version last differed from ours, or 0. */
+    private static volatile long mismatch;
+
     private static boolean accepts(String other) {
-        return version().equals(other);
+        if (PROTOCOL.equals(other)) {
+            mismatch = 0;
+            return true;
+        }
+        if (other == null || other.isEmpty() || !Character.isDigit(other.charAt(0))) {
+            return false; // Forge's markers for a side without Retrofit (ABSENT, ACCEPTVANILLA: status pings ask every few seconds)
+        }
+        mismatch = System.currentTimeMillis();
+        LOGGER.warn("The other side runs another Retrofit version (network version {}, ours {})", other, PROTOCOL);
+        return false;
+    }
+
+    /** Client: whether its last version check (within a minute) found another Retrofit version on the server. Taken once. */
+    public static boolean takeMismatch() {
+        long last = mismatch;
+        mismatch = 0;
+        return last != 0 && System.currentTimeMillis() - last <= 60_000;
     }
 
     // ---- Messages ----
@@ -134,6 +147,10 @@ public final class LegacyNetwork {
 
     private static void handle(Payload payload, Supplier<NetworkEvent.Context> context) {
         ServerPlayer sender = context.get().getSender();
+        if (sender != null && payload.legacyChannel().equals(LegacyModCheck.CLIENT_MODS)) {
+            LegacyModCheck.clientMods(sender, payload.data());
+            return;
+        }
         if (sender != null && payload.legacyChannel().equals(LegacyConfigSync.REQUEST)) {
             if (sender.server.isDedicatedServer()) {
                 LegacyConfigSync.requested(sender, payload.data());

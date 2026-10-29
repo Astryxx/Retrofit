@@ -436,6 +436,13 @@ public final class LegacyPlayers {
             Player current = player;
             return current == null || !current.level().isClientSide || current == retrofit.forge.client.ClientHooks.localPlayer();
         }
+
+        @Override
+        public int entityId() {
+            Player current = player;
+            return current == null ? -1 : current.getId();
+        }
+
         /** Where the player was when the mirror last followed it. */
         volatile net.minecraft.world.phys.Vec3 synced;
         /** The inventory last converted, slot by slot, and its legacy stacks: only changed slots are converted again. */

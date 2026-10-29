@@ -165,10 +165,15 @@ public final class LegacyDownloadScreen extends Screen {
         rebuild();
         Thread thread = new Thread(() -> {
             try {
-                downloads.fetch(url -> {
+                List<retrofit.host.LegacyDependencies.Dependency> failed = downloads.fetch(url -> {
                     status = url;
                     minecraft.execute(this::rebuild);
                 });
+                if (!failed.isEmpty()) {
+                    throw new java.io.IOException("Could not download " + String.join(", ", failed.stream()
+                            .map(dep -> dep.file() + " (wanted by " + dep.wantedBy() + ")").toList())
+                            + ". Download them from their mods' pages and put them in retrofit/mods.");
+                }
                 state = State.DONE;
                 LOGGER.info("Downloaded what 1.7.10 needs; it loads at the next start");
             } catch (Exception e) {

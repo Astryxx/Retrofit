@@ -23,12 +23,16 @@ public final class Fluids {
     private Fluids() {
     }
 
-    /** {name, density, temperature, luminosity, viscosity, gaseous (1/0), color, translation key} of every legacy fluid. */
+    /** {name, density, temperature, luminosity, viscosity, gaseous (1/0), color, translation key} of every legacy fluid but left-out mods'. */
     @SuppressWarnings("unchecked")
     public static Object[][] legacyFluids() {
         List<Object[]> fluids = new ArrayList<Object[]>();
         for (Map.Entry<String, Fluid> entry : FluidRegistry.getRegisteredFluids().entrySet()) {
             Fluid fluid = entry.getValue();
+            net.minecraft.block.Block block = fluid.getBlock();
+            if (Bridge.leftOut(fluid.getClass()) || (block != null && Bridge.leftOut(String.valueOf(net.minecraft.block.Block.field_149771_c.func_148750_c(block))))) {
+                continue; // (see Bridge.leftOut; blockRegistry.getNameForObject)
+            }
             int color;
             try {
                 color = fluid.getColor();

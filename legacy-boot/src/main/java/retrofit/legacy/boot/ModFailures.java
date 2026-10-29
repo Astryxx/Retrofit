@@ -271,6 +271,77 @@ public final class ModFailures {
         return text.toString();
     }
 
+    /**
+     * ProxyInjector's Class.forName for a mod's @SidedProxy class. A name that differs from the class's only
+     * in case worked where the mod was made, on a case-insensitive disk, and failed in jars (Arcana RPG's
+     * serverSide "com.gibby.dungeon.commonProxy" for CommonProxy: its dedicated servers never started); the
+     * class of that name in any case, from the loader's jars and folders, is used.
+     */
+    public static Class<?> proxyClass(String name, boolean initialize, ClassLoader loader) throws ClassNotFoundException {
+        try {
+            return Class.forName(name, initialize, loader);
+        } catch (ClassNotFoundException e) {
+            String found = nameIgnoringCase(name, sources(loader));
+            if (found == null) {
+                System.out.println("[Retrofit] No class " + name + " in any case either (" + sources(loader).length + " jars and folders searched)");
+                throw e;
+            }
+            System.out.println("[Retrofit] The proxy class " + name + " is " + found + " (the names differ in case)");
+            return Class.forName(found, initialize, loader);
+        }
+    }
+
+    /** Where a loader finds classes: FML's ModClassLoader keeps none itself, its getParentSources lists the launch loader's jars. */
+    private static java.net.URL[] sources(ClassLoader loader) {
+        List<java.net.URL> urls = new ArrayList<java.net.URL>();
+        try {
+            for (java.io.File file : (java.io.File[]) loader.getClass().getMethod("getParentSources").invoke(loader)) {
+                urls.add(file.toURI().toURL());
+            }
+        } catch (Exception e) {
+            // not FML's ModClassLoader
+        }
+        if (loader instanceof java.net.URLClassLoader) {
+            urls.addAll(java.util.Arrays.asList(((java.net.URLClassLoader) loader).getURLs()));
+        }
+        return urls.toArray(new java.net.URL[0]);
+    }
+
+    /** The class name, as the jars and folders have it, that equals {@code name} ignoring case; or null. */
+    private static String nameIgnoringCase(String name, java.net.URL[] urls) {
+        String path = name.replace('.', '/') + ".class";
+        for (java.net.URL url : urls) {
+            try {
+                java.io.File file = new java.io.File(url.toURI());
+                if (file.isDirectory()) {
+                    java.io.File folder = new java.io.File(file, path).getParentFile();
+                    String[] names = folder.list();
+                    for (String entry : names == null ? new String[0] : names) {
+                        if (entry.equalsIgnoreCase(path.substring(path.lastIndexOf('/') + 1))) {
+                            return (path.substring(0, path.lastIndexOf('/') + 1) + entry).replace('/', '.').replace(".class", "");
+                        }
+                    }
+                } else if (file.isFile()) {
+                    java.util.zip.ZipFile jar = new java.util.zip.ZipFile(file);
+                    try {
+                        java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = jar.entries();
+                        while (entries.hasMoreElements()) {
+                            String entry = entries.nextElement().getName();
+                            if (entry.equalsIgnoreCase(path)) {
+                                return entry.substring(0, entry.length() - ".class".length()).replace('/', '.');
+                            }
+                        }
+                    } finally {
+                        jar.close();
+                    }
+                }
+            } catch (Exception e) {
+                // not a local file: not searched
+            }
+        }
+        return null;
+    }
+
     private static String stackTrace(Throwable error) {
         StringWriter text = new StringWriter();
         error.printStackTrace(new PrintWriter(text));

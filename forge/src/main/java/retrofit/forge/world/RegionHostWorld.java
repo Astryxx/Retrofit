@@ -120,6 +120,16 @@ final class RegionHostWorld implements HostWorld {
         return deep || writable(x, y, z) ? null : LegacyDeferredBlocks.pendingState(dimension, cursor.set(x, y, z));
     }
 
+    /**
+     * World.blockExists while a chunk generates: the chunks this region holds, as 1.7.10's population had its
+     * neighbours loaded and no more. Generators ask before building (ExtraPlanets' towers), and outside the region
+     * every block reads as air: told it was there, they searched it for ground without end.
+     */
+    @Override
+    public boolean blockLoaded(int x, int y, int z) {
+        return readable(x, y - shift, z);
+    }
+
     private boolean readable(int x, int y, int z) {
         return y >= region.getMinBuildHeight() && y < region.getMaxBuildHeight() && region.hasChunk(x >> 4, z >> 4);
     }

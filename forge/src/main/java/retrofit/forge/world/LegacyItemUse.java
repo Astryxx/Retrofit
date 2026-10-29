@@ -32,6 +32,8 @@ import java.util.UUID;
 final class LegacyItemUse {
     /** The same id 1.20.1 uses for a weapon's attack damage (Item.BASE_ATTACK_DAMAGE_UUID). */
     private static final UUID ATTACK_DAMAGE = UUID.fromString("CB3F55D3-645C-4F38-A497-9C13A33DB5CF");
+    /** The same id 1.20.1 uses for a weapon's attack speed (Item.BASE_ATTACK_SPEED_UUID). */
+    private static final UUID ATTACK_SPEED = UUID.fromString("FA233E1C-4180-4865-B01B-BCCE9785ACA3");
     private static final UseAnim[] ANIMATIONS = {UseAnim.NONE, UseAnim.EAT, UseAnim.DRINK, UseAnim.BLOCK, UseAnim.BOW};
 
     private LegacyItemUse() {
@@ -185,7 +187,46 @@ final class LegacyItemUse {
         return player.getItemInHand(hand);
     }
 
+    /** The held legacy item used on a 1.20.1 creature (legacy creatures take it in their own right click, see LegacyEntityCore.interact). */
+    static InteractionResult useOnEntity(ItemStack stack, Player player, LivingEntity target, InteractionHand hand) {
+        if (hand != InteractionHand.MAIN_HAND || target instanceof LegacyEntityCarrier) {
+            return InteractionResult.PASS;
+        }
+        try {
+            Object legacy = LegacyEntityCore.legacyOf(player.level(), target);
+            if (legacy == null) {
+                return InteractionResult.PASS;
+            }
+            Object mirror = LegacyPlayers.mirror(player, true);
+            boolean used = LegacyBridge.call("useOnEntity", mirror, legacy);
+            LegacyPlayers.writeBack(player, mirror);
+            return used ? InteractionResult.SUCCESS : InteractionResult.PASS;
+        } catch (RuntimeException e) {
+            LegacyErrors.report(stack.getItem(), "being used on a creature", e);
+            return InteractionResult.PASS;
+        }
+    }
+
     // ---- Mining and fighting ----
+
+    /**
+     * A player's hit landed: the legacy item's hitEntity (weapons poison, burn or wear there), on the
+     * target as legacy code sees it. False if legacy code can't see the target.
+     */
+    static boolean hitEntity(ItemStack stack, LivingEntity target, Player player) {
+        try {
+            Object legacy = LegacyEntityCore.legacyOf(player.level(), target);
+            if (legacy == null) {
+                return false;
+            }
+            Object mirror = LegacyPlayers.mirror(player, true);
+            LegacyBridge.call("hitEntity", mirror, legacy);
+            LegacyPlayers.writeBack(player, mirror);
+        } catch (RuntimeException e) {
+            LegacyErrors.report(stack.getItem(), "hitting a creature", e);
+        }
+        return true;
+    }
 
     /** The legacy block and metadata standing for a 1.20.1 state: {block, meta}. */
     private static Object[] legacyOf(BlockState state) {
@@ -249,17 +290,35 @@ final class LegacyItemUse {
         }
     }
 
-    /** Weapons: the legacy attack damage modifier, in the main hand. */
+    /** Weapons: the legacy attack damage modifier, in the main hand, and the attack speed of their kind (LegacyGearAttributes). */
     static Multimap<Attribute, AttributeModifier> attributes(EquipmentSlot slot, ItemStack stack, Multimap<Attribute, AttributeModifier> fallback) {
         if (slot != EquipmentSlot.MAINHAND) {
             return fallback;
         }
         double damage = attackDamage(stack);
-        if (Double.isNaN(damage)) {
+        // (any item may have an attack speed set by hand; weapons also get their kind's)
+        double speed = LegacyGearAttributes.attackSpeed(stack.getItem(), Double.isNaN(damage) ? "" : weaponKind(stack));
+        if (Double.isNaN(damage) && Double.isNaN(speed)) {
             return fallback;
         }
-        return ImmutableMultimap.of(Attributes.ATTACK_DAMAGE,
-                new AttributeModifier(ATTACK_DAMAGE, "Legacy weapon modifier", damage, AttributeModifier.Operation.ADDITION));
+        ImmutableMultimap.Builder<Attribute, AttributeModifier> attributes = ImmutableMultimap.builder();
+        if (!Double.isNaN(damage)) {
+            attributes.put(Attributes.ATTACK_DAMAGE, new AttributeModifier(ATTACK_DAMAGE, "Legacy weapon modifier", damage, AttributeModifier.Operation.ADDITION));
+        }
+        if (!Double.isNaN(speed)) {
+            attributes.put(Attributes.ATTACK_SPEED, new AttributeModifier(ATTACK_SPEED, "Legacy weapon modifier", speed, AttributeModifier.Operation.ADDITION));
+        }
+        return attributes.build();
+    }
+
+    private static String weaponKind(ItemStack stack) {
+        Object legacy = LegacyStacks.toLegacy(stack);
+        try {
+            return legacy == null ? "" : LegacyBridge.call("weaponKind", legacy);
+        } catch (RuntimeException e) {
+            LegacyErrors.report(stack.getItem(), "telling what weapon it is", e);
+            return "";
+        }
     }
 
     /** NaN if the stack isn't a legacy weapon. */

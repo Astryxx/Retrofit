@@ -32,10 +32,9 @@ public final class RetrofitMod {
     private static volatile LegacyRuntime runtime;
     /** Downloads the player has not been asked about yet (the title screen asks), or null. */
     private static volatile LegacyDownloads pendingDownloads;
-    /** Mods' dependencies that are not installed and were not downloaded (to explain a failed boot). */
-    private static List<retrofit.host.LegacyDependencies.Dependency> missingDependencies = List.of();
 
     public RetrofitMod() {
+        retrofit.forge.world.LegacyErrors.ready(); // before any legacy code can fail (see LegacyErrors.LOGGER)
         // Both sides boot the matching side of 1.7.10: a dedicated server downloads the 1.7.10 server jar.
         if (Boolean.getBoolean("retrofit.disabled")) {
             LOGGER.warn("Retrofit is disabled (-Dretrofit.disabled=true); 1.7.10 mods are not loaded.");
@@ -58,6 +57,7 @@ public final class RetrofitMod {
             otherVersions = retrofit.host.LegacyModFiles.otherVersions(FMLPaths.MODSDIR.get(), legacyDir.resolve("mods"));
             otherVersions.forEach(other -> LOGGER.warn("{} is a mod for Minecraft {}: Retrofit runs 1.7.10 mods only, so it is not loaded",
                     other.file(), other.minecraftVersion()));
+            retrofit.host.LegacyDependencies.bringBack(legacyDir); // set aside at an earlier start: checked again
             if (!downloadsSettled(legacyDir, server)) {
                 return; // 1.7.10 mods load once the files are there (after the next start)
             }
@@ -77,7 +77,9 @@ public final class RetrofitMod {
             }
             String ipv4Before = System.getProperty("java.net.preferIPv4Stack");
             runtime = LegacyHost.boot(LegacyInstall.defaultMinecraftHome(), legacyDir, jars, true, server);
-            leftOut = leftOutMods(runtime);
+            List<String> notLoaded = new ArrayList<>(waitingForLibraries);
+            notLoaded.addAll(leftOutMods(runtime));
+            leftOut = notLoaded;
             leftOut.forEach(line -> LOGGER.warn("1.7.10 mod not loaded, the others are: {}", line));
             // Legacy code must not change JVM-wide settings (see LegacySystem); check the one FML 1.7.10 sets.
             LOGGER.debug("java.net.preferIPv4Stack before legacy boot: {}, after: {}", ipv4Before,
@@ -87,13 +89,6 @@ public final class RetrofitMod {
                 if (cause.getMessage() != null && cause.getMessage().startsWith("Retrofit does not let 1.7.10 mods download")) {
                     throw new IllegalStateException(cause.getMessage(), e); // a mod's own download of a mod it needs, refused (LegacyNet)
                 }
-            }
-            if (!missingDependencies.isEmpty()) { // their mods' DepLoader fails without them (it may not download them)
-                StringBuilder list = new StringBuilder();
-                missingDependencies.forEach(dep -> list.append("\n  ").append(dep.file()).append(", needed by ").append(dep.wantedBy()));
-                throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10: these mods are missing:" + list
-                        + "\nDownload them from their mods' pages and put them in retrofit/mods, or set " + LegacyDownloads.SETTING
-                        + "=ask in retrofit/retrofit.properties to be asked about downloading them.", e);
             }
             throw new IllegalStateException("Retrofit could not start Minecraft 1.7.10. See the log above for details.", e);
         }
@@ -111,12 +106,14 @@ public final class RetrofitMod {
         }
         LegacyDownloads.Permission permission = LegacyDownloads.permission(legacyDir);
         if (permission == LegacyDownloads.Permission.NEVER && downloads.files().isEmpty()) {
-            missingDependencies = downloads.dependencies();
-            return true; // only mods' dependencies are missing: 1.7.10 starts, and refuses the mods' own downloads of them
+            // only mods' dependencies are missing: the mods wanting them wait aside, the others load
+            waitingForLibraries = retrofit.host.LegacyDependencies.setAside(legacyDir, downloads.dependencies());
+            return true;
         }
         if (permission == LegacyDownloads.Permission.YES) {
             LOGGER.info("Downloading what 1.7.10 needs ({} set to yes in retrofit/retrofit.properties)", LegacyDownloads.SETTING);
-            downloads.fetch(url -> LOGGER.info("Downloading {}", url));
+            // a dependency that can't be downloaded: its mod waits aside, the others load
+            waitingForLibraries = retrofit.host.LegacyDependencies.setAside(legacyDir, downloads.fetch(url -> LOGGER.info("Downloading {}", url)));
             return true;
         }
         StringBuilder list = new StringBuilder();
@@ -143,6 +140,8 @@ public final class RetrofitMod {
 
     private static int legacyModFiles = -1;
     private static List<String> leftOut = List.of();
+    /** The mods set aside this start for a dependency they couldn't get (see LegacyDependencies.setAside). */
+    private static List<String> waitingForLibraries = List.of();
 
     /** 1.7.10 mods left out because they lack a mod they need or failed to load, with why (told on the title screen). */
     public static List<String> leftOut() {

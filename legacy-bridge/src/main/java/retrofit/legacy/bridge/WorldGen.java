@@ -33,6 +33,14 @@ public final class WorldGen {
         return generators != null && !generators.isEmpty();
     }
 
+    /** The generation-only worlds, readable without LOCK (generation holds it while placing tile entities). */
+    private static final Set<Object> GEN_WORLDS = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<Object, Boolean>());
+
+    /** Whether a world is one of the generation-only worlds below. */
+    static boolean isGenWorld(Object world) {
+        return GEN_WORLDS.contains(world);
+    }
+
     /** The generation-only legacy world of a dimension (tile entities made during generation belong to it). */
     public static Object genWorld(final int dimension) {
         synchronized (LOCK) {
@@ -55,6 +63,7 @@ public final class WorldGen {
                 }
                 DimensionManager.setWorld(dimension, previous);
                 WORLDS.put(dimension, world);
+                GEN_WORLDS.add(world);
             }
             return world;
         }
@@ -67,10 +76,55 @@ public final class WorldGen {
             world.setHost(region);
             LegacyWorlds.SERVER_WORK.set(Boolean.TRUE);
             try {
-                GameRegistry.generateWorld(chunkX, chunkZ, world, world.func_72863_F(), world.func_72863_F()); // getChunkProvider
+                generateWorld(world, chunkX, chunkZ);
             } finally {
                 LegacyWorlds.SERVER_WORK.remove();
                 world.setHost(null);
+            }
+        }
+    }
+
+    private static java.util.List<IWorldGenerator> generators;
+    private static final Set<String> FAILED_GENERATORS = new java.util.HashSet<String>();
+
+    /**
+     * GameRegistry.generateWorld, with the same seeds, one generator at a time: one that throws is
+     * reported once and the others still generate the chunk (in FML's loop the generators after it
+     * did nothing there).
+     */
+    private static void generateWorld(BridgeWorldServer world, int chunkX, int chunkZ) {
+        if (generators == null) {
+            try {
+                java.lang.reflect.Method compute = GameRegistry.class.getDeclaredMethod("computeSortedGeneratorList");
+                compute.setAccessible(true);
+                compute.invoke(null);
+                Field sorted = GameRegistry.class.getDeclaredField("sortedGeneratorList");
+                sorted.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                java.util.List<IWorldGenerator> list = (java.util.List<IWorldGenerator>) sorted.get(null);
+                generators = list;
+            } catch (ReflectiveOperationException e) {
+                System.out.println("[Retrofit] FML's world generators can't be run one by one; they run as FML runs them: " + e);
+                GameRegistry.generateWorld(chunkX, chunkZ, world, world.func_72863_F(), world.func_72863_F()); // getChunkProvider
+                return;
+            }
+        }
+        long worldSeed = world.func_72905_C(); // getSeed
+        java.util.Random random = new java.util.Random(worldSeed);
+        long xSeed = random.nextLong() >> 2 + 1L;
+        long zSeed = random.nextLong() >> 2 + 1L;
+        long chunkSeed = (xSeed * chunkX + zSeed * chunkZ) ^ worldSeed;
+        for (IWorldGenerator generator : generators) {
+            random.setSeed(chunkSeed);
+            try {
+                generator.generate(random, chunkX, chunkZ, world, world.func_72863_F(), world.func_72863_F());
+            } catch (RuntimeException | LinkageError e) {
+                if (FAILED_GENERATORS.add(generator.getClass().getName())) {
+                    java.io.StringWriter trace = new java.io.StringWriter();
+                    e.printStackTrace(new java.io.PrintWriter(trace));
+                    System.out.println("[Retrofit] The world generator " + generator.getClass().getName() + " failed in chunk " + chunkX + ","
+                            + chunkZ + "; the others still generate (logged once):\n" + trace);
+                }
             }
         }
     }

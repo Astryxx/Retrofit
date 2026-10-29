@@ -1,9 +1,14 @@
 package retrofit.forge.world;
 
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.Multimap;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.ItemStack;
@@ -26,6 +31,8 @@ public class LegacyArmorItem extends ArmorItem implements LegacyStackItem {
     private final int tickFlags;
     private final Map<String, String> textures = new ConcurrentHashMap<>();
     private final String translationKey;
+    private final int setArmor;
+    private volatile Multimap<Attribute, AttributeModifier> withToughness;
 
     /** @param armor see the legacy bridge's Interactions.armorInfo; @param info see {@link LegacyBridge#itemInfo} */
     public LegacyArmorItem(Object legacyItem, int[] info, int[] armor) {
@@ -33,10 +40,11 @@ public class LegacyArmorItem extends ArmorItem implements LegacyStackItem {
         this.legacyItem = legacyItem;
         this.tickFlags = LegacyBridge.call("tickFlags", legacyItem);
         this.translationKey = LegacyBridge.itemTranslationKey(legacyItem, 0);
+        this.setArmor = armor.length > 4 ? armor[4] : 0;
     }
 
     private static ArmorMaterial material(int[] info, int[] armor) {
-        int durability = Math.max(1, info[1]);
+        int durability = Math.max(0, info[1]); // 0: never wears (1.7.10's isItemStackDamageable; ManaMetal's lasting armor)
         int defense = armor[1];
         int enchantability = armor[2];
         return new ArmorMaterial() {
@@ -85,6 +93,23 @@ public class LegacyArmorItem extends ArmorItem implements LegacyStackItem {
     @Override
     public Object legacyItem() {
         return legacyItem;
+    }
+
+    /** The piece's modifiers with the toughness LegacyGearAttributes gives it (worked out once its id is known). */
+    @Override
+    public Multimap<Attribute, AttributeModifier> getDefaultAttributeModifiers(EquipmentSlot slot) {
+        Multimap<Attribute, AttributeModifier> modifiers = super.getDefaultAttributeModifiers(slot);
+        if (slot != getEquipmentSlot()) {
+            return modifiers;
+        }
+        if (withToughness == null) {
+            float toughness = LegacyGearAttributes.toughness(this, getType().ordinal(), getDefense(), setArmor);
+            ImmutableMultimap.Builder<Attribute, AttributeModifier> builder = ImmutableMultimap.builder();
+            modifiers.forEach((attribute, modifier) -> builder.put(attribute, attribute != Attributes.ARMOR_TOUGHNESS ? modifier
+                    : new AttributeModifier(modifier.getId(), modifier.getName(), toughness, modifier.getOperation())));
+            withToughness = builder.build();
+        }
+        return withToughness;
     }
 
     /** Clients: pieces with a model of their own draw it (client.LegacyArmorModels). */

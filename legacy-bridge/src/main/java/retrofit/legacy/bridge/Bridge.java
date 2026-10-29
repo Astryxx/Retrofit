@@ -47,16 +47,61 @@ public final class Bridge {
         return world;
     }
 
-    /** Registry names of all blocks added by legacy mods ("modid:name"). */
+    /** Registry names of all blocks added by legacy mods ("modid:name"), but those of mods left out. */
     public static String[] modBlockNames() {
         List<String> names = new ArrayList<String>();
         for (Object key : Block.field_149771_c.func_148742_b()) { // blockRegistry.getKeys()
             String name = String.valueOf(key);
-            if (!name.startsWith("minecraft:")) {
+            if (!name.startsWith("minecraft:") && !leftOut(name)) {
                 names.add(name);
             }
         }
         return names.toArray(new String[0]);
+    }
+
+    /**
+     * Whether a registry name ("modid:name") is a left-out mod's. Such a mod keeps what it registered before
+     * it failed, but none of it goes to the host: its registries are synced to joining players, and a mod
+     * failing on one side only (on a dedicated server, from client-only code) left entries the other side
+     * hasn't ("Missing registry data"), with no way to join.
+     */
+    static boolean leftOut(String registryName) {
+        int colon = registryName.indexOf(':');
+        if (colon < 0) {
+            return false;
+        }
+        String mod = registryName.substring(0, colon);
+        for (String id : retrofit.legacy.boot.ModFailures.leftOut().keySet()) {
+            if (id.equalsIgnoreCase(mod)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a class comes from a left-out mod's jar (for what has no registry name: potions, enchantments, fluids). */
+    static boolean leftOut(Class<?> type) {
+        List<File> sources = retrofit.legacy.boot.ModFailures.leftOutSources();
+        if (sources.isEmpty() || type.getClassLoader() == null) {
+            return false;
+        }
+        try {
+            // the jar the class file comes from ("jar:file:/.../mod.jar!/a/B.class"): legacy classes have no code source
+            java.net.URL url = type.getClassLoader().getResource(type.getName().replace('.', '/') + ".class");
+            if (url == null || !"jar".equals(url.getProtocol())) {
+                return false;
+            }
+            String path = url.getPath(); // "file:/.../mod.jar!/a/B.class"
+            File jar = new File(new java.net.URI(path.substring(0, path.indexOf("!/")))).getCanonicalFile();
+            for (File source : sources) {
+                if (source.getCanonicalFile().equals(jar)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            // not from a jar: not a left-out mod's
+        }
+        return false;
     }
 
     /** getBlockFromName */
@@ -182,13 +227,6 @@ public final class Bridge {
                 sources.add(source.getAbsolutePath());
             }
         }
-        // and the mods left out: those that failed late (Thaumcraft in postInit) keep the blocks and items
-        // they registered, which need their textures and names
-        for (File source : retrofit.legacy.boot.ModFailures.leftOutSources()) {
-            if (source.isFile() && !sources.contains(source.getAbsolutePath())) {
-                sources.add(source.getAbsolutePath());
-            }
-        }
         return sources.toArray(new String[0]);
     }
 
@@ -215,7 +253,7 @@ public final class Bridge {
         }
     }
 
-    /** "modid@version" of every loaded legacy mod, sorted: both sides of a connection must match. */
+    /** "modid@version" of every loaded legacy mod, sorted. */
     public static String modList() {
         List<String> mods = new ArrayList<String>();
         for (ModContainer mod : Loader.instance().getActiveModList()) {
@@ -223,6 +261,54 @@ public final class Bridge {
         }
         java.util.Collections.sort(mods);
         return mods.toString();
+    }
+
+    /** The loaded legacy mods, "modid\tversion" per line: what a server and a client tell each other when a player joins. */
+    public static String modVersions() {
+        StringBuilder lines = new StringBuilder();
+        for (ModContainer mod : Loader.instance().getActiveModList()) {
+            lines.append(mod.getModId()).append('\t').append(mod.getVersion()).append('\n');
+        }
+        return lines.toString();
+    }
+
+    /**
+     * FML 1.7.10's handshake check of the other side's mods (see modVersions): each mod here runs its own network
+     * check against them (fromServer: they are a server's, as a client checked; else a client's, as a server
+     * checked). A client may have mods the server hasn't (minimaps, Mouse Tweaks); what a server has, its clients
+     * need, at versions its mods accept. The mods that refuse, as "Name: server 1.2, client missing"; empty if
+     * all accept.
+     */
+    public static String[] checkRemoteMods(String remote, boolean fromServer) {
+        java.util.Map<String, String> versions = new java.util.HashMap<String, String>();
+        for (String line : remote.split("\n")) {
+            int tab = line.indexOf('\t');
+            if (tab > 0) {
+                versions.put(line.substring(0, tab), line.substring(tab + 1));
+            }
+        }
+        cpw.mods.fml.relauncher.Side side = fromServer ? cpw.mods.fml.relauncher.Side.SERVER : cpw.mods.fml.relauncher.Side.CLIENT;
+        List<String> refused = new ArrayList<String>();
+        java.util.Set<ModContainer> active = new java.util.HashSet<ModContainer>(Loader.instance().getActiveModList());
+        for (java.util.Map.Entry<ModContainer, cpw.mods.fml.common.network.internal.NetworkModHolder> entry
+                : cpw.mods.fml.common.network.NetworkRegistry.INSTANCE.registry().entrySet()) {
+            if (!active.contains(entry.getKey())) {
+                continue; // left out here: it registered its check before it failed, but isn't part of the game
+            }
+            String id = entry.getKey().getModId();
+            boolean accepts;
+            try {
+                accepts = entry.getValue().check(versions, side);
+            } catch (RuntimeException e) {
+                accepts = true; // a check that fails refuses nobody
+            }
+            if (!accepts) {
+                String here = entry.getKey().getVersion();
+                String there = versions.containsKey(id) ? versions.get(id) : "missing";
+                refused.add(entry.getKey().getName() + ": server " + (fromServer ? there : here) + ", client " + (fromServer ? here : there));
+            }
+        }
+        return refused.toArray(new String[0]);
     }
 
     /** Client only: every block and item registers its icons (see {@link LegacyIcons#registerAll}). */
@@ -387,6 +473,11 @@ public final class Bridge {
         return LegacyRendering.renderItem(legacyItem, meta, type);
     }
 
+    /** Client only; see {@link LegacyRendering#itemLight}. Hold {@link #LOCK}. */
+    public static void itemLight(int packedLight) {
+        LegacyRendering.itemLight(packedLight);
+    }
+
     /** Client only; see {@link LegacyRendering#renderItemStack}. Hold {@link #LOCK}. */
     public static int renderItemStack(Object legacyStack, String type) {
         return LegacyRendering.renderItemStack(legacyStack, type);
@@ -464,12 +555,12 @@ public final class Bridge {
 
     // ---- Items ----
 
-    /** Registry names of items added by legacy mods, excluding the item forms of blocks. */
+    /** Registry names of items added by legacy mods, excluding the item forms of blocks and left-out mods' items. */
     public static String[] modItemNames() {
         List<String> names = new ArrayList<String>();
         for (Object key : Item.field_150901_e.func_148742_b()) { // itemRegistry.getKeys()
             String name = String.valueOf(key);
-            if (!name.startsWith("minecraft:") && !(Item.field_150901_e.func_82594_a(name) instanceof ItemBlock)) {
+            if (!name.startsWith("minecraft:") && !(Item.field_150901_e.func_82594_a(name) instanceof ItemBlock) && !leftOut(name)) {
                 names.add(name);
             }
         }
@@ -715,11 +806,25 @@ public final class Bridge {
 
     /** invalidate */
     public static void remove(Object tileEntity) {
+        WorldGlue.leaveTileList((TileEntity) tileEntity); // out of loadedTileEntityList
         ((TileEntity) tileEntity).func_145843_s(); // invalidate
+    }
+
+    /** Self-test (PlayTest): how many tile entities at a position are on the world's loadedTileEntityList. */
+    public static int testTilesListed(Object world, int x, int y, int z) {
+        int count = 0;
+        for (Object tile : ((World) world).field_147482_g) {
+            TileEntity tileEntity = (TileEntity) tile;
+            if (tileEntity.field_145851_c == x && tileEntity.field_145848_d == y && tileEntity.field_145849_e == z) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** Its chunk unloads (the tile entity is saved and comes back with the chunk). */
     public static void unloadTile(Object tileEntity) {
+        WorldGlue.leaveTileList((TileEntity) tileEntity);
         ((TileEntity) tileEntity).onChunkUnload();
     }
 
@@ -790,7 +895,7 @@ public final class Bridge {
         net.minecraft.enchantment.Enchantment[] all = net.minecraft.enchantment.Enchantment.field_77331_b; // enchantmentsList
         for (int id = 0; id < all.length; id++) {
             net.minecraft.enchantment.Enchantment enchantment = all[id];
-            if (enchantment == null || enchantment.getClass().getName().startsWith("net.minecraft.")) {
+            if (enchantment == null || enchantment.getClass().getName().startsWith("net.minecraft.") || leftOut(enchantment.getClass())) {
                 continue;
             }
             result.add(new Object[]{id, enchantment.func_77320_a(), enchantment.func_77324_c(), enchantment.func_77325_b(), // getName, getWeight, getMaxLevel
@@ -890,5 +995,6 @@ public final class Bridge {
         tileEntity.field_145848_d = y;   // yCoord
         tileEntity.field_145849_e = z;   // zCoord
         tileEntity.func_145829_t();      // validate
+        WorldGlue.joinTileList(world, tileEntity); // loadedTileEntityList, where mods scan for machines
     }
 }
