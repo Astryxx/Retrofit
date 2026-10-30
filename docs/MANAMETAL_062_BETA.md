@@ -1,4 +1,4 @@
-# ManaMetal and combat follow-up: 0.6.1-beta.3
+# ManaMetal and combat follow-up: 0.6.2-beta
 
 ## Reference and isolation
 
@@ -64,10 +64,15 @@ passed all 19 checks, including inventory add/clear, directional placement, heat
 The final AoA rerun passed all seven checks. The server API audit checked 2,033 references with
 zero reported problems. The build and standalone harness smoke run passed.
 
-The shipping jar was built with Java 17. Native Forge 47.4.26 dedicated-server/client tests used
-that jar without development test classes. CrazyCraft joined and remained connected for about
-86 seconds. Isolated ManaMetal joined, reported `retrofit:legacy_dim_105` from the server console,
-and remained connected for about 110 seconds. Both servers shut down cleanly without a crash.
+The Java 17 0.6.2-beta shipping build and standalone harness smoke run passed. Every runtime
+class and both nested bridge jars were compared with the tested working build and are byte-for-byte
+identical; the manifest correctly reports 0.6.2-beta.
+
+Native Forge 47.4.26 dedicated-server/client tests also used the exact 0.6.2-beta shipping jar,
+without development test classes. CrazyCraft joined and remained connected for about 95 seconds.
+Isolated ManaMetal joined, reported `retrofit:legacy_dim_105` from the server console, and stayed
+connected until the test ended. Both servers shut down cleanly without a client or server crash.
+These are connection smoke tests, not exhaustive multiplayer gameplay tests.
 The ManaMetal server test used `allow-flight=true`: with flight disabled, the tutorial visit was
 kicked by vanilla's flying check. That remains a configuration requirement, not a claimed fix.
 
@@ -95,6 +100,14 @@ no thrown scenario actions. Earlier diagnostic failures remain private evidence,
 The dungeon assertion compares expected template blocks at their own coordinates; unrelated terrain
 cannot inflate its count.
 
+## Production caveats
+
+A successful connection does not mean every mod handler is error-free. CrazyCraft's More Health
+Enhanced login handler attempts to use the client keyboard API on a dedicated server and logs a
+missing-LWJGL-class error; other listeners continue and the player connects. MapWriter also retains
+its previously documented texture/map limitations. These errors are retained in the evidence logs
+and are not described as fixed by this release.
+
 ## Limits
 
 These are focused compatibility checks, not an exhaustive ManaMetal playthrough. Every class,
@@ -104,6 +117,11 @@ broader than the four-frame renderer check. No assets absent from the original m
 The older CrazyCraft follow-up lists remaining MapWriter, TARDIS journey, and preview-feel limitations.
 The e4mc public tunnel is separate from a local production server/client connection test.
 
-Install the same beta.3 jar on all clients and the server; the added legacy dying-state field requires
+Install the same 0.6.2-beta jar on all clients and the server; the added legacy dying-state field requires
 matching builds. Keep only one Retrofit jar. The source archive contains project sources and the Gradle
 wrapper, excluding game/mod jars, private references, caches, worlds, logs, and the original uploaded ZIP.
+
+## Follow-up reports
+
+See [the separate investigation record](FOLLOWUP_062_BETA.md) for the 1,024-health cap, Mantis
+performance, Thunder Staff, post-death Titans eggs and raw text IDs. These remain open.

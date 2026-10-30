@@ -10,7 +10,7 @@ Mojang code and no mod code: 1.7.10 and Forge come from the player's launcher in
 player agrees when asked, are downloaded from Mojang and Forge (checksum-verified), and players
 supply their own 1.7.10 mods. Retrofit is free, with no paid tiers, and collects no data.
 
-**Status: 0.6.1-beta.3.** See [Compatibility](#compatibility) for what works and what doesn't.
+**Status: 0.6.2-beta.** See [Compatibility](#compatibility) for what works and what doesn't.
 
 Mob Battle tools can target creatures across versions. A creature still follows its own mod's AI
 rules, including its follow range: place fighters near each other when starting a battle.
@@ -20,7 +20,7 @@ The automated group-item test uses a fresh nearby pair so an earlier fight canno
 
 ## Using it
 
-1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.1-beta.3.jar` in `mods/`.
+1. Install Forge 1.20.1 (47.x) or NeoForge 1.20.1 and put `retrofit-forge-0.6.2-beta.jar` in `mods/`.
 2. Put 1.7.10 Forge mod jars in `retrofit/mods/` inside the game directory, or in `mods/` with your
    other mods (as launchers like CurseForge do). 1.7.10 mods in `mods/` are linked into `retrofit/mods`
    (Forge 1.20.1 skips them); mods for other old versions (1.12.2, 1.8.9...) are not loaded, and the
@@ -40,7 +40,7 @@ Connecting with a different set is refused with a message. Java 17 or newer (tes
 
 ## ManaMetal and combat follow-up
 
-0.6.1-beta.3 fixes ManaMetal tutorial placement at the actual world spawn, a first-join deadlock,
+0.6.2-beta fixes ManaMetal tutorial placement at the actual world spawn, a first-join deadlock,
 profession-coin pickup, mining fatigue events, dash movement, and the downed screen's death button.
 Its class-menu font and zero-progress consumable icons render correctly; its HUD suppresses the
 vanilla hunger bar. Tooltip stack counts follow the icon's scale, including in modern screens.
@@ -48,9 +48,11 @@ ManaMetal's own weapon eligibility check also prevents ordinary host attacks fro
 
 AoA greatblades and scythes receive their original swing callback. Living bosses no longer retain
 a false client death pose after rejecting damage; real legacy deaths retain their animation.
-See [the follow-up verification notes](docs/MANAMETAL_061_BETA3.md) for tested versions, evidence,
+See [the follow-up verification notes](docs/MANAMETAL_062_BETA.md) for tested versions, evidence,
 and limits. Install the same updated jar on the server and every client. The ManaMetal production
 tutorial test required `allow-flight=true` to avoid vanilla's flying kick.
+The [new follow-up reports](docs/FOLLOWUP_062_BETA.md), including the 1,024-health cap and raw
+text IDs, remain open.
 
 ## CrazyCraft 3 testing fixes
 
@@ -193,7 +195,7 @@ JDK 17 (pinned in `gradle.properties`).
 | `testmods/hello1710` | 8 bytecode | The 1.7.10 test mod |
 
 ```
-./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.1-beta.3.jar
+./gradlew :forge:build                 # forge/build/libs/retrofit-forge-0.6.2-beta.jar
 ./gradlew :harness:run                 # boot test + compatibility report for mods in corpus/
 ./gradlew :forge:runClient "-PquickPlay=New World" -PworldTest   # automated world test (singleplayer)
 ./gradlew :forge:runServer -PworldTest                          # automated world test, dedicated server...

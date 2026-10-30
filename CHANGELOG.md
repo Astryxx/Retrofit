@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.1-beta.3 - ManaMetal and combat regressions (2026-10-29)
+## 0.6.2-beta - ManaMetal and combat regressions (2026-10-29)
 
 - Use the host world's real spawn point for legacy code. ManaMetal builds its newcomer village
   near the player and its original spawn-point tile sends the player to the tutorial.
@@ -28,6 +28,8 @@
   biome providers, shared storage, server chunk providers, and out-of-region height handling.
 - Retain server collision shapes when the 1.7.10 client-only selection-box method is absent.
 - Add isolated ManaMetal, AoA, dimension-spawn, Queen/Chaos Persists, and HUD regression checks.
+- Record new health-cap, Mantis performance, Thunder Staff, post-death egg and text-ID reports
+  separately; these are not claimed fixed in this beta.
 
 ## 0.6.1-beta.2 — CrazyCraft 3 testing fixes (2026-10-29)
 
