@@ -72,6 +72,13 @@ public interface HostPlayer {
     default void changeDimension(int dimension, Object legacyTeleporter) {
     }
 
+    /** Legacy feet position and rotation at the moment transfer was requested: {x,y,z,yaw,pitch}.
+     * Mods may write native position fields directly before transfer. Queuing the host operation
+     * must not replace that snapshot with the host's older coordinates. */
+    default void changeDimension(int dimension, Object legacyTeleporter, double[] position) {
+        changeDimension(dimension, legacyTeleporter);
+    }
+
     /**
      * Legacy code moved the player's mirror to another dimension (legacy id) itself, as mods' own teleports
      * do; the player follows, to where the code put the mirror. After the current tick's work, as above.

@@ -509,6 +509,13 @@ public final class LegacyPlayers {
         }
 
         @Override
+        public void changeDimension(int dimension, Object legacyTeleporter, double[] position) {
+            if (player instanceof ServerPlayer server) {
+                LegacyDimensions.travel(server, dimension, legacyTeleporter, position);
+            }
+        }
+
+        @Override
         public void followDimension(int dimension) {
             if (player instanceof ServerPlayer server) {
                 LegacyDimensions.follow(server, dimension);

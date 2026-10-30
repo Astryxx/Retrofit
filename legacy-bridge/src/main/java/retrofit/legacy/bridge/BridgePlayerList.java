@@ -37,7 +37,9 @@ final class BridgePlayerList extends ServerConfigurationManager {
     public void transferPlayerToDimension(net.minecraft.entity.player.EntityPlayerMP player, int dimension, net.minecraft.world.Teleporter teleporter) {
         if (player instanceof BridgePlayerMP) {
             boolean vanilla = teleporter == null || teleporter.getClass() == net.minecraft.world.Teleporter.class;
-            ((BridgePlayerMP) player).host.changeDimension(dimension, vanilla ? null : teleporter);
+            ((BridgePlayerMP) player).host.changeDimension(dimension, vanilla ? null : teleporter,
+                    new double[]{player.field_70165_t, player.field_70163_u-player.field_70129_M, player.field_70161_v,
+                            player.field_70177_z, player.field_70125_A});
         }
     }
 

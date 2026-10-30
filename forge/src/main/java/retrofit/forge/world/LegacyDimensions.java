@@ -402,15 +402,19 @@ public final class LegacyDimensions {
 
     /** Moves a player to a legacy dimension, after the current tick's work (see HostPlayer.changeDimension). */
     static void travel(ServerPlayer player, int legacyDimension, Object legacyTeleporter) {
-        travel(player, legacyDimension, legacyTeleporter, false);
+        travel(player, legacyDimension, legacyTeleporter, false, null);
     }
 
     /** Moves a player to the legacy dimension legacy code moved its mirror to, where the mirror is (see HostPlayer.followDimension). */
     static void follow(ServerPlayer player, int legacyDimension) {
-        travel(player, legacyDimension, null, true);
+        travel(player, legacyDimension, null, true, null);
     }
 
-    private static void travel(ServerPlayer player, int legacyDimension, Object legacyTeleporter, boolean follow) {
+    static void travel(ServerPlayer player, int legacyDimension, Object legacyTeleporter, double[] position) {
+        travel(player, legacyDimension, legacyTeleporter, false, position.clone());
+    }
+
+    private static void travel(ServerPlayer player, int legacyDimension, Object legacyTeleporter, boolean follow, double[] position) {
         MinecraftServer server = player.server;
         ServerLevel target = levelOf(server, legacyDimension);
         if (target == null) {
@@ -421,7 +425,7 @@ public final class LegacyDimensions {
                 target.dimension().location(), legacyTeleporter == null ? "" : " with " + legacyTeleporter.getClass().getName());
         server.execute(() -> {
             if (!player.isRemoved() && player.level() != target) {
-                player.changeDimension(target, new Teleport(legacyTeleporter, follow));
+                player.changeDimension(target, new Teleport(legacyTeleporter, follow, position));
             }
         });
     }
@@ -430,10 +434,12 @@ public final class LegacyDimensions {
     static final class Teleport implements ITeleporter {
         private final Object legacyTeleporter;
         private final boolean follow;
+        private final double[] requestedPosition;
 
-        Teleport(Object legacyTeleporter, boolean follow) {
+        Teleport(Object legacyTeleporter, boolean follow, double[] requestedPosition) {
             this.legacyTeleporter = legacyTeleporter;
             this.follow = follow;
+            this.requestedPosition = requestedPosition;
         }
 
         @Override
@@ -443,11 +449,12 @@ public final class LegacyDimensions {
                 return new PortalInfo(new Vec3(mirror[0], mirror[1], mirror[2]), Vec3.ZERO, (float) mirror[3], (float) mirror[4]);
             }
             double scale = entity.level().dimensionType().coordinateScale() / destination.dimensionType().coordinateScale();
-            double x = entity.getX() * scale;
-            double z = entity.getZ() * scale;
+            double x = (requestedPosition==null ? entity.getX() : requestedPosition[0]) * scale;
+            double z = (requestedPosition==null ? entity.getZ() : requestedPosition[2]) * scale;
+            double requestedY = requestedPosition==null ? entity.getY() : requestedPosition[1];
             // inside the destination's height: a player below y 0 (1.20.1's deepslate layer, which 1.7.10 never had) handed
             // a mod's teleporter a height its world can't have, and Erebus's left the player there, falling into the void
-            double y = Math.max(destination.getMinBuildHeight() + 1, Math.min(destination.getMaxBuildHeight() - 2, entity.getY()));
+            double y = Math.max(destination.getMinBuildHeight() + 1, Math.min(destination.getMaxBuildHeight() - 2, requestedY));
             if (legacyTeleporter == null) {
                 // No teleporter to place the player: stand on the ground there, or on a platform over a void (as 1.7.10's End did).
                 int bx = (int) Math.floor(x);
@@ -463,7 +470,9 @@ public final class LegacyDimensions {
                     }
                 }
             }
-            return new PortalInfo(new Vec3(x, y, z), Vec3.ZERO, entity.getYRot(), entity.getXRot());
+            return new PortalInfo(new Vec3(x, y, z), Vec3.ZERO,
+                    requestedPosition==null ? entity.getYRot() : (float)requestedPosition[3],
+                    requestedPosition==null ? entity.getXRot() : (float)requestedPosition[4]);
         }
 
         @Override

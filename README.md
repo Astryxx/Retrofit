@@ -42,7 +42,8 @@ Connecting with a different set is refused with a message. Java 17 or newer (tes
 
 0.6.2-beta fixes ManaMetal tutorial placement at the actual world spawn, a first-join deadlock,
 profession-coin pickup, mining fatigue events, dash movement, and the downed screen's death button.
-Its class-menu font and zero-progress consumable icons render correctly; its HUD suppresses the
+The original tutorial arrival coordinates now survive dimension transfer, placing the player inside
+the academy with a solid landing. Its class-menu font and zero-progress consumable icons render correctly; its HUD suppresses the
 vanilla hunger bar. Tooltip stack counts follow the icon's scale, including in modern screens.
 ManaMetal's own weapon eligibility check also prevents ordinary host attacks from bypassing it.
 
@@ -58,6 +59,16 @@ in the measured crowded Mantis scene, but the reported pack-specific FPS collaps
 unreproduced. Titans zombie eggs passed client use before and after two deaths with the supplied
 0.45 release; the report's exact setup is unknown. See [the investigation record](docs/FOLLOWUP_062_BETA.md)
 for evidence and remaining reports.
+
+## Evaluated compatibility hardening
+
+0.6.2-beta also hardens captured texture uploads against short buffers and invalid rectangles,
+and reuses pixel storage for repeated same-size full uploads. Optional memory diagnostics
+(`-Dretrofit.memoryLog=true`) help investigate affected packs without forcing garbage collection.
+The 1.21-specific recipe-deletion guard was not imported: our 1.20.1 packet tests do not need it.
+See [the hardening results](docs/COMPATIBILITY_HARDENING_062_BETA.md) and
+[the multi-version hybrid review](docs/HYBRID_RUNTIME_REVIEW.md). Multi-version support is a proposed follow-up;
+this beta continues to run its existing 1.7.10 runtime.
 
 ## CrazyCraft 3 testing fixes
 

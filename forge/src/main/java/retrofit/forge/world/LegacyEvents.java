@@ -63,6 +63,14 @@ public final class LegacyEvents {
     // ---- Server lifecycle ----
 
     @SubscribeEvent
+    public static void onMemoryTick(net.minecraftforge.event.TickEvent event) {
+        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END
+                && (event.type == net.minecraftforge.event.TickEvent.Type.CLIENT || event.type == net.minecraftforge.event.TickEvent.Type.SERVER)) {
+            retrofit.host.RuntimeMemory.logIfDue();
+        }
+    }
+
+    @SubscribeEvent
     public static void onServerAboutToStart(ServerAboutToStartEvent event) {
         if (active()) {
             java.io.File directory = event.getServer().getWorldPath(LevelResource.ROOT).resolve("retrofit").toFile();

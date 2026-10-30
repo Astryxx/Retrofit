@@ -9,3 +9,18 @@ dependencies {
     compileOnly 'com.google.code.gson:gson:2.10'
     compileOnly 'org.slf4j:slf4j-api:2.0.1'
 }
+
+dependencies { testRuntimeOnly 'org.slf4j:slf4j-api:2.0.1' }
+tasks.register('checkRuntimeMemory', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'retrofit.host.RuntimeMemoryCheck'
+}
+tasks.named('check') { dependsOn tasks.named('checkRuntimeMemory') }
+
+tasks.register('checkRuntimeIsolation', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'retrofit.host.RuntimeIsolationCheck'
+}
+tasks.named('check') { dependsOn tasks.named('checkRuntimeIsolation') }

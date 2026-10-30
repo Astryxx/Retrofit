@@ -46,6 +46,18 @@
 - Keep unresolved pack-specific Mantis performance and Titans egg reports explicit in the
   follow-up record; tests do not establish compatibility with unknown modpack versions.
 
+- Evaluate compatibility hardening against actual 1.20.1 behavior. Harden captured
+  texture buffers, clip invalid subimages safely, clear incomplete pixels, and reuse same-size
+  pixel arrays without changing valid texture formats or caller buffer cursors.
+- Add opt-in heap/NIO/GC diagnostics and longer Mantis profiling. The measured scene did not
+  demonstrate runaway direct-buffer memory; no automatic forced-GC watchdog is enabled.
+- Verify recipe packet round trips before rejecting the 1.21-specific broad recipe-deletion guard.
+  Keep the special native crafting recipe and other mods' recipes intact.
+- Preserve native coordinates and rotation written before dimension transfer. ManaMetal's tutorial
+  now lands inside its built academy; add actual-position and floor assertions beyond dimension entry.
+- Document a multi-version simulation/shim architecture and test its class-loader boundary
+  without claiming a second-version backend.
+
 ## 0.6.1-beta.2 — CrazyCraft 3 testing fixes (2026-10-29)
 
 - Detect duplicate mods from actual FML `@Mod` annotations, including jars without `mcmod.info`.

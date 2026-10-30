@@ -22,3 +22,11 @@ tasks.register('checkHeadlessInput', JavaExec) {
     mainClass = 'retrofit.legacy.boot.HeadlessInputCheck'
 }
 tasks.named('check') { dependsOn tasks.named('checkHeadlessInput') }
+
+tasks.register('checkTextureUploads', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'retrofit.legacy.gl.TextureUploadCheck'
+    if (project.hasProperty('textureMalformedOnly')) args 'malformed'
+}
+tasks.named('check') { dependsOn tasks.named('checkTextureUploads') }

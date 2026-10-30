@@ -191,7 +191,19 @@ public final class PlayTest {
                 int id = retrofit.forge.world.LegacyBridge.call("testModField", "project.studio.manametalmod.config.M3Config", "WorldPeaceAcademyID");
                 result("ManaMetal automatically enters the tutorial in a fresh " + player.gameMode.getGameModeForPlayer() + " world",
                         player.level().dimension().location().getPath().equals("legacy_dim_" + id), player.level().dimension().location().toString());
-                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), 0);
+                Object nativePlayer=retrofit.forge.world.LegacyPlayers.mirror(player,false);
+                Object origin=retrofit.forge.world.LegacyBridge.call("testCallMod",
+                        "project.studio.manametalmod.world.peacecity.PeaceCityCore","getSpawnPos",nativePlayer,new Object[]{"PLAYER"});
+                try {
+                    int ox=origin.getClass().getField("X").getInt(origin), oy=origin.getClass().getField("Y").getInt(origin), oz=origin.getClass().getField("Z").getInt(origin);
+                    result("ManaMetal tutorial preserves original arrival coordinates",Math.abs(player.getX()-(ox+3.5))<1
+                            && Math.abs(player.getZ()-(oz+13))<1 && player.getY()>oy+3 && player.getY()<oy+9,
+                            "actual="+player.position()+", expected near="+(ox+3.5)+","+(oy+6.5)+","+(oz+13));
+                    boolean floor=false;
+                    for(int down=1;down<=4;down++) floor |= !player.level().getBlockState(player.blockPosition().below(down)).getCollisionShape(player.level(),player.blockPosition().below(down)).isEmpty();
+                    result("ManaMetal tutorial has a solid landing beneath player",floor,"at="+player.blockPosition());
+                } catch(ReflectiveOperationException failure){throw new IllegalStateException(failure);}
+                retrofit.forge.world.LegacyBridge.call("testTravel", nativePlayer, 0);
             }));
         }
         do_("start", 10, () -> server(player -> {
@@ -215,6 +227,10 @@ public final class PlayTest {
             result("legacy asset pack built, with its textures", counts != null
                     && Integer.parseInt(counts[0]) >= Integer.parseInt(counts[1]) * 95 / 100, String.valueOf(build));
         });
+        if (Boolean.getBoolean("retrofit.candidateReview")) {
+            do_("candidate recipe packet round trips",0,()->CandidateReviewCheck.recipes(PlayTest::result));
+            return;
+        }
         if (Boolean.getBoolean("retrofit.performanceReview")) { mantisPerformance(); return; }
         if (Boolean.getBoolean("retrofit.majorReview")) { majorReports(); return; }
         if (Boolean.getBoolean("retrofit.aoaReview")) {
@@ -423,6 +439,7 @@ public final class PlayTest {
         throw new IllegalArgumentException(name);
     }
 
+    private static retrofit.host.RuntimeMemory.Snapshot perfMemoryStart;
     private static final java.util.List<Long> PERF_FRAMES = new java.util.ArrayList<>();
     private static long perfLastFrame;
     private static boolean perfMeasuring;
@@ -496,13 +513,15 @@ public final class PlayTest {
                 }
                 LOGGER.info("[Performance] warming sample with {} Mantis creatures at {}",count,player.position());
             }));
-            do_("Mantis sample start " + count, 400, () -> {
+            do_("Mantis sample start " + count, Integer.getInteger("retrofit.performanceSampleTicks",400), () -> {
                 long actualClient = Minecraft.getInstance().level.getEntities((Entity)null,new AABB(site).inflate(80),e->e.getType()==type).size();
                 server(player -> {
                     long actualServer = player.serverLevel().getEntities((Entity)null,new AABB(site).inflate(80),e->e.getType()==type).size();
                     result("Mantis benchmark population " + count,actualServer==count && actualClient==count,"server="+actualServer+", client="+actualClient+", player="+player.position());
                 });
                 PERF_FRAMES.clear();perfLastFrame=0;perfMeasuring=true;perfStartCpu=PERF_CPU.getCurrentThreadCpuTime();
+                perfMemoryStart=retrofit.host.RuntimeMemory.capture();
+                LOGGER.info("[Performance] memory start count={} {}",count,perfMemoryStart);
                 perfRecording=new jdk.jfr.Recording();
                 perfRecording.enable("jdk.ExecutionSample").withPeriod(java.time.Duration.ofMillis(10));
                 perfRecording.enable("jdk.JavaMonitorEnter").withThreshold(java.time.Duration.ofMillis(1));
@@ -520,6 +539,9 @@ public final class PlayTest {
                 LOGGER.info("[Performance] Mantis count={} frames={} meanMs={} medianMs={} p95Ms={}",count,sorted.length,mean,
                         sorted.length==0?0:sorted[sorted.length/2]/1e6, sorted.length==0?0:sorted[(int)(sorted.length*.95)]/1e6);
                 LOGGER.info("[Performance] render-thread CPU ms/frame={}",sorted.length==0?0:(PERF_CPU.getCurrentThreadCpuTime()-perfStartCpu)/1e6/sorted.length);
+                var memory=retrofit.host.RuntimeMemory.capture();
+                LOGGER.info("[Performance] memory end count={} {} directDelta={} gcPauseDeltaMs={}",count,memory,
+                        memory.directBytes()-perfMemoryStart.directBytes(),memory.collectionMillis()-perfMemoryStart.collectionMillis());
                 grab("play-unstable-ant-mantis-"+count);
             });
         }

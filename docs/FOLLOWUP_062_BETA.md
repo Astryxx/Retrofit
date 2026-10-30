@@ -84,3 +84,23 @@ cleanly; no client/server crash was recorded. The production console reported co
 MAX_HEALTH and current Health as 6,000, verifying the per-instance attribute in the reobfuscated
 jar. Earlier minimized-client login timeouts are excluded; the private launcher was corrected to
 show/restore its own game window. This is a smoke test, not a claim that all pack handlers succeed.
+
+## Additional hardening and stronger tutorial verification
+
+The later hardening pass adds bounded texture capture with reusable per-texture storage and
+opt-in read-only JVM memory diagnostics. See `COMPATIBILITY_HARDENING_062_BETA.md` for the
+before/after failures, 18 texture checks, measured Mantis samples and rejected changes.
+`HYBRID_RUNTIME_REVIEW.md` describes future runtime boundaries; no second-version backend ships.
+
+A fresh-world test exposed a tutorial landing defect that the earlier dimension-only assertion
+missed. The bridge now carries native coordinates and rotation through queued dimension travel.
+The stronger survival suite passes 22 assertions, creative tutorial checks pass 5, dimensions pass
+9, major-report checks pass 38, and core/Mob Battle checks pass 47. All complete their Done lines
+without failed assertions. Previously retained focused checks remain separately identified above.
+
+The updated shipping jar also joins the native CrazyCraft production server. A fresh ManaMetal
+production retry enters dimension 105 at (3.5,6.5,213), settles at (3.5,6,213), and reports ground
+beneath the player on three probes. The initial production login timeout remains failed evidence;
+it is not included among the passing joins. Existing below-world test saves are not automatically
+repaired by this handoff fix. Broad progression, unknown pack reproduction and the limits listed
+above remain beta work.

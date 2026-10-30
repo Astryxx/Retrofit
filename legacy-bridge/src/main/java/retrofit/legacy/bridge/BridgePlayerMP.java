@@ -134,7 +134,8 @@ final class BridgePlayerMP extends EntityPlayerMP {
     /** travelToDimension: the host moves the player (see BridgePlayerList for mods' teleporters). */
     @Override
     public void func_71027_c(int dimension) {
-        host.changeDimension(dimension, null);
+        host.changeDimension(dimension, null, new double[]{field_70165_t,field_70163_u-field_70129_M,field_70161_v,
+                field_70177_z,field_70125_A});
     }
 
     /** addChatMessage */

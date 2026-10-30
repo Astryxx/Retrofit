@@ -129,3 +129,13 @@ wrapper, excluding game/mod jars, private references, caches, worlds, logs, and 
 See [the separate investigation record](FOLLOWUP_062_BETA.md) for the 1,024-health cap, Mantis
 performance, Thunder Staff, post-death Titans eggs and raw text IDs. Health, staff and native-name
 fixes are verified; the exact unknown Mantis pack and Titans egg reports remain unreproduced.
+
+
+## Tutorial landing strengthened during final verification
+
+The initial tutorial assertion checked dimension entry only. A later production observation and
+fresh-world reproduction exposed arrival outside the academy: the mod had written coordinates
+before transfer, but the host used its older position. Dimension transfers now preserve a snapshot
+of native feet coordinates and rotation. The new fresh-world assertion verifies both the expected
+academy location and solid landing geometry; survival arrives at (3.5,6,213) in the tested layout.
+See `COMPATIBILITY_HARDENING_062_BETA.md` for the before/after evidence and regression scope.

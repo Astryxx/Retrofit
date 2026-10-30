@@ -278,8 +278,17 @@ public final class GL11 {
 
     /** A new image for the bound texture, which from now on is drawn with it. */
     private static Pixels define(int width, int height) {
+        // Match the maximum advertised by glGetInteger; reject invalid sizes before multiplying.
+        if (width <= 0 || height <= 0 || width > 16384 || height > 16384) return null;
         String name = nameOfBound();
-        Pixels texture = new Pixels(Math.max(1, width), Math.max(1, height));
+        Pixels texture = UPLOADED.get(name);
+        if (texture == null || texture.width != width || texture.height != height) {
+            texture = new Pixels(width, height);
+        } else {
+            // Full image definition replaces every pixel, including null/short uploads. Never
+            // expose stale tail data when reusing storage.
+            java.util.Arrays.fill(texture.argb, 0);
+        }
         texture.version = NEXT_UPLOAD.incrementAndGet(); // deleting/reloading an image must not reuse its old version
         UPLOADED.put(name, texture);
         bindLegacyTexture(name);
@@ -297,27 +306,35 @@ public final class GL11 {
         return name;
     }
 
-    /** Copies a block of pixels in (nothing for formats legacy textures don't use, or no pixels: an empty allocation). */
+    /** Capture supported formats without reading past the caller's limit or outside the destination.
+     * Malformed/short uploads pad incomplete pixels with transparent black; valid uploads are unchanged.
+     * The host serializes capture calls. Input buffers keep their position and limit. */
     private static void put(Pixels texture, int x, int y, int width, int height, int format, int type, java.nio.IntBuffer ints, ByteBuffer bytes) {
+        if (texture == null || width <= 0 || height <= 0) return;
         boolean argbInts = ints != null && format == GL_BGRA && type == GL_UNSIGNED_INT_8_8_8_8_REV;
         boolean rgbaBytes = bytes != null && format == GL_RGBA && type == GL_UNSIGNED_BYTE;
         boolean bgraBytes = bytes != null && format == GL_BGRA && type == GL_UNSIGNED_BYTE;
-        if (!argbInts && !rgbaBytes && !bgraBytes) {
-            return;
-        }
-        int start = ints != null ? ints.position() : bytes.position();
-        for (int row = 0; row < height && y + row < texture.height; row++) {
-            for (int column = 0; column < width && x + column < texture.width; column++) {
-                int i = row * width + column;
-                int argb;
-                if (argbInts) {
-                    argb = ints.get(start + i);
-                } else {
-                    int o = start + i * 4;
-                    int c0 = bytes.get(o) & 0xFF, c1 = bytes.get(o + 1) & 0xFF, c2 = bytes.get(o + 2) & 0xFF, a = bytes.get(o + 3) & 0xFF;
-                    argb = rgbaBytes ? a << 24 | c0 << 16 | c1 << 8 | c2 : a << 24 | c2 << 16 | c1 << 8 | c0;
+        if (!argbInts && !rgbaBytes && !bgraBytes) return;
+        // Long arithmetic also handles MIN_VALUE offsets and oversized source rectangles safely.
+        long firstColumn = Math.max(0L, -(long)x), lastColumn = Math.min((long)width, texture.width - (long)x);
+        long firstRow = Math.max(0L, -(long)y), lastRow = Math.min((long)height, texture.height - (long)y);
+        int start = argbInts ? ints.position() : bytes.position();
+        long availablePixels = argbInts ? ints.remaining() : bytes.remaining() / 4;
+        for (long row = firstRow; row < lastRow; row++) {
+            for (long column = firstColumn; column < lastColumn; column++) {
+                long source = row * width + column;
+                int argb = 0;
+                if (source < availablePixels) {
+                    if (argbInts) {
+                        argb = ints.get(start + (int)source);
+                    } else {
+                        int offset = start + (int)(source * 4);
+                        int c0 = bytes.get(offset) & 0xFF, c1 = bytes.get(offset + 1) & 0xFF;
+                        int c2 = bytes.get(offset + 2) & 0xFF, alpha = bytes.get(offset + 3) & 0xFF;
+                        argb = rgbaBytes ? alpha << 24 | c0 << 16 | c1 << 8 | c2 : alpha << 24 | c2 << 16 | c1 << 8 | c0;
+                    }
                 }
-                texture.argb[(y + row) * texture.width + x + column] = argb;
+                texture.argb[(int)(y + row) * texture.width + (int)(x + column)] = argb;
             }
         }
         texture.version = NEXT_UPLOAD.incrementAndGet();
