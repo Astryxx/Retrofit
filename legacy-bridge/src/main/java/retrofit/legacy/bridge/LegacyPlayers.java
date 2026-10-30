@@ -70,48 +70,63 @@ public final class LegacyPlayers {
         return player;
     }
 
-    @SuppressWarnings("unchecked")
-    private static synchronized Object[] findPlayer(Object legacyWorld, HostPlayer host, String uuid, String name) {
+    private static Object[] findPlayer(Object legacyWorld, HostPlayer host, String uuid, String name) {
         World world = (World) legacyWorld;
-        Map<String, EntityPlayer> players = PLAYERS.get(world);
-        if (players == null) {
-            players = new HashMap<String, EntityPlayer>();
-            PLAYERS.put(world, players);
-        }
-        EntityPlayer player = players.get(uuid);
-        boolean joined = false;
-        if (player == null) {
-            player = movedHere(uuid, world);
-            if (player != null) {
-                players.put(uuid, player);
-                return new Object[]{player, Boolean.FALSE};
+        synchronized (LegacyPlayers.class) {
+            Map<String, EntityPlayer> players = PLAYERS.get(world);
+            EntityPlayer existing = players == null ? null : players.get(uuid);
+            if (existing == null) existing = movedHere(uuid, world);
+            if (existing != null) {
+                if (players == null) { players = new HashMap<String, EntityPlayer>(); PLAYERS.put(world, players); }
+                players.put(uuid, existing);
+                return new Object[]{existing, Boolean.FALSE};
             }
         }
-        if (player == null) {
-            if (world.field_72995_K) { // isRemote
-                player = host.isLocal() ? ClientPlayers.create(world, host, uuid, name) : ClientPlayers.createOther(world, uuid, name);
-            } else {
-                GameProfile profile = new GameProfile(UUID.fromString(uuid), name);
-                player = new BridgePlayerMP(LegacyWorlds.server(), (WorldServer) world, profile, host);
-                LegacyWorlds.server().func_71203_ab().field_72404_b.add(player); // getConfigurationManager().playerEntityList
-                EntityPlayer other = serverMirror(uuid, world);
-                if (other != null) {
-                    PlayerState.load(player, PlayerState.save(other)); // the player's mod state follows it between worlds
-                } else {
-                    PlayerState.restore(uuid, player);
-                }
-                PlayerState.handOver(other, player, uuid);
-            }
-            if (host.entityId() >= 0) {
-                player.func_145769_d(PLAYER_IDS + host.entityId()); // setEntityId
-            }
-            player.field_71093_bK = world.field_73011_w.field_76574_g; // dimension = provider.dimensionId: mods check where players are
-            world.field_73010_i.add(player); // playerEntities
-            world.field_72996_f.add(player); // loadedEntityList
+        // EntityPlayerMP's constructor calls the dimension's randomized spawn provider. That may
+        // generate terrain and wait for render-owned resources. Never hold the shared mirror-map
+        // monitor while constructing either side's player or invoking a mod's saved-state hooks.
+        EntityPlayer player;
+        if (world.field_72995_K) {
+            player = host.isLocal() ? ClientPlayers.create(world, host, uuid, name) : ClientPlayers.createOther(world, uuid, name);
+        } else {
+            player = new BridgePlayerMP(LegacyWorlds.server(), (WorldServer) world,
+                    new GameProfile(UUID.fromString(uuid), name), host);
+            EntityPlayer other;
+            synchronized (LegacyPlayers.class) { other = serverMirror(uuid, world); }
+            if (other != null) PlayerState.load(player, PlayerState.save(other));
+            else PlayerState.restore(uuid, player);
+            PlayerState.handOver(other, player, uuid);
+        }
+        if (host.entityId() >= 0) player.func_145769_d(PLAYER_IDS + host.entityId());
+        player.field_71093_bK = world.field_73011_w.field_76574_g;
+        synchronized (LegacyPlayers.class) {
+            Map<String, EntityPlayer> players = PLAYERS.get(world);
+            if (players == null) { players = new HashMap<String, EntityPlayer>(); PLAYERS.put(world, players); }
+            EntityPlayer existing = players.get(uuid);
+            if (existing != null) return new Object[]{existing, Boolean.FALSE};
             players.put(uuid, player);
-            joined = true;
         }
-        return new Object[]{player, Boolean.valueOf(joined)};
+        if (!world.field_72995_K) LegacyWorlds.server().func_71203_ab().field_72404_b.add(player);
+        world.field_73010_i.add(player);
+        world.field_72996_f.add(player);
+        return new Object[]{player, Boolean.TRUE};
+    }
+
+    /** Release a departed world's mirrors after native unload listeners have observed them. */
+    static void forgetWorld(World world) {
+        Map<String, EntityPlayer> players;
+        synchronized (LegacyPlayers.class) { players = PLAYERS.remove(world); }
+        if (players != null) for (Map.Entry<String, EntityPlayer> entry : players.entrySet()) {
+            EntityPlayer player = entry.getValue();
+            if (player.field_70170_p != world) continue; // a native teleporter already moved this mirror
+            if (!world.field_72995_K) {
+                PlayerState.keep(entry.getKey(), player);
+                LegacyWorlds.server().func_71203_ab().field_72404_b.remove(player);
+            }
+            GIVEN.remove(player); GIVEN_STATS.remove(player);
+            GIVEN_ABILITIES.remove(player); GIVEN_MOTION.remove(player);
+        }
+        if (world.field_72995_K) ClientPlayers.forgetWorld(world);
     }
 
     /** Removes a player's mirrors from every legacy world (logout, or leaving for another dimension). */

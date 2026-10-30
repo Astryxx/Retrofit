@@ -102,11 +102,14 @@ cannot inflate its count.
 
 ## Production caveats
 
-A successful connection does not mean every mod handler is error-free. CrazyCraft's More Health
-Enhanced login handler attempts to use the client keyboard API on a dedicated server and logs a
-missing-LWJGL-class error; other listeners continue and the player connects. MapWriter also retains
-its previously documented texture/map limitations. These errors are retained in the evidence logs
-and are not described as fixed by this release.
+A successful connection does not mean every mod handler is error-free. The follow-up supplies
+neutral keyboard/mouse shims for dedicated servers without LWJGL 2. CrazyCraft's More Health
+Enhanced login handler then reaches a separate invalid GUI reference (`MoreHealthGui`/`GuiScreen`)
+on the server; other listeners continue. Its entire login handler is not claimed fixed. MapWriter
+also retains its previously documented texture/map limitations. These errors remain in the evidence.
+The final follow-up also releases departed world caches, constructs mirrors outside the shared map
+monitor, and initializes sky/weather viewers before native render calls; dimension and ManaMetal
+regressions were repeated after those changes.
 
 ## Limits
 
@@ -124,4 +127,5 @@ wrapper, excluding game/mod jars, private references, caches, worlds, logs, and 
 ## Follow-up reports
 
 See [the separate investigation record](FOLLOWUP_062_BETA.md) for the 1,024-health cap, Mantis
-performance, Thunder Staff, post-death Titans eggs and raw text IDs. These remain open.
+performance, Thunder Staff, post-death Titans eggs and raw text IDs. Health, staff and native-name
+fixes are verified; the exact unknown Mantis pack and Titans egg reports remain unreproduced.

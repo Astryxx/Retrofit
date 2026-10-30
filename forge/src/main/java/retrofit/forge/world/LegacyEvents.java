@@ -557,7 +557,12 @@ public final class LegacyEvents {
     public static void onLevelUnload(LevelEvent.Unload event) {
         if (active() && event.getLevel() instanceof Level level && LegacyContent.hasLegacyWorld(level)) {
             Object world = LegacyContent.legacyWorld(level);
-            fire("world unload", () -> LegacyBridge.call("worldUnloaded", world));
+            try {
+                fire("world unload", () -> LegacyBridge.call("worldUnloaded", world));
+            } finally {
+                LegacyContent.forgetWorld(level, world);
+                LegacyEntityCore.forgetWorld(level);
+            }
         }
     }
 }

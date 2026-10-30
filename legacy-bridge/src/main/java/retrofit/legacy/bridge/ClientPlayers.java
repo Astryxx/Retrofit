@@ -17,6 +17,13 @@ final class ClientPlayers {
     private ClientPlayers() {
     }
 
+    static void forgetWorld(World world) {
+        Minecraft minecraft = Minecraft.func_71410_x();
+        if (minecraft.field_71439_g != null && minecraft.field_71439_g.field_70170_p == world) minecraft.field_71439_g = null;
+        if (minecraft.field_71451_h != null && minecraft.field_71451_h.field_70170_p == world) minecraft.field_71451_h = null;
+        if (minecraft.field_71441_e == world) minecraft.field_71441_e = null;
+    }
+
     static EntityPlayer create(World world, HostPlayer host, String uuid, String name) {
         Minecraft minecraft = Minecraft.func_71410_x(); // getMinecraft
         replaceSkinManager(minecraft);

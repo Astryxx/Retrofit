@@ -74,6 +74,12 @@ public final class LwjglShims {
         String shim = shimClassName.replace('.', '/');
         String original = "org/lwjgl/" + shim.substring(SHIM_PACKAGE.length());
         byte[] originalBytes = read(loader, original + ".class");
+        if (originalBytes == null && (original.equals("org/lwjgl/input/Keyboard") || original.equals("org/lwjgl/input/Mouse"))) {
+            // Dedicated servers have no LWJGL 2 library. Some common mod handlers still ask for
+            // key names there (More Health Enhanced on login). Our own input API is sufficient
+            // to generate the neutral shim; no window, native library or client jar is loaded.
+            originalBytes = read(loader, "retrofit/legacy/gl/" + original.substring(original.lastIndexOf('/') + 1) + ".class");
+        }
         if (originalBytes == null) {
             throw new ClassNotFoundException(shimClassName + " (no LWJGL 2 class " + original + ")");
         }

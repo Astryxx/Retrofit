@@ -31,6 +31,10 @@ import java.util.WeakHashMap;
  * empty-world answers.
  */
 final class WorldGlue {
+    static synchronized void forgetWorld(World world) {
+        LISTED_TILES.remove(world);
+    }
+
     private static final Map<String, String> BIOME_ALIASES = new HashMap<String, String>();
     private static Map<String, BiomeGenBase> biomesByName;
 
@@ -253,10 +257,56 @@ final class WorldGlue {
         }
         try {
             byte[] data = Entities.vanillaData(entity);
-            return data != null && host.spawnVanillaEntity(data, Entities.ownerUuid(entity));
+            if (data != null) return host.spawnVanillaEntity(data, Entities.ownerUuid(entity));
+            // Some mods intentionally never register their throwable projectiles (OreSpawn's
+            // ThunderBolt). Vanilla still ticks those locally, on each side where the item spawned
+            // them. They have no save id or tracker entry; do not turn them into persistent mobs.
+            if (entity instanceof net.minecraft.entity.projectile.EntityThrowable && Entities.entityJoin(entity, entity.field_70170_p)) {
+                List<Entity> projectiles = UNTRACKED.get(entity.field_70170_p);
+                if (projectiles == null) {
+                    projectiles = new ArrayList<Entity>();
+                    UNTRACKED.put(entity.field_70170_p, projectiles);
+                }
+                for (Entity existing : projectiles) if (existing == entity) return true;
+                projectiles.add(entity);
+                return true;
+            }
+            return false;
         } catch (java.io.IOException e) {
             return false;
         }
+    }
+
+    private static final Map<World, List<Entity>> UNTRACKED = java.util.Collections.synchronizedMap(new java.util.IdentityHashMap<World, List<Entity>>());
+
+    static Object[] untracked(World world) {
+        List<Entity> list = UNTRACKED.get(world);
+        return list == null ? new Object[0] : list.toArray();
+    }
+
+    static void tickUntracked(World world) {
+        List<Entity> list = UNTRACKED.get(world);
+        if (list == null) return;
+        for (Entity entity : new ArrayList<Entity>(list)) {
+            if (!entity.field_70128_L) {
+                try { Entities.entityTick(entity); }
+                catch (RuntimeException | LinkageError failure) {
+                    System.out.println("[Retrofit] Unregistered projectile " + entity.getClass().getName() + " failed ticking:");
+                    failure.printStackTrace(System.out);
+                    entity.field_70128_L = true; // isolate the failed projectile; continue ticking the others
+                }
+            }
+            if (entity.field_70128_L) {
+                Entities.entityTakeOut(entity);
+                for (int i = list.size() - 1; i >= 0; i--) if (list.get(i) == entity) list.remove(i);
+            }
+        }
+        if (list.isEmpty()) UNTRACKED.remove(world);
+    }
+
+    static void clearUntracked(World world) {
+        List<Entity> list = UNTRACKED.remove(world);
+        if (list != null) for (Entity entity : list) Entities.entityLeave(entity);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

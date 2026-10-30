@@ -20,6 +20,11 @@ import java.util.WeakHashMap;
  * them, and die with it.
  */
 public final class HostCreatures {
+    static synchronized void forgetWorld(World world) {
+        BY_HANDLE.remove(world);
+        BY_ID.remove(world);
+    }
+
     private static final Map<World, Map<Object, Entity>> BY_HANDLE = new WeakHashMap<World, Map<Object, Entity>>();
     private static final Map<World, Map<Integer, Entity>> BY_ID = new WeakHashMap<World, Map<Integer, Entity>>();
 

@@ -18,6 +18,10 @@ import java.util.WeakHashMap;
  * at the end of every server tick.
  */
 final class HostSpawner extends TileEntityMobSpawner {
+    static synchronized void forgetWorld(World world) {
+        SPAWNERS.remove(world);
+    }
+
     private static final Map<World, Map<Long, HostSpawner>> SPAWNERS = new WeakHashMap<World, Map<Long, HostSpawner>>();
 
     /** The mob the host's spawner had when last compared: a different one in the logic is legacy code's. */

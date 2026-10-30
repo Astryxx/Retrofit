@@ -82,6 +82,11 @@ public final class LegacyContent {
         return WORLDS.containsKey(level);
     }
 
+    /** Release only the world that received the unload event, after its native callbacks finish. */
+    static synchronized void forgetWorld(Level level, Object expected) {
+        WORLDS.remove(level, expected);
+    }
+
     /** The legacy dimension id of a level: the mods' own (see LegacyDimensions), -1 nether, 1 end, 0 everything else. */
     static int legacyDimension(Level level) {
         return LegacyDimensions.legacyDimension(level);

@@ -196,6 +196,12 @@ public final class ClientEvents {
     /** The marker drawOverlay leaves where 1.7.10 drew the hotbar: the host draws its own hotbar there. */
     public static final String HOTBAR_DRAWN = "hotbar";
 
+    public static String[] nativeTranslations(String key) {
+        return new String[]{net.minecraft.client.resources.I18n.func_135052_a(key, new Object[0]),
+                net.minecraft.util.StatCollector.func_74838_a(key),
+                cpw.mods.fml.common.registry.LanguageRegistry.instance().getStringLocalization(key)};
+    }
+
     /**
      * The HUD as mods draw on it around 1.7.10's own, at the host's GUI scale; returns the
      * captured vertex count. Hold Bridge.LOCK.

@@ -37,6 +37,7 @@ public class LegacyMob extends Mob implements IEntityAdditionalSpawnData, Legacy
 
     public LegacyMob(EntityType<? extends LegacyMob> type, Level level, String legacyName, float width, float height) {
         super(type, level);
+        LegacyHealthAttribute.install(getAttributes());
         this.core = new LegacyEntityCore(this, legacyName, width, height);
     }
 

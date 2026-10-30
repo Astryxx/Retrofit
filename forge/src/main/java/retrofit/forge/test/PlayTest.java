@@ -25,6 +25,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.block.Block;
@@ -214,6 +215,8 @@ public final class PlayTest {
             result("legacy asset pack built, with its textures", counts != null
                     && Integer.parseInt(counts[0]) >= Integer.parseInt(counts[1]) * 95 / 100, String.valueOf(build));
         });
+        if (Boolean.getBoolean("retrofit.performanceReview")) { mantisPerformance(); return; }
+        if (Boolean.getBoolean("retrofit.majorReview")) { majorReports(); return; }
         if (Boolean.getBoolean("retrofit.aoaReview")) {
             aoaReview();
             return;
@@ -418,6 +421,326 @@ public final class PlayTest {
             catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
         }
         throw new IllegalArgumentException(name);
+    }
+
+    private static final java.util.List<Long> PERF_FRAMES = new java.util.ArrayList<>();
+    private static long perfLastFrame;
+    private static boolean perfMeasuring;
+    private static jdk.jfr.Recording perfRecording;
+    private static long perfStartCpu;
+    private static final java.lang.management.ThreadMXBean PERF_CPU = java.lang.management.ManagementFactory.getThreadMXBean();
+
+    @SubscribeEvent
+    public static void onPerformanceFrame(TickEvent.RenderTickEvent event) {
+        if (!ENABLED || !perfMeasuring || event.phase != TickEvent.Phase.END) return;
+        long now = System.nanoTime();
+        if (perfLastFrame != 0) PERF_FRAMES.add(now - perfLastFrame);
+        perfLastFrame = now;
+    }
+
+    private static void mantisPerformance() {
+        int dimension = retrofit.forge.world.LegacyBridge.call("testModField", "danger.orespawn.OreSpawnMain", "DimensionID4");
+        do_("enter Unstable Ant dimension", 0, () -> server(player ->
+                retrofit.forge.world.LegacyBridge.call("testTravel", retrofit.forge.world.LegacyPlayers.mirror(player, false), dimension)));
+        until("Unstable Ant dimension arrived", 1000, () -> serverPlayer().level().dimension().location().getPath().equals("legacy_dim_" + dimension)
+                && Minecraft.getInstance().level != null && Minecraft.getInstance().level.dimension().location().getPath().equals("legacy_dim_" + dimension));
+        newSite("Unstable Ant dimension performance");
+        do_("fixed performance setup", 200, () -> {
+            var mc = Minecraft.getInstance();
+            mc.options.renderDistance().set(6); mc.options.simulationDistance().set(6);
+            mc.options.enableVsync().set(false); mc.options.framerateLimit().set(120);
+            lookAt(Vec3.atCenterOf(ground(3, 12)).add(0, 3, 0));
+            server(player -> {
+                player.setGameMode(GameType.CREATIVE);
+                player.getAbilities().mayfly = true; player.getAbilities().flying = true; player.onUpdateAbilities();
+                for (BlockPos pos : BlockPos.betweenClosed(site.offset(-22,0,-8), site.offset(22,22,34))) {
+                    boolean shell = pos.getX()==site.getX()-22 || pos.getX()==site.getX()+22 || pos.getZ()==site.getZ()-8 || pos.getZ()==site.getZ()+34
+                            || pos.getY()==site.getY() || pos.getY()==site.getY()+22;
+                    player.serverLevel().setBlock(pos, shell ? Blocks.BEDROCK.defaultBlockState() : Blocks.AIR.defaultBlockState(),2);
+                }
+                player.teleportTo(player.serverLevel(),site.getX()+.5,site.getY()+2,site.getZ()+26,180,0);
+                player.serverLevel().setWeatherParameters(0,6000,false,false);
+                player.serverLevel().getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(false,player.server);
+                player.serverLevel().getGameRules().getRule(GameRules.RULE_RANDOMTICKING).set(0,player.server);
+                player.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.NIGHT_VISION,6000,0,false,false));
+                LOGGER.info("[Performance] actual dimension {}", player.level().dimension().location());
+            });
+        });
+        do_("fixed detached performance camera",40,()->{
+            var mc=Minecraft.getInstance();
+            var camera=net.minecraft.world.entity.EntityType.ARMOR_STAND.create(mc.level);
+            camera.setPos(site.getX()+.5,site.getY()+12,site.getZ()-6);
+            Vec3 delta=Vec3.atCenterOf(ground(0,18)).add(0,6,0).subtract(camera.getEyePosition());
+            camera.setYRot((float)Math.toDegrees(Math.atan2(-delta.x,delta.z)));
+            camera.setXRot((float)-Math.toDegrees(Math.atan2(delta.y,Math.hypot(delta.x,delta.z))));
+            camera.yRotO=camera.getYRot();camera.xRotO=camera.getXRot();
+            camera.xo=camera.getX();camera.yo=camera.getY();camera.zo=camera.getZ();
+            mc.setCameraEntity(camera);
+        });
+        Object mantisStats = retrofit.forge.world.LegacyBridge.call("testModField", "danger.orespawn.OreSpawnMain", "Mantis_stats");
+        int originalMantisHealth = ((Number)legacyField(mantisStats,"health")).intValue();
+        do_("high health Mantis configuration",0,()->{
+            try {mantisStats.getClass().getField("health").setInt(mantisStats,2000);}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}
+            LOGGER.info("[Performance] Mantis high-health variant: native config health=2000 (original={})",originalMantisHealth);
+        });
+        java.util.List<java.util.UUID> mobs = new java.util.ArrayList<>();
+        var type = java.util.Arrays.stream(retrofit.forge.world.LegacyBridge.<Object[][]>call("modEntities"))
+                .filter(row -> "danger.orespawn.Mantis".equals(row[8])).map(row -> retrofit.forge.world.LegacyEntityTypes.byName((String)row[0])).findFirst().orElseThrow();
+        for (int count : new int[]{0,16,64}) {
+            do_("Mantis sample setup " + count, 200, () -> server(player -> {
+                for (var id : mobs) { Entity entity = player.serverLevel().getEntity(id); if(entity != null) entity.discard(); }
+                mobs.clear();
+                for (int i=0;i<count;i++) {
+                    var mob = (LivingEntity) type.spawn(player.serverLevel(), ground((i%8-3)*3,10+i/8*3).above(),MobSpawnType.SPAWNER);
+                    mobs.add(mob.getUUID());
+                }
+                LOGGER.info("[Performance] warming sample with {} Mantis creatures at {}",count,player.position());
+            }));
+            do_("Mantis sample start " + count, 400, () -> {
+                long actualClient = Minecraft.getInstance().level.getEntities((Entity)null,new AABB(site).inflate(80),e->e.getType()==type).size();
+                server(player -> {
+                    long actualServer = player.serverLevel().getEntities((Entity)null,new AABB(site).inflate(80),e->e.getType()==type).size();
+                    result("Mantis benchmark population " + count,actualServer==count && actualClient==count,"server="+actualServer+", client="+actualClient+", player="+player.position());
+                });
+                PERF_FRAMES.clear();perfLastFrame=0;perfMeasuring=true;perfStartCpu=PERF_CPU.getCurrentThreadCpuTime();
+                perfRecording=new jdk.jfr.Recording();
+                perfRecording.enable("jdk.ExecutionSample").withPeriod(java.time.Duration.ofMillis(10));
+                perfRecording.enable("jdk.JavaMonitorEnter").withThreshold(java.time.Duration.ofMillis(1));
+                perfRecording.start();
+                LOGGER.info("[Performance] measuring {} Mantis creatures",count);
+            });
+            do_("Mantis sample end " + count, 0, () -> {
+                perfMeasuring=false;perfRecording.stop();
+                try {
+                    Path file = Minecraft.getInstance().gameDirectory.toPath().resolve("screenshots/mantis-"+count+".jfr");
+                    Files.createDirectories(file.getParent());perfRecording.dump(file);
+                } catch(IOException failure){throw new UncheckedIOException(failure);}finally{perfRecording.close();}
+                var sorted=PERF_FRAMES.stream().mapToLong(Long::longValue).sorted().toArray();
+                double mean=PERF_FRAMES.stream().mapToLong(Long::longValue).average().orElse(0)/1e6;
+                LOGGER.info("[Performance] Mantis count={} frames={} meanMs={} medianMs={} p95Ms={}",count,sorted.length,mean,
+                        sorted.length==0?0:sorted[sorted.length/2]/1e6, sorted.length==0?0:sorted[(int)(sorted.length*.95)]/1e6);
+                LOGGER.info("[Performance] render-thread CPU ms/frame={}",sorted.length==0?0:(PERF_CPU.getCurrentThreadCpuTime()-perfStartCpu)/1e6/sorted.length);
+                grab("play-unstable-ant-mantis-"+count);
+            });
+        }
+        do_("restore Mantis test configuration",0,()->{
+            Minecraft.getInstance().setCameraEntity(Minecraft.getInstance().player);
+            try {mantisStats.getClass().getField("health").setInt(mantisStats,originalMantisHealth);}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}
+        });
+    }
+
+    private static void majorReports() {
+        do_("vertex submission equivalence",0,()->result("Optimized vertex submission preserves all attributes",true,VertexSubmissionCheck.verify()));
+        do_("native code translations", 0, () -> {
+            for (String key : java.util.List.of("entity.Mantis.name", "entity." + java.util.Arrays.stream(retrofit.forge.world.LegacyBridge.<Object[][]>call("modEntities")).filter(row -> "danger.orespawn.TheQueen".equals(row[8])).findFirst().orElseThrow()[0] + ".name", "entity.Mobzilla.name")) {
+                String[] names = retrofit.forge.world.LegacyBridge.call("nativeTranslations", key);
+                result("Native HUD translation " + key, !names[2].isEmpty() && names[0].equals(names[2]) && names[1].equals(names[2]), java.util.Arrays.toString(names));
+            }
+        });
+        do_("audit native code-registered names", 0, () -> {
+            java.util.List<String> missing = new java.util.ArrayList<>();
+            int checked = 0;
+            for (String[] entry : retrofit.forge.world.LegacyBridge.codeTranslations()) {
+                if (!entry[0].equals("en_US") || !(entry[1].startsWith("entity.") || entry[1].startsWith("itemGroup.") || entry[1].startsWith("item."))) continue;
+                if (entry[1].equals(entry[2]) || entry[2].isEmpty()) continue;
+                String[] names = retrofit.forge.world.LegacyBridge.call("nativeTranslations", entry[1]);
+                checked++;
+                if (names[0].equals(entry[1]) || names[1].equals(entry[1])) missing.add(entry[1]);
+            }
+            result("Native code-registered names do not display raw IDs", checked > 0 && missing.isEmpty(), checked + " names, missing=" + missing);
+        });
+        newSite("Major report regressions");
+        java.util.UUID[] boss = new java.util.UUID[1];
+        CompoundTag[] saved = new CompoundTag[1];
+        var queenType = java.util.Arrays.stream(retrofit.forge.world.LegacyBridge.<Object[][]>call("modEntities"))
+                .filter(row -> "danger.orespawn.TheQueen".equals(row[8]))
+                .map(row -> retrofit.forge.world.LegacyEntityTypes.byName((String) row[0])).findFirst().orElseThrow();
+        do_("large health spawn", 30, () -> server(player -> {
+            var queen = (LivingEntity) queenType.spawn(player.serverLevel(), ground(12, 0).above(), MobSpawnType.COMMAND);
+            queen.setNoGravity(true);
+            boss[0] = queen.getUUID();
+        }));
+        do_("large health server", 10, () -> server(player -> {
+            var queen = (LivingEntity) player.serverLevel().getEntity(boss[0]);
+            double[] nativeState = retrofit.forge.world.LegacyBridge.call("entityState", ((retrofit.forge.world.LegacyEntityCarrier) queen).core().legacy());
+            result("Legacy boss maximum health retains native value", nativeState[11] > 1024 && queen.getMaxHealth() == nativeState[11],
+                    "native=" + nativeState[11] + ", modern=" + queen.getMaxHealth() + ", health=" + queen.getHealth());
+            var attribute = queen.getAttribute(Attributes.MAX_HEALTH);
+            var modifier = new net.minecraft.world.entity.ai.attributes.AttributeModifier(java.util.UUID.randomUUID(), "regression health", .5,
+                    net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.MULTIPLY_BASE);
+            attribute.addTransientModifier(modifier);
+            result("Legacy large-health modifiers retain operation semantics", attribute.getValue() == nativeState[11] * 1.5, "value=" + attribute.getValue());
+            attribute.removeModifier(modifier);
+            var addition = new net.minecraft.world.entity.ai.attributes.AttributeModifier(java.util.UUID.randomUUID(),"regression addition",1000,net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADDITION);
+            var total = new net.minecraft.world.entity.ai.attributes.AttributeModifier(java.util.UUID.randomUUID(),"regression total",.2,net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.MULTIPLY_TOTAL);
+            attribute.addTransientModifier(addition); attribute.addTransientModifier(modifier); attribute.addTransientModifier(total);
+            result("Large-health modifier operations combine in vanilla order",Math.abs(attribute.getValue()-(nativeState[11]+1000)*1.5*1.2)<.00001,"value="+attribute.getValue());
+            attribute.removeModifier(addition); attribute.removeModifier(modifier); attribute.removeModifier(total);
+            result("Large-health modifier cache invalidates on removal",attribute.getValue()==nativeState[11],"value="+attribute.getValue());
+            var cow = net.minecraft.world.entity.EntityType.COW.create(player.serverLevel());
+            cow.getAttribute(Attributes.MAX_HEALTH).setBaseValue(6000);
+            result("Modern health bounds are unchanged", cow.getMaxHealth() == 1024, "cow=" + cow.getMaxHealth());
+        }));
+        do_("large health client", 0, () -> {
+            var queen = Minecraft.getInstance().level.getEntities((Entity)null, Minecraft.getInstance().player.getBoundingBox().inflate(128), e -> e.getUUID().equals(boss[0])).stream().findFirst().orElseThrow();
+            var living = (LivingEntity)queen;
+            result("Client receives large boss health", living.getMaxHealth() == 6000 && living.getHealth() > 1024, "health=" + living.getHealth() + "/" + living.getMaxHealth());
+        });
+        do_("save boss", 5, () -> server(player -> {
+            var queen = (LivingEntity)player.serverLevel().getEntity(boss[0]);
+            queen.getAttribute(Attributes.MAX_HEALTH).addPermanentModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(
+                    java.util.UUID.fromString("f43d0323-f0de-4ae1-8f40-7309e1dc00fa"),"saved regression modifier",123,net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADDITION));
+            saved[0] = queen.saveWithoutId(new CompoundTag());
+            saved[0].putFloat("Health",1024); // old releases saved a capped host beside intact native boss data
+            queen.discard();
+        }));
+        do_("reload boss", 20, () -> server(player -> {
+            var queen = queenType.create(player.serverLevel());
+            queen.load(saved[0]);
+            player.serverLevel().addFreshEntity(queen);
+            boss[0] = queen.getUUID();
+        }));
+        do_("saved large health", 0, () -> server(player -> {
+            var queen = (LivingEntity) player.serverLevel().getEntity(boss[0]);
+            result("Large boss health upgrades an old capped save", queen.getMaxHealth() == 6123 && queen.getHealth() > 1024, "health=" + queen.getHealth() + "/" + queen.getMaxHealth());
+            result("Large boss permanent modifier survives reload",queen.getAttribute(Attributes.MAX_HEALTH).getModifier(java.util.UUID.fromString("f43d0323-f0de-4ae1-8f40-7309e1dc00fa"))!=null,"max="+queen.getMaxHealth());
+            queen.discard();
+        }));
+        java.util.UUID[] minion = new java.util.UUID[1];
+        do_("Templar original health",15,()->server(player->{
+            var type=java.util.Arrays.stream(retrofit.forge.world.LegacyBridge.<Object[][]>call("modEntities"))
+                    .filter(row->"net.minecraft.entity.titanminion.EntityZombieTemplar".equals(row[8]))
+                    .map(row->retrofit.forge.world.LegacyEntityTypes.byName((String)row[0])).findFirst().orElseThrow();
+            var templar=type.spawn(player.serverLevel(),ground(8,4).above(),MobSpawnType.COMMAND);minion[0]=templar.getUUID();
+        }));
+        do_("Templar health preserved",0,()->server(player->{
+            var templar=(LivingEntity)player.serverLevel().getEntity(minion[0]);
+            double[] state=retrofit.forge.world.LegacyBridge.call("entityState",((retrofit.forge.world.LegacyEntityCarrier)templar).core().legacy());
+            result("Templar keeps the supplied mod's original maximum",templar.getMaxHealth()==state[11],"native="+state[11]+", modern="+templar.getMaxHealth());
+            templar.discard();
+        }));
+        Item staff = net.minecraft.core.registries.BuiltInRegistries.ITEM.stream().filter(i -> i instanceof retrofit.forge.world.LegacyStackItem legacy
+                && legacy.legacyItem().getClass().getName().equals("danger.orespawn.ItemThunderStaff")).findFirst().orElseThrow();
+        java.util.UUID[] target = new java.util.UUID[1];
+        newSite("Thunder Staff");
+        do_("staff equip and target", 10, () -> server(player -> {
+            player.getInventory().selected = 0;
+            player.getInventory().setItem(0, new ItemStack(staff));
+            var cow = net.minecraft.world.entity.EntityType.COW.create(player.serverLevel());
+            cow.setNoAi(true); cow.setNoGravity(true);
+            cow.setPos(player.getX() - Math.sqrt(.5), player.getY() + .5, player.getZ() + 24);
+            cow.getAttribute(Attributes.MAX_HEALTH).setBaseValue(500); cow.setHealth(500);
+            player.serverLevel().addFreshEntity(cow); target[0] = cow.getUUID();
+            for (BlockPos pos : BlockPos.betweenClosed(ground(-2,36).above(),ground(2,36).above(6)))
+                player.serverLevel().setBlock(pos,Blocks.STONE.defaultBlockState(),2);
+        }));
+        do_("aim staff", 10, () -> {
+            var player = Minecraft.getInstance().player;
+            player.setYRot(0); player.setXRot(0);
+        });
+        do_("fire staff through client", 0, () -> {
+            var mc = Minecraft.getInstance();
+            LOGGER.info("[PlayTest] staff client use: {}", mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND));
+        });
+        do_("staff projectile observed", 1, () -> {
+            var mc = Minecraft.getInstance();
+            Object[] projectiles = retrofit.forge.world.LegacyBridge.call("untrackedProjectiles", retrofit.forge.world.LegacyContent.legacyWorld(mc.level));
+            result("Thunder Staff creates its original client projectile", java.util.Arrays.stream(projectiles).anyMatch(e -> e.getClass().getName().equals("danger.orespawn.ThunderBolt")), "client projectiles=" + projectiles.length);
+            server(player -> {
+                Object[] serverProjectiles = retrofit.forge.world.LegacyBridge.call("untrackedProjectiles", retrofit.forge.world.LegacyContent.legacyWorld(player.serverLevel()));
+                result("Thunder Staff creates its original server projectile", java.util.Arrays.stream(serverProjectiles).anyMatch(e -> e.getClass().getName().equals("danger.orespawn.ThunderBolt")), "server projectiles=" + serverProjectiles.length);
+            });
+        });
+        do_("staff particles", 15, () -> grab("play-thunder-staff"));
+        do_("staff client impact", 0, () -> {
+            Object[] remaining = retrofit.forge.world.LegacyBridge.call("untrackedProjectiles", retrofit.forge.world.LegacyContent.legacyWorld(Minecraft.getInstance().level));
+            result("Thunder Staff client trail stops at a solid block", remaining.length == 0, "remaining=" + remaining.length);
+        });
+        do_("staff impact", 5, () -> server(player -> {
+            var cow = (LivingEntity) player.serverLevel().getEntity(target[0]);
+            result("Thunder Staff damages a modern target", cow == null || cow.getHealth() < 500, cow == null ? "removed" : "health=" + cow.getHealth());
+            if (cow != null) cow.discard();
+            result("Thunder Staff consumes one use", player.getMainHandItem().getDamageValue() == 1, "damage=" + player.getMainHandItem().getDamageValue());
+            Object[] remaining = retrofit.forge.world.LegacyBridge.call("untrackedProjectiles", retrofit.forge.world.LegacyContent.legacyWorld(player.serverLevel()));
+            result("Thunder Staff impact removes its transient projectile", remaining.length == 0, "remaining=" + remaining.length);
+        }));
+        titanEggRespawnChecks();
+        worldLifecycleChecks();
+    }
+
+    private static void worldLifecycleChecks() {
+        Level[] departed = new Level[2];
+        Object[] nativeWorld = new Object[2];
+        int dimension = retrofit.forge.world.LegacyBridge.call("testModField","danger.orespawn.OreSpawnMain","DimensionID4");
+        for (int leg=0;leg<2;leg++) {
+            final int index=leg;
+            final int target=leg==0?dimension:0;
+            do_("remember departed dimension",0,()->{
+                departed[index]=Minecraft.getInstance().level;
+                nativeWorld[index]=retrofit.forge.world.LegacyContent.legacyWorld(departed[index]);
+                server(player->retrofit.forge.world.LegacyBridge.call("testTravel",retrofit.forge.world.LegacyPlayers.mirror(player,false),target));
+            });
+            until("dimension round-trip leg "+leg,1000,()->Minecraft.getInstance().level!=null && Minecraft.getInstance().level!=departed[index]
+                    && Minecraft.getInstance().level.dimension().location().getPath().equals(target==0?"overworld":"legacy_dim_"+target));
+            do_("unloaded world references",10,()->{
+                boolean cached=retrofit.forge.world.LegacyContent.hasLegacyWorld(departed[index]);
+                result("Unloaded client level leaves host cache on leg "+index,!cached,"cached="+cached);
+                String[] retained=retrofit.forge.world.LegacyBridge.call("cachedWorldHolders",nativeWorld[index]);
+                result("Unloaded client level leaves native caches on leg "+index,retained.length==0,java.util.Arrays.toString(retained));
+            });
+        }
+        do_("round-trip inventory mode",10,()->server(player->{player.setGameMode(GameType.CREATIVE);player.getInventory().selected=0;}));
+        do_("round-trip inventory add",10,()->{
+            var mc=Minecraft.getInstance();var stack=new ItemStack(Items.DIAMOND,5);
+            mc.player.getInventory().setItem(0,stack);mc.gameMode.handleCreativeModeItemAdd(stack,36);
+        });
+        do_("round-trip inventory observed",0,()->server(player->{
+            result("Inventory accepts items after dimension round trip",player.getMainHandItem().is(Items.DIAMOND)&&player.getMainHandItem().getCount()==5,"stack="+player.getMainHandItem());
+        }));
+        do_("round-trip inventory clear",10,()->{
+            var mc=Minecraft.getInstance();mc.player.getInventory().setItem(0,ItemStack.EMPTY);mc.gameMode.handleCreativeModeItemAdd(ItemStack.EMPTY,36);
+        });
+        do_("round-trip inventory stays cleared",0,()->server(player->result("Inventory clears after dimension round trip",player.getMainHandItem().isEmpty(),"stack="+player.getMainHandItem())));
+    }
+
+    private static void titanEggRespawnChecks() {
+        Item egg = net.minecraft.core.registries.BuiltInRegistries.ITEM.stream().filter(i -> i instanceof retrofit.forge.world.LegacyStackItem legacy
+                && legacy.legacyItem().getClass().getName().equals("net.minecraft.theTitans.items.ItemEggZombieTitan")).findFirst().orElseThrow();
+        for (int phase = 0; phase < 3; phase++) {
+            final int round = phase;
+            if (phase != 0) {
+                do_("kill before egg retry", 20, () -> server(player -> {
+                    player.getAbilities().invulnerable = false;
+                    player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
+                }));
+                do_("request respawn", 40, () -> Minecraft.getInstance().player.respawn());
+            }
+            newSite("Titans egg after " + phase + " deaths");
+            do_("equip Titans egg", 10, () -> server(player -> {
+                player.getInventory().selected = 0; player.getInventory().setItem(0, new ItemStack(egg, 2));
+                player.getAbilities().invulnerable = true;
+            }));
+            do_("aim Titans egg", 10, () -> lookAt(Vec3.atCenterOf(ground(3, 0))));
+            do_("client clicks Titans egg", 10, () -> {
+                var mc = Minecraft.getInstance();
+                // Background test windows may skip rendered frames. Refresh the normal client
+                // pick after respawn/aim instead of reusing another frame's cursor target.
+                mc.gameRenderer.pick(1.0F);
+                if (!(mc.hitResult instanceof BlockHitResult hit)) throw new IllegalStateException("Egg click must target a block");
+                LOGGER.info("[PlayTest] Titans egg client click after {} deaths: {}", round, mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit));
+            });
+            do_("Titans egg outcome", 5, () -> server(player -> {
+                var titans = player.serverLevel().getEntities((Entity)null, new AABB(site).inflate(12), e -> e instanceof retrofit.forge.world.LegacyEntityCarrier carrier
+                        && carrier.core().legacy().getClass().getName().equals("net.minecraft.entity.titan.EntityZombieTitan"));
+                result("Titans egg works through client after " + round + " deaths", titans.size() == 1, "spawned=" + titans.size());
+                result("Titans egg stack synchronizes after " + round + " deaths", player.getMainHandItem().getCount() == 1, "count=" + player.getMainHandItem().getCount());
+                for (Entity titan : titans) {
+                    double[] state = retrofit.forge.world.LegacyBridge.call("entityState", ((retrofit.forge.world.LegacyEntityCarrier)titan).core().legacy());
+                    result("Titan native maximum health after " + round + " deaths", state[11] > 1024 && ((LivingEntity)titan).getMaxHealth() == state[11], "native="+state[11]+", modern="+((LivingEntity)titan).getMaxHealth());
+                    titan.discard();
+                }
+            }));
+        }
     }
 
     private static void aoaReview() {

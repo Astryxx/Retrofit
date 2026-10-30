@@ -146,6 +146,14 @@ public final class Hooks {
             }
             Class<?> managerType = Class.forName("net.minecraft.client.resources.IResourceManager", true, game);
             localeClass.getMethod("func_135022_a", managerType, List.class).invoke(locale, manager, languages); // loadLocaleDataFiles
+            // The headless resource reload does not run FMLClientHandler's normal language-table
+            // merge. File translations alone omit code-registered names (OreSpawn's boss HUD).
+            Field localeProperties = localeClass.getDeclaredField("field_135032_a");
+            localeProperties.setAccessible(true);
+            Class<?> registryType = Class.forName("cpw.mods.fml.common.registry.LanguageRegistry", true, game);
+            Object registry = registryType.getMethod("instance").invoke(null);
+            registryType.getMethod("mergeLanguageTable", Map.class, String.class)
+                    .invoke(registry, localeProperties.get(locale), language);
             Method set = Class.forName("net.minecraft.client.resources.I18n", true, game).getDeclaredMethod("func_135051_a", localeClass);
             set.setAccessible(true);
             set.invoke(null, locale); // I18n.setLocale

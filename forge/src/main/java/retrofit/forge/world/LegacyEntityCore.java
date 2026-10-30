@@ -573,6 +573,13 @@ public final class LegacyEntityCore {
      * when an entity left the world. Idempotent, and harmless on the usual removal paths (remove()
      * has already called it by then).
      */
+    /** Unloading a level releases mappings without invoking a creature's death/drop behavior. */
+    static void forgetWorld(net.minecraft.world.level.Level level) {
+        synchronized (HOSTS) {
+            HOSTS.entrySet().removeIf(entry -> entry.getValue().level() == level);
+        }
+    }
+
     public static void sweepRemovedCarriers(boolean clientSide) {
         if (HOSTS.isEmpty()) {
             return;

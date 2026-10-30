@@ -51,8 +51,13 @@ a false client death pose after rejecting damage; real legacy deaths retain thei
 See [the follow-up verification notes](docs/MANAMETAL_062_BETA.md) for tested versions, evidence,
 and limits. Install the same updated jar on the server and every client. The ManaMetal production
 tutorial test required `allow-flight=true` to avoid vanilla's flying kick.
-The [new follow-up reports](docs/FOLLOWUP_062_BETA.md), including the 1,024-health cap and raw
-text IDs, remain open.
+This beta also preserves legacy boss health above 1,024 without changing modern creatures' limits,
+restores OreSpawn Thunder Staff projectiles, and loads code-registered names into native HUDs.
+Unloaded worlds release their compatibility caches. Model vertex submission uses less render CPU
+in the measured crowded Mantis scene, but the reported pack-specific FPS collapse remains
+unreproduced. Titans zombie eggs passed client use before and after two deaths with the supplied
+0.45 release; the report's exact setup is unknown. See [the investigation record](docs/FOLLOWUP_062_BETA.md)
+for evidence and remaining reports.
 
 ## CrazyCraft 3 testing fixes
 

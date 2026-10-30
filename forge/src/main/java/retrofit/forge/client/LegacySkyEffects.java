@@ -45,6 +45,7 @@ public final class LegacySkyEffects {
         }
         try {
             synchronized (LegacyBridge.renderLock()) {
+                prepareViewer(level, partialTick);
                 int vertices = LegacyBridge.call("renderSky", LegacyContent.legacyWorld(level), partialTick);
                 if (vertices < 0) {
                     return false;
@@ -69,6 +70,18 @@ public final class LegacySkyEffects {
 
     private static boolean atmosphereFailed;
 
+    /** Sky/weather run before AFTER_SKY prepares the ordinary model-rendering frame. */
+    private static void prepareViewer(ClientLevel level, float partialTick) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player != null && minecraft.player.level() == level) {
+            retrofit.forge.world.LegacyPlayers.mirror(minecraft.player, false);
+        }
+        var camera = minecraft.gameRenderer.getMainCamera();
+        var position = camera.getPosition();
+        LegacyBridge.prepareFrame(LegacyContent.legacyWorld(level), position.x, position.y, position.z,
+                camera.getYRot(), camera.getXRot(), partialTick);
+    }
+
     /**
      * Draws the legacy clouds (kind 0) or rain and snow (kind 1) if the level's legacy world has a renderer for them
      * (WorldProvider.getCloudRenderer, getWeatherRenderer: drawn relative to the camera, as 1.7.10's RenderGlobal
@@ -80,6 +93,7 @@ public final class LegacySkyEffects {
         }
         try {
             synchronized (LegacyBridge.renderLock()) {
+                prepareViewer(level, partialTick);
                 int vertices = LegacyBridge.call("renderAtmosphere", LegacyContent.legacyWorld(level), kind, partialTick);
                 if (vertices < 0) {
                     return false;

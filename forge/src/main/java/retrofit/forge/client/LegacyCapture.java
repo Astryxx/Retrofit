@@ -15,6 +15,8 @@ import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.ResourceLocation;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.slf4j.Logger;
 import retrofit.forge.RetrofitMod;
 import retrofit.forge.world.LegacyBridge;
@@ -150,6 +152,8 @@ public final class LegacyCapture {
         int[] light = (int[]) lights.invokeExact();
         Matrix4f position = pose.pose();
         Matrix3f normal = pose.normal();
+        Vector4f transformedPosition = new Vector4f();
+        Vector3f transformedNormal = new Vector3f();
         VertexConsumer out = null;
         int current = -1;
         java.util.Set<RenderType> drawn = new java.util.LinkedHashSet<>();
@@ -183,15 +187,23 @@ public final class LegacyCapture {
             for (int corner = 0; corner < 4; corner++) {
                 int i = v + (reversed ? 3 - corner : corner);
                 int o = i * FLOATS_PER_VERTEX;
-                out.vertex(position, d[o], d[o + 1], d[o + 2])
-                        .color(d[o + 8], d[o + 9], d[o + 10], d[o + 11])
-                        .uv(d[o + 3], d[o + 4])
-                        .overlayCoords(overlay)
-                        .uv2(ownLight && light[i] >= 0 ? light[i] : packedLight)
-                        .normal(normal, d[o + 5], d[o + 6], d[o + 7])
-                        .endVertex();
+                emitVertex(out, position, normal, d, o, overlay, ownLight && light[i] >= 0 ? light[i] : packedLight,
+                        transformedPosition, transformedNormal);
             }
         }
+    }
+
+    /** Use BufferBuilder's complete-vertex path and reuse transform scratch space per capture.
+     * This retains VertexConsumer's transform/color/light semantics without its per-attribute
+     * format advances and temporary vectors for every vertex of every legacy model. */
+    private static void emitVertex(VertexConsumer out, Matrix4f position, Matrix3f normal, float[] data, int offset,
+                                   int overlay, int light, Vector4f transformedPosition, Vector3f transformedNormal) {
+        transformedPosition.set(data[offset], data[offset + 1], data[offset + 2], 1).mul(position);
+        transformedNormal.set(data[offset + 5], data[offset + 6], data[offset + 7]).mul(normal);
+        out.vertex(transformedPosition.x(), transformedPosition.y(), transformedPosition.z(),
+                data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11],
+                data[offset + 3], data[offset + 4], overlay, light,
+                transformedNormal.x(), transformedNormal.y(), transformedNormal.z());
     }
 
     /** Per-vertex light the legacy renderer set (Tessellator.setBrightness), or -1. */

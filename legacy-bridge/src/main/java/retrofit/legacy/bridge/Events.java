@@ -68,6 +68,7 @@ public final class Events {
         if (start) {
             FMLCommonHandler.instance().onPreWorldTick((World) world);
         } else {
+            WorldGlue.tickUntracked((World) world);
             FMLCommonHandler.instance().onPostWorldTick((World) world);
             // A client-side handler drawing here draws into the capture nothing reads (drawing
             // belongs to the render tick): clear it so it can't pile up. Server threads must not
@@ -77,6 +78,10 @@ public final class Events {
             }
         }
     }
+
+    public static void tickUntracked(Object world) { WorldGlue.tickUntracked((World) world); }
+
+    public static Object[] untrackedProjectiles(Object world) { return WorldGlue.untracked((World) world); }
 
     public static void playerTick(Object player, boolean start) {
         if (start) {
@@ -344,11 +349,35 @@ public final class Events {
         }
     }
 
+    /** Diagnostics for deterministic unload tests; no garbage-collector timing is involved. */
+    public static String[] cachedWorldHolders(Object world) throws ReflectiveOperationException {
+        List<String> retained = new ArrayList<String>();
+        String[][] fields = {{"LegacyPlayers","PLAYERS"},{"HostCreatures","BY_HANDLE"},{"HostCreatures","BY_ID"},
+                {"HostSpawner","SPAWNERS"},{"HostTiles","PROXIES"},{"WorldGlue","LISTED_TILES"}};
+        for (String[] owner : fields) {
+            Class<?> type = Class.forName("retrofit.legacy.bridge."+owner[0]);
+            java.lang.reflect.Field field = type.getDeclaredField(owner[1]);field.setAccessible(true);
+            synchronized(type) { if (((Map)field.get(null)).containsKey(world)) retained.add(owner[0]+"."+owner[1]); }
+        }
+        return retained.toArray(new String[0]);
+    }
+
     public static void worldUnloaded(Object world) {
-        MinecraftForge.EVENT_BUS.post(new WorldEvent.Unload((World) world));
-        synchronized (CHUNKS) {
-            CHUNKS.remove(world);
-            UNLOADED.remove(world);
+        World legacy = (World) world;
+        try {
+            MinecraftForge.EVENT_BUS.post(new WorldEvent.Unload(legacy));
+        } finally {
+            WorldGlue.clearUntracked(legacy);
+            LegacyPlayers.forgetWorld(legacy);
+            HostCreatures.forgetWorld(legacy);
+            HostSpawner.forgetWorld(legacy);
+            HostTiles.forgetWorld(legacy);
+            WorldGlue.forgetWorld(legacy);
+            SPAWN_TYPES.remove(legacy);
+            synchronized (CHUNKS) {
+                CHUNKS.remove(world);
+                UNLOADED.remove(world);
+            }
         }
     }
 

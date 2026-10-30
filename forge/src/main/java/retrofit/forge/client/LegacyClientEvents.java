@@ -39,6 +39,7 @@ public final class LegacyClientEvents {
                 syncMouseOver(Minecraft.getInstance());
             }
             if (!start && Minecraft.getInstance().level != null && !Minecraft.getInstance().isPaused()) {
+                LegacyBridge.call("tickUntracked", retrofit.forge.world.LegacyContent.legacyWorld(Minecraft.getInstance().level));
                 LegacyBridge.call("tickParticles"); // as 1.7.10's runTick: before the tick's end handlers, not while paused
             }
             LegacyBridge.call("clientTick", start);

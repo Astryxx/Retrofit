@@ -13,3 +13,12 @@ dependencies {
     compileOnly 'org.apache.logging.log4j:log4j-to-slf4j:2.19.0'
     compileOnly 'org.slf4j:slf4j-api:2.0.1'
 }
+
+// Input APIs can be queried by common mod handlers even on a dedicated server without LWJGL.
+dependencies { testImplementation 'org.ow2.asm:asm-all:5.2' }
+tasks.register('checkHeadlessInput', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'retrofit.legacy.boot.HeadlessInputCheck'
+}
+tasks.named('check') { dependsOn tasks.named('checkHeadlessInput') }

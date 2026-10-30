@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.2-beta - ManaMetal and combat regressions (2026-10-29)
+## 0.6.2-beta - ManaMetal, combat and major-report fixes (2026-10-30)
 
 - Use the host world's real spawn point for legacy code. ManaMetal builds its newcomer village
   near the player and its original spawn-point tile sends the player to the tutorial.
@@ -28,8 +28,23 @@
   biome providers, shared storage, server chunk providers, and out-of-region height handling.
 - Retain server collision shapes when the 1.7.10 client-only selection-box method is absent.
 - Add isolated ManaMetal, AoA, dimension-spawn, Queen/Chaos Persists, and HUD regression checks.
-- Record new health-cap, Mantis performance, Thunder Staff, post-death egg and text-ID reports
-  separately; these are not claimed fixed in this beta.
+- Preserve large native boss/minion health with a per-creature attribute instance, retaining
+  modifier order, saved modifiers, network identity and modern creatures' existing health bounds.
+- Merge code-registered FML translations into the original client language tables, restoring
+  OreSpawn boss names in native HUDs as well as modern item/entity names.
+- Tick unregistered native throwable projectiles on their original side, restoring Thunder Staff
+  damage and particle trails. Preserve original client block-only impact behavior.
+- Submit complete model vertices with reused transform scratch space. Reference checks preserve
+  vertex attributes; a fixed-camera 64-Mantis sample reduced render CPU from 5.35 to 4.07 ms/frame.
+  This is not a claim to fix the unknown reporter pack's FPS collapse or stacked boss bars.
+- Release host-world, player, entity, spawner and tile cache entries after original world-unload
+  callbacks, avoiding retained departed client worlds without inventing creature death events.
+- Provide neutral keyboard/mouse shims on headless servers when LWJGL 2 is absent, including the
+  original NONE key name used by More Health Enhanced's common login handler.
+- Add actual client egg clicks before death and after two kill/respawn cycles. Supplied Titans 0.45
+  passes; its Templar retains the original 650 HP rather than receiving an invented stat increase.
+- Keep unresolved pack-specific Mantis performance and Titans egg reports explicit in the
+  follow-up record; tests do not establish compatibility with unknown modpack versions.
 
 ## 0.6.1-beta.2 — CrazyCraft 3 testing fixes (2026-10-29)
 
